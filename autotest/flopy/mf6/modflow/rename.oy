@@ -1,8 +1,0 @@
-import os
-import shutil
-
-import flopy
-
-
-sim = flopy.mf6.MFSimulation.load("mfsim.nam",sim_ws="freyberg_quadtree")
-print(sim)

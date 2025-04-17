@@ -60,7 +60,7 @@ def setup_xd_box_model(new_d,sp_len=1.0,nper=1,hk=1.0,k33=1.0,q=-0.1,ss=1.0e-5,
     #shutil.copytree(os.path.join('xmipy'), os.path.join(new_d, 'xmipy'))
     #shutil.copytree(os.path.join('bmipy'), os.path.join(new_d, 'bmipy'))
     #shutil.copytree(os.path.join('modflowapi'), os.path.join(new_d, 'modflowapi'))
-    shutil.copytree(os.path.join('flopy'), os.path.join(new_d, 'flopy'))
+    # shutil.copytree(os.path.join('flopy'), os.path.join(new_d, 'flopy'))
 
     org_mh_dir = "mh_org_codes"
     for f in os.listdir(org_mh_dir):

@@ -19,7 +19,7 @@ dependencies:
   - flopy
   - modflowapi
   - modflow6
-  - pyemy
+  - pyemu
   - pyshp
   - ruff
   - codespell

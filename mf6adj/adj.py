@@ -7,6 +7,7 @@ import pandas as pd
 import h5py
 import modflowapi
 import flopy
+from collections.abc import Callable
 
 
 from .pm import PerfMeasRecord, PerfMeas
@@ -26,31 +27,38 @@ class Mf6Adj(object):
 
 
     """
+
     def __init__(self, adj_filename: str, lib_name: str, verbose_level=1):
-
-        """
-
-        """
+        """ """
         self.verbose_level = int(verbose_level)
         if not os.path.exists(adj_filename):
             raise Exception("adj_filename '{0}' not found".format(adj_filename))
         self.adj_filename = adj_filename
-        self.logger = logging.getLogger(logging.__name__+".Mf6Adj")
-        logging.basicConfig(filename=adj_filename+".log",format='%(asctime)s %(message)s')
+        self.logger = logging.getLogger(logging.__name__ + ".Mf6Adj")
+        logging.basicConfig(
+            filename=adj_filename + ".log", format="%(asctime)s %(message)s"
+        )
         # process the flow model
         # make sure the lib exists
         if not os.path.exists(lib_name):
-            raise Exception("MODFLOW-6 shared library  '{0}' not found".format(lib_name))
+            raise Exception(
+                "MODFLOW-6 shared library  '{0}' not found".format(lib_name)
+            )
         # find the model name
         self._gwf_model_dict, namfile_dict = Mf6Adj.get_model_names_from_mfsim(".")
         if len(self._gwf_model_dict) != 1:
             raise Exception("only one model is current supported")
         self._gwf_name = list(self._gwf_model_dict.keys())[0]
         self._gwf_namfile = namfile_dict[self._gwf_name]
-        self._gwf_package_dict = Mf6Adj.get_package_names_from_gwfname(self._gwf_namfile)
+        self._gwf_package_dict = Mf6Adj.get_package_names_from_gwfname(
+            self._gwf_namfile
+        )
         if self._gwf_model_dict[self._gwf_name] != "gwf6":
-            raise Exception("model is not a gwf6 type: {0}". \
-                            format(self._gwf_model_dict[self._gwf_name]))
+            raise Exception(
+                "model is not a gwf6 type: {0}".format(
+                    self._gwf_model_dict[self._gwf_name]
+                )
+            )
         if "dis6" in self._gwf_package_dict:
             self.logger.info("...structured grid found")
             is_structured = True
@@ -67,19 +75,40 @@ class Mf6Adj(object):
         self.is_structured = is_structured
         self._shape = None
         if self.is_structured:
-            nlay = self._gwf.get_value(self._gwf.get_var_address("NLAY", self._gwf_name.upper(), "DIS"))[0]
-            nrow = self._gwf.get_value(self._gwf.get_var_address("NROW", self._gwf_name.upper(), "DIS"))[0]
-            ncol = self._gwf.get_value(self._gwf.get_var_address("NCOL", self._gwf_name.upper(), "DIS"))[0]
-            self._structured_mg = flopy.discretization.StructuredGrid(nrow=nrow,
-                                                                      ncol=ncol,
-                                                                      nlay=nlay)
-            self._shape = (nlay,nrow,ncol)
+            nlay = self._gwf.get_value(
+                self._gwf.get_var_address("NLAY", self._gwf_name.upper(), "DIS")
+            )[0]
+            nrow = self._gwf.get_value(
+                self._gwf.get_var_address("NROW", self._gwf_name.upper(), "DIS")
+            )[0]
+            ncol = self._gwf.get_value(
+                self._gwf.get_var_address("NCOL", self._gwf_name.upper(), "DIS")
+            )[0]
+            self._structured_mg = flopy.discretization.StructuredGrid(
+                nrow=nrow, ncol=ncol, nlay=nlay
+            )
+            self._shape = (nlay, nrow, ncol)
         self._performance_measures = []
         self._read_adj_file()
-        self._gwf_package_types = ["chd6","wel6","ghb6","riv6","drn6","sfr6","rch6","recha6","evt6"]
-        self._gwf_boundary_attr_dict = {"chd6":["head"],"ghb6":["bhead","cond"],"riv6":["stage","cond"],
-                                        "drn6":["elev","cond"],"wel6":["q"],"rch6":["recharge"]}
-
+        self._gwf_package_types = [
+            "chd6",
+            "wel6",
+            "ghb6",
+            "riv6",
+            "drn6",
+            "sfr6",
+            "rch6",
+            "recha6",
+            "evt6",
+        ]
+        self._gwf_boundary_attr_dict = {
+            "chd6": ["head"],
+            "ghb6": ["bhead", "cond"],
+            "riv6": ["stage", "cond"],
+            "drn6": ["elev", "cond"],
+            "wel6": ["q"],
+            "rch6": ["recharge"],
+        }
 
     def _read_adj_file(self):
         """private method to read the adj input file
@@ -123,7 +152,7 @@ class Mf6Adj(object):
         """
         # clear any existing PMs
         self._performance_measures = []
-        self.logger.info("processing adjoint file: "+str(self.adj_filename))
+        self.logger.info("processing adjoint file: " + str(self.adj_filename))
         addr = ["NODEUSER", self._gwf_name.upper(), "DIS"]
         wbaddr = self._gwf.get_var_address(*addr)
         nuser = self._gwf.get_value(wbaddr) - 1
@@ -139,7 +168,7 @@ class Mf6Adj(object):
             addr = ["NLAY", self._gwf_name.upper(), "DIS"]
             wbaddr = self._gwf.get_var_address(*addr)
 
-        with open(self.adj_filename, 'r') as f:
+        with open(self.adj_filename, "r") as f:
             count = 0
             while True:
                 line = f.readline()
@@ -163,22 +192,27 @@ class Mf6Adj(object):
                         elif len(line2.strip()) == 0 or line2.strip()[0] == "#":
                             continue
                         elif line2.lower().strip().startswith("begin"):
-                            raise Exception("a new begin block found while parsing options")
+                            raise Exception(
+                                "a new begin block found while parsing options"
+                            )
                         elif line2.lower().strip().startswith("end options"):
                             break
                         elif line2.lower().strip().split()[0] == "hdf5_name":
                             self._hdf5_name = line2.strip().split()[1]
                         else:
-                            raise Exception("unrecognized option line:"+line2.strip())
+                            raise Exception("unrecognized option line:" + line2.strip())
 
                 # parse a new performance measure block
 
                 elif line.lower().strip().startswith("begin performance_measure"):
-
                     raw = line.lower().strip().split()
 
                     if len(raw) != 3:
-                        raise Exception("'begin' line {0} has wrong number of items, should be 3, not {1}".format(count,len(raw)))
+                        raise Exception(
+                            "'begin' line {0} has wrong number of items, should be 3, not {1}".format(
+                                count, len(raw)
+                            )
+                        )
 
                     pm_name = raw[2].strip().lower()
 
@@ -189,77 +223,110 @@ class Mf6Adj(object):
                         pm_line += 1
                         count += 1
                         if line2 == "":
-                            raise EOFError("EOF while reading performance_measure block '{0}'".format(line))
+                            raise EOFError(
+                                "EOF while reading performance_measure block '{0}'".format(
+                                    line
+                                )
+                            )
                         elif len(line.strip()) == 0 or line.strip()[0] == "#":
                             continue
                         elif line2.lower().strip().startswith("begin"):
                             raise Exception(
-                                "a new begin block found while parsing performance_measure block '{0}'".format(line))
-                        elif line2.lower().strip().startswith("end performance_measure"):
+                                "a new begin block found while parsing performance_measure block '{0}'".format(
+                                    line
+                                )
+                            )
+                        elif (
+                            line2.lower().strip().startswith("end performance_measure")
+                        ):
                             break
                         elif line2.lower().strip().startswith("open"):
                             fname = line2.split()[1]
                             if not os.path.exists(fname):
-                                raise Exception("external file '{0}' found".format(fname))
-                            #df = pd.read_csv()
+                                raise Exception(
+                                    "external file '{0}' found".format(fname)
+                                )
+                            # df = pd.read_csv()
                             raise NotImplementedError()
 
                         raw = line2.lower().strip().split()
                         if self.is_structured and len(raw) != 9:
-                            self.logger.info("parsed line: "+raw)
-                            raise Exception("performance measure entry on line {0} has the wrong number of items, found {1}, should have 9".format(count,len(raw)))
+                            self.logger.info("parsed line: " + raw)
+                            raise Exception(
+                                "performance measure entry on line {0} has the wrong number of items, found {1}, should have 9".format(
+                                    count, len(raw)
+                                )
+                            )
                         elif not self.is_structured and len(raw) != 8:
-                            self.logger.info("parsed line: "+raw)
+                            self.logger.info("parsed line: " + raw)
                             raise Exception(
                                 "performance measure entry on line {0} has the wrong number of items, found {1}, should have 8".format(
-                                    count, len(raw)))
+                                    count, len(raw)
+                                )
+                            )
                         kper = int(raw[0]) - 1
                         kstp = int(raw[1]) - 1
-                        if kper > nper-1:
-                            raise Exception("kper > nper -1 on line number {0}".format(count))
-                        if kstp > nstp[kper]-1:
-                            raise Exception("kstp > nstp[kper] -1 on line number {0}".format(count))
+                        if kper > nper - 1:
+                            raise Exception(
+                                "kper > nper -1 on line number {0}".format(count)
+                            )
+                        if kstp > nstp[kper] - 1:
+                            raise Exception(
+                                "kstp > nstp[kper] -1 on line number {0}".format(count)
+                            )
 
-                        i,j = None,None
+                        i, j = None, None
                         if self.is_structured:
                             kij = []
                             for i in range(3):
                                 try:
                                     kij.append(int(raw[i + 2]) - 1)
-                                except:
-                                    raise Exception("error casting k-i-j info on line {0}: '{1}'".format(count, line2))
-                            k,i,j = kij[0],kij[1],kij[2]
+                                except Exception as e:
+                                    print(
+                                        f"{e}\n\nerror casting k-i-j info on line {count}: '{line2}'"
+                                    )
+                            k, i, j = kij[0], kij[1], kij[2]
                             # convert to node number
-                            inode = PerfMeas.get_node(self._shape,[kij])[0]
+                            inode = PerfMeas.get_node(self._shape, [kij])[0]
                             # if there is a reduced node scheme
                             if len(nuser) > 1:
                                 nn = np.where(nuser == inode)[0]
                                 if nn.shape[0] != 1:
-                                    self.logger.info(str(n)+" "+str(nn))
+                                    self.logger.info(str(nuser) + " " + str(nn))
                                     if self.is_structured:
                                         self.logger.info(str(kij))
-                                    raise Exception("node num {0} not in reduced node num".format(n))
+                                    raise Exception(
+                                        f"node num {nuser} not in reduced node num"
+                                    )
 
                                 inode = nn[0]
 
                         else:
                             try:
                                 lay = int(raw[2])
-                            except:
-                                raise Exception("error casting layer info info on line {0}: '{1}'".format(count, line2))
+                            except Exception as e:
+                                print(
+                                    f"{e}\n\nerror casting layer info info on line {count}: '{line2}'"
+                                )
                             k = lay - 1
                             try:
                                 node = int(raw[3])
-                            except:
-                                raise Exception("error casting layer info info on line {0}: '{1}'".format(count, line2))
+                            except Exception as e:
+                                print(
+                                    f"{e}\n\nerror casting layer info info on line {count}: '{line2}'"
+                                )
 
-                            inode = ((ncpl * (lay-1)) + node) - 1
+                            inode = ((ncpl * (lay - 1)) + node) - 1
 
                             # if there is a reduced node scheme
                             if len(nuser) > 1:
                                 nn = np.where(nuser == inode)[0]
                                 if nn.shape[0] != 1:
-                                    raise Exception("node num {0} not in reduced node num".format(n))
+                                    raise Exception(
+                                        "node num {0} not in reduced node num".format(
+                                            nuser
+                                        )
+                                    )
                                 inode = nn[0]
 
                         obsval = float(raw[-1])
@@ -276,9 +343,26 @@ class Mf6Adj(object):
                                 ppnames.extend(pnames)
                             if not found:
                                 self.logger.info(str(ppnames))
-                                raise Exception("`pm_type` {0} names a GWF package instance that was not found".format(pm_type))
+                                raise Exception(
+                                    "`pm_type` {0} names a GWF package instance that was not found".format(
+                                        pm_type
+                                    )
+                                )
 
-                        pm_entries.append(PerfMeasRecord(kper,kstp,inode,pm_type,pm_form,weight,obsval,k,i,j))
+                        pm_entries.append(
+                            PerfMeasRecord(
+                                kper,
+                                kstp,
+                                inode,
+                                pm_type,
+                                pm_form,
+                                weight,
+                                obsval,
+                                k,
+                                i,
+                                j,
+                            )
+                        )
                     if len(pm_entries) == 0:
                         raise Exception("no entries found for PM {0}".format(pm_name))
                     pm_types = set([entry.pm_type for entry in pm_entries])
@@ -288,20 +372,31 @@ class Mf6Adj(object):
                     #                     format(pm_name,str(pm_types)))
                     pm_forms = set([entry.pm_form for entry in pm_entries])
                     if len(pm_forms) > 1:
-                        raise Exception("performance measure" + \
-                                        "{0} has mixed 'pm_forms' ({1}), this is not supported". \
-                                        format(pm_name, str(pm_forms)))
+                        raise Exception(
+                            "performance measure"
+                            + "{0} has mixed 'pm_forms' ({1}), this is not supported".format(
+                                pm_name, str(pm_forms)
+                            )
+                        )
                     if list(pm_types)[0] != "head" and list(pm_forms)[0] != "direct":
-                        raise Exception("performance measure" + pm_name +\
-                                        " has a flux 'pm_form' and is a " +\
-                                        "residual 'pm_type', this is not supported")
+                        raise Exception(
+                            "performance measure"
+                            + pm_name
+                            + " has a flux 'pm_form' and is a "
+                            + "residual 'pm_type', this is not supported"
+                        )
                     if pm_name in [pm._name for pm in self._performance_measures]:
                         raise Exception("PM {0} multiply defined".format(pm_name))
                     self._performance_measures.append(
-                        PerfMeas(pm_name, pm_entries, self.verbose_level))
+                        PerfMeas(pm_name, pm_entries, self.verbose_level)
+                    )
 
                 else:
-                    raise Exception("unrecognized adj file input on line {0}: '{1}'".format(count, line))
+                    raise Exception(
+                        "unrecognized adj file input on line {0}: '{1}'".format(
+                            count, line
+                        )
+                    )
         if len(self._performance_measures) == 0:
             raise Exception("no PMs found in adj file")
 
@@ -324,21 +419,29 @@ class Mf6Adj(object):
             raise Exception("simulation nam file '{0}' not found".format(sim_nam))
         model_dict = {}
         namfile_dict = {}
-        with open(sim_nam, 'r') as f:
+        with open(sim_nam, "r") as f:
             while True:
                 line = f.readline()
                 if line == "":
                     raise EOFError("EOF when looking for 'models' block")
-                if line.strip().lower().startswith("begin") and "models" in line.lower():
+                if (
+                    line.strip().lower().startswith("begin")
+                    and "models" in line.lower()
+                ):
                     while True:
                         line2 = f.readline()
                         if line2 == "":
                             raise EOFError("EOF when reading 'models' block")
-                        elif line2.strip().lower().startswith("end") and "models" in line2.lower():
+                        elif (
+                            line2.strip().lower().startswith("end")
+                            and "models" in line2.lower()
+                        ):
                             break
                         raw = line2.strip().lower().split()
                         if raw[-1] in model_dict:
-                            raise Exception("duplicate model name found: '{0}'".format(raw[-1]))
+                            raise Exception(
+                                "duplicate model name found: '{0}'".format(raw[-1])
+                            )
                         model_dict[raw[2]] = raw[0]
                         namfile_dict[raw[2]] = raw[1]
                     break
@@ -361,17 +464,23 @@ class Mf6Adj(object):
             raise Exception("gwf nam file '{0}' not found".format(gwf_nam_file))
         package_dict = {}
         count_dict = {}
-        with open(gwf_nam_file, 'r') as f:
+        with open(gwf_nam_file, "r") as f:
             while True:
                 line = f.readline()
                 if line == "":
                     raise EOFError("EOF when looking for 'packages' block")
-                if line.strip().lower().startswith("begin") and "packages" in line.lower():
+                if (
+                    line.strip().lower().startswith("begin")
+                    and "packages" in line.lower()
+                ):
                     while True:
                         line2 = f.readline()
                         if line2 == "":
                             raise EOFError("EOF when reading 'packages' block")
-                        elif line2.strip().lower().startswith("end") and "packages" in line2.lower():
+                        elif (
+                            line2.strip().lower().startswith("end")
+                            and "packages" in line2.lower()
+                        ):
                             break
                         raw = line2.strip().lower().split()
                         if raw[0].startswith("#"):
@@ -379,7 +488,9 @@ class Mf6Adj(object):
                         if "#" in line2:
                             raw = line2.split("#")[0].lower().split()
                         if len(raw) < 2:
-                            raise Exception("wrong number of items on line: {0}".format(line2))
+                            raise Exception(
+                                "wrong number of items on line: {0}".format(line2)
+                            )
                         tag_name = None
                         if len(raw) > 2:
                             tag_name = raw[2]
@@ -389,9 +500,10 @@ class Mf6Adj(object):
 
                         if package_type not in package_dict:
                             package_dict[package_type] = []
-                        filename = raw[1]
                         if tag_name is None:
-                            tag_name = package_type.replace("6", "") + "-{0}".format(count_dict[package_type])
+                            tag_name = package_type.replace("6", "") + "-{0}".format(
+                                count_dict[package_type]
+                            )
                         package_dict[package_type].append(tag_name)
                         count_dict[package_type] += 1
 
@@ -421,18 +533,28 @@ class Mf6Adj(object):
             if isinstance(item, list):
                 item = np.array(item)
             if isinstance(item, np.ndarray):
-                dset = grp.create_dataset(tag, item.shape, dtype=item.dtype, data=item)
+                _ = grp.create_dataset(tag, item.shape, dtype=item.dtype, data=item)
             elif isinstance(item, dict):
                 if "nodelist" in item:
                     iitem = item["nodelist"]
-                    dset = grp.create_dataset(tag, iitem.shape, dtype=iitem.dtype, data=iitem)
+                    _ = grp.create_dataset(
+                        tag, iitem.shape, dtype=iitem.dtype, data=iitem
+                    )
                 elif "bound" in item:
                     iitem = item["bound"]
-                    dset = grp.create_dataset(tag, iitem.shape, dtype=iitem.dtype, data=iitem)
+                    _ = grp.create_dataset(
+                        tag, iitem.shape, dtype=iitem.dtype, data=iitem
+                    )
                 else:
-                    self.logger.info("Mf6Adj._write_group_to_hdf(): unused data_dict item {0}".format(tag))
+                    Mf6Adj.logger.info(
+                        "Mf6Adj._write_group_to_hdf(): unused data_dict item {0}".format(
+                            tag
+                        )
+                    )
             else:
-                raise Exception("unrecognized data_dict entry: {0},type:{1}".format(tag, type(item)))
+                raise Exception(
+                    "unrecognized data_dict entry: {0},type:{1}".format(tag, type(item))
+                )
 
     def _open_hdf(self, tag):
         """private method to open an HDF5 filehandle for writing
@@ -447,13 +569,18 @@ class Mf6Adj(object):
 
         """
         if tag is None:
-            fname = self._gwf_name + "_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".hd5"
+            fname = (
+                self._gwf_name
+                + "_"
+                + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                + ".hd5"
+            )
         else:
             fname = tag
         self._hdf5_name = fname
         if os.path.exists(fname):
             os.remove(fname)
-        f = h5py.File(fname, 'w')
+        f = h5py.File(fname, "w")
         return f
 
     def _add_gwf_info_to_hdf(self, hdf):
@@ -471,7 +598,7 @@ class Mf6Adj(object):
         has_sto = PerfMeas.has_sto_iconvert(gwf)
         data_dict = {}
 
-        #todo: work out what dis type we have
+        # todo: work out what dis type we have
         dis_pak = "DIS"
 
         ihc = PerfMeas.get_ptr_from_gwf(gwf_name, "CON", "IHC", gwf)
@@ -506,7 +633,9 @@ class Mf6Adj(object):
             data_dict["storage"] = storage
         nodeuser = PerfMeas.get_ptr_from_gwf(gwf_name, dis_pak, "NODEUSER", gwf) - 1
         data_dict["nodeuser"] = nodeuser
-        nodereduced = PerfMeas.get_ptr_from_gwf(gwf_name, dis_pak, "NODEREDUCED", gwf) - 1
+        nodereduced = (
+            PerfMeas.get_ptr_from_gwf(gwf_name, dis_pak, "NODEREDUCED", gwf) - 1
+        )
         data_dict["nodereduced"] = nodereduced
         ndim = PerfMeas.get_ptr_from_gwf(gwf_name, dis_pak, "NDIM", gwf)
         data_dict["ndim"] = ndim
@@ -525,8 +654,9 @@ class Mf6Adj(object):
             ncol = PerfMeas.get_ptr_from_gwf(gwf_name, dis_pak, "NCOL", gwf)
             data_dict["ncol"] = ncol
 
-        PerfMeas.write_group_to_hdf(hdf, "gwf_info", data_dict,attr_dict=self._gwf_package_dict)
-
+        PerfMeas.write_group_to_hdf(
+            hdf, "gwf_info", data_dict, attr_dict=self._gwf_package_dict
+        )
 
     @staticmethod
     def dresdss_h(gwf_name, gwf, head, head_old, dt, sat, sat_old):
@@ -561,18 +691,18 @@ class Mf6Adj(object):
 
         height = top - bot
 
-        #result = np.zeros_like(head)
+        # result = np.zeros_like(head)
         dSC1 = area * height
-        result = ((dSC1 / dt) * (sat_old_mod * head_old - sat_mod * head) +
-                (dSC1 / dt) * bot * (sat_mod - sat_old_mod) +
-                (dSC1 / (2.0 * dt)) * height * (
-                        sat_mod**2 - sat_old_mod**2))
+        result = (
+            (dSC1 / dt) * (sat_old_mod * head_old - sat_mod * head)
+            + (dSC1 / dt) * bot * (sat_mod - sat_old_mod)
+            + (dSC1 / (2.0 * dt)) * height * (sat_mod**2 - sat_old_mod**2)
+        )
         # zero out dry cells
-        result[head<=bot] = 0.0
-        result[head_old<=bot] = 0.0
+        result[head <= bot] = 0.0
+        result[head_old <= bot] = 0.0
 
         return result
-
 
     @staticmethod
     def drhsdh(gwf_name, gwf, dt):
@@ -593,13 +723,20 @@ class Mf6Adj(object):
         bot = PerfMeas.get_ptr_from_gwf(gwf_name, "DIS", "BOT", gwf)
         area = PerfMeas.get_ptr_from_gwf(gwf_name, "DIS", "AREA", gwf)
         storage = PerfMeas.get_ptr_from_gwf(gwf_name, "STO", "SS", gwf)
-        drhsdh = -1. * storage * area * (top - bot) / dt
+        drhsdh = -1.0 * storage * area * (top - bot) / dt
         return drhsdh
 
-
-    def solve_gwf(self, verbose=True, _force_k_update=False, _sp_pert_dict=None,pert_save=False,
-                  hdf5_name=None, solve_func_ptr=None,presolve_func_ptr=None,
-                  postsolve_func_ptr=None):
+    def solve_gwf(
+        self,
+        verbose=True,
+        _force_k_update=False,
+        _sp_pert_dict=None,
+        pert_save=False,
+        hdf5_name=None,
+        solve_func_ptr: Callable[[modflowapi.ModflowApi], None] = None,
+        presolve_func_ptr: Callable[[modflowapi.ModflowApi], None] = None,
+        postsolve_func_ptr: Callable[[modflowapi.ModflowApi], None] = None,
+    ):
         """solve the flow across the modflow sim times and harvest the solution
         components needed for the adjoint solution and store them in the HDF5 file
 
@@ -627,7 +764,9 @@ class Mf6Adj(object):
         fhd = self._open_hdf(self._hdf5_name)
         sim_start = datetime.now()
 
-        self.logger.info("...starting flow solution at {0}".format(sim_start.strftime(DT_FMT)))
+        self.logger.info(
+            "...starting flow solution at {0}".format(sim_start.strftime(DT_FMT))
+        )
         # get current sim time
         ctime = self._gwf.get_current_time()
         # get ending sim time
@@ -643,9 +782,13 @@ class Mf6Adj(object):
         dts = []
         kpers, kstps = [], []
 
-        nnode = self._gwf.get_value(self._gwf.get_var_address("NODES", self._gwf_name,"DIS"))[0]
+        nnode = self._gwf.get_value(
+            self._gwf.get_var_address("NODES", self._gwf_name, "DIS")
+        )[0]
 
-        is_newton = self._gwf.get_value(self._gwf.get_var_address("INEWTON", self._gwf_name))[0]
+        is_newton = self._gwf.get_value(
+            self._gwf.get_var_address("INEWTON", self._gwf_name)
+        )[0]
         has_sto = False
         if PerfMeas.has_sto_iconvert(self._gwf):
             has_sto = True
@@ -665,46 +808,71 @@ class Mf6Adj(object):
 
             kiter = 0
             # prep to solve
-            stress_period = self._gwf.get_value(self._gwf.get_var_address("KPER", "TDIS"))[0]
-            time_step = self._gwf.get_value(self._gwf.get_var_address("KSTP", "TDIS"))[0]
+            stress_period = self._gwf.get_value(
+                self._gwf.get_var_address("KPER", "TDIS")
+            )[0]
+            time_step = self._gwf.get_value(self._gwf.get_var_address("KSTP", "TDIS"))[
+                0
+            ]
             kper, kstp = stress_period - 1, time_step - 1
             kperkstp = (kper, kstp)
 
             # this is to force mf6 to update cond sat using the k11 and k33 arrays
             # which is needed for the perturbation testing
             if kper == 0 and kstp == 0 and _force_k_update:
-                kchangeper = self._gwf.get_value_ptr(self._gwf.get_var_address("KCHANGEPER", self._gwf_name, "NPF"))
-                kchangestp = self._gwf.get_value_ptr(self._gwf.get_var_address("KCHANGESTP", self._gwf_name, "NPF"))
+                kchangeper = self._gwf.get_value_ptr(
+                    self._gwf.get_var_address("KCHANGEPER", self._gwf_name, "NPF")
+                )
+                kchangestp = self._gwf.get_value_ptr(
+                    self._gwf.get_var_address("KCHANGESTP", self._gwf_name, "NPF")
+                )
                 kchangestp[0] = time_step
                 kchangeper[0] = stress_period
-                nodekchange = self._gwf.get_value_ptr(self._gwf.get_var_address("NODEKCHANGE", self._gwf_name, "NPF"))
+                nodekchange = self._gwf.get_value_ptr(
+                    self._gwf.get_var_address("NODEKCHANGE", self._gwf_name, "NPF")
+                )
                 nodekchange[:] = 1
 
             # apply any boundary condition perturbation info
             if _sp_pert_dict is not None:
                 if _sp_pert_dict["kperkstp"] == kperkstp:
-                    for pert_item in self._gwf_boundary_attr_dict[_sp_pert_dict["packagetype"]]:
+                    for pert_item in self._gwf_boundary_attr_dict[
+                        _sp_pert_dict["packagetype"]
+                    ]:
                         if pert_item not in _sp_pert_dict:
-                            self.logger.info("pert_item '{0}' not in _sp_pert_dict".format(pert_item))
+                            self.logger.info(
+                                "pert_item '{0}' not in _sp_pert_dict".format(pert_item)
+                            )
                             continue
-                        addr = [pert_item.upper(), self._gwf_name, _sp_pert_dict["packagename"].upper()]
+                        addr = [
+                            pert_item.upper(),
+                            self._gwf_name,
+                            _sp_pert_dict["packagename"].upper(),
+                        ]
                         wbaddr = self._gwf.get_var_address(*addr)
                         bnd_ptr = self._gwf.get_value_ptr(wbaddr)
-                        wbaddr = self._gwf.get_var_address("NODELIST", self._gwf_name, _sp_pert_dict["packagename"].upper())
+                        wbaddr = self._gwf.get_var_address(
+                            "NODELIST",
+                            self._gwf_name,
+                            _sp_pert_dict["packagename"].upper(),
+                        )
                         nodelist = self._gwf.get_value_ptr(wbaddr)
                         idx = np.where(nodelist == _sp_pert_dict["node"])[0]
                         if idx.shape[0] == 0:
                             print(nodelist)
-                            raise Exception("sp pert dict node not found :"+str(_sp_pert_dict))
+                            raise Exception(
+                                "sp pert dict node not found :" + str(_sp_pert_dict)
+                            )
                         bnd_ptr[idx] = _sp_pert_dict[pert_item]
 
             if presolve_func_ptr is not None:
-                presolve_funct_ptr(self._gwf)
+                presolve_func_ptr(self._gwf)
 
             self._gwf.prepare_solve(1)
             if sat_old is None:
-                sat_old = self._gwf.get_value(self._gwf.get_var_address("SAT", self._gwf_name, "NPF"))
-
+                sat_old = self._gwf.get_value(
+                    self._gwf.get_var_address("SAT", self._gwf_name, "NPF")
+                )
 
             # solve until converged
             while kiter < max_iter:
@@ -716,7 +884,9 @@ class Mf6Adj(object):
                     if verbose:
                         self.logger.info(
                             "flow stress period,time step {0},{1} converged with {2} iters, took {3:10.5G} mins".format(
-                                stress_period, time_step, kiter, td))
+                                stress_period, time_step, kiter, td
+                            )
+                        )
                     break
                 kiter += 1
 
@@ -725,12 +895,14 @@ class Mf6Adj(object):
                 if verbose:
                     self.logger.info(
                         "flow stress period,time step {0},{1} did not converge, {2} iters, took {3:10.5G} mins".format(
-                            stress_period, time_step, kiter, td))
+                            stress_period, time_step, kiter, td
+                        )
+                    )
                 num_fails += 1
             try:
                 self._gwf.finalize_solve(1)
-            except:
-                pass
+            except Exception as e:
+                print(f"{e}\n\nCould not execute finalize_solve()")
 
             self._gwf.finalize_time_step()
             if postsolve_func_ptr is not None:
@@ -748,127 +920,220 @@ class Mf6Adj(object):
                 raise Exception("{0} already visited".format(kperkstp))
             visited.append(kperkstp)
 
-            amat = self._gwf.get_value(self._gwf.get_var_address("AMAT", "SLN_1")).copy()
+            amat = self._gwf.get_value(
+                self._gwf.get_var_address("AMAT", "SLN_1")
+            ).copy()
             data_dict = {"amat": amat}
 
-            head = self._gwf.get_value(self._gwf.get_var_address("X", self._gwf_name.upper()))[:nnode]
+            head = self._gwf.get_value(
+                self._gwf.get_var_address("X", self._gwf_name.upper())
+            )[:nnode]
             data_dict["head"] = head
             if pert_save:
                 head_dict[kperkstp] = head
 
-            head_old = self._gwf.get_value(self._gwf.get_var_address("XOLD", self._gwf_name.upper()))[:nnode]
+            head_old = self._gwf.get_value(
+                self._gwf.get_var_address("XOLD", self._gwf_name.upper())
+            )[:nnode]
             data_dict["head_old"] = head_old
 
-            k11 = self._gwf.get_value(self._gwf.get_var_address("K11", self._gwf_name.upper(), "NPF"))
+            k11 = self._gwf.get_value(
+                self._gwf.get_var_address("K11", self._gwf_name.upper(), "NPF")
+            )
             data_dict["k11"] = k11
-            k33 = self._gwf.get_value(self._gwf.get_var_address("K33", self._gwf_name.upper(), "NPF"))
+            k33 = self._gwf.get_value(
+                self._gwf.get_var_address("K33", self._gwf_name.upper(), "NPF")
+            )
             data_dict["k33"] = k33
-            condsat = self._gwf.get_value(self._gwf.get_var_address("CONDSAT", self._gwf_name.upper(), "NPF"))
+            condsat = self._gwf.get_value(
+                self._gwf.get_var_address("CONDSAT", self._gwf_name.upper(), "NPF")
+            )
             data_dict["condsat"] = condsat
 
-
-            iss = self._gwf.get_value(self._gwf.get_var_address("ISS", self._gwf_name.upper()))
+            iss = self._gwf.get_value(
+                self._gwf.get_var_address("ISS", self._gwf_name.upper())
+            )
             data_dict["iss"] = iss
 
-            sat = self._gwf.get_value(self._gwf.get_var_address("SAT", self._gwf_name, "NPF"))
+            sat = self._gwf.get_value(
+                self._gwf.get_var_address("SAT", self._gwf_name, "NPF")
+            )
             data_dict["sat"] = sat
             data_dict["sat_old"] = sat_old
 
             sat_old = sat.copy()
-            if has_sto: #has storage
-                dresdss_h = Mf6Adj.dresdss_h(self._gwf_name,self._gwf,head,head_old,dt1,sat,sat_old)
+            if has_sto:  # has storage
+                dresdss_h = Mf6Adj.dresdss_h(
+                    self._gwf_name, self._gwf, head, head_old, dt1, sat, sat_old
+                )
                 data_dict["dresdss_h"] = dresdss_h
-                drhsdh = Mf6Adj.drhsdh(self._gwf_name,self._gwf,dt1)
+                drhsdh = Mf6Adj.drhsdh(self._gwf_name, self._gwf, dt1)
                 data_dict["drhsdh"] = drhsdh
             else:
                 data_dict["drhsdh"] = np.zeros_like(sat_old)
 
             for package_type in self._gwf_package_types:
-
                 if package_type in self._gwf_package_dict:
                     if pert_save and package_type not in sp_package_data:
                         sp_package_data[package_type] = {}
                     for tag in self._gwf_package_dict[package_type]:
-                        nbound = self._gwf.get_value(self._gwf.get_var_address("NBOUND", self._gwf_name, tag.upper()))[
-                            0]
+                        nbound = self._gwf.get_value(
+                            self._gwf.get_var_address(
+                                "NBOUND", self._gwf_name, tag.upper()
+                            )
+                        )[0]
                         if nbound > 0:
                             if pert_save and kperkstp in sp_package_data[package_type]:
                                 if len(self._gwf_package_dict[package_type]) == 1:
-                                    raise Exception("kperkstp '{0}' already in sp_package_data".format(str(kperkstp)))
+                                    raise Exception(
+                                        "kperkstp '{0}' already in sp_package_data".format(
+                                            str(kperkstp)
+                                        )
+                                    )
                                 else:
                                     pass
                             elif pert_save:
                                 sp_package_data[package_type][kperkstp] = []
                             nodelist = self._gwf.get_value(
-                                self._gwf.get_var_address("NODELIST", self._gwf_name, tag.upper()))
+                                self._gwf.get_var_address(
+                                    "NODELIST", self._gwf_name, tag.upper()
+                                )
+                            )
                             bound = self._gwf.get_value(
-                                self._gwf.get_var_address("BOUND", self._gwf_name, tag.upper()))
+                                self._gwf.get_var_address(
+                                    "BOUND", self._gwf_name, tag.upper()
+                                )
+                            )
                             hcof = self._gwf.get_value(
-                                self._gwf.get_var_address("HCOF", self._gwf_name, tag.upper()))
-                            rhs = self._gwf.get_value(self._gwf.get_var_address("RHS", self._gwf_name, tag.upper()))
+                                self._gwf.get_var_address(
+                                    "HCOF", self._gwf_name, tag.upper()
+                                )
+                            )
+                            rhs = self._gwf.get_value(
+                                self._gwf.get_var_address(
+                                    "RHS", self._gwf_name, tag.upper()
+                                )
+                            )
 
-                            simvals = self._gwf.get_value(self._gwf.get_var_address("SIMVALS", self._gwf_name, tag.upper()))
+                            simvals = self._gwf.get_value(
+                                self._gwf.get_var_address(
+                                    "SIMVALS", self._gwf_name, tag.upper()
+                                )
+                            )
                             bnd_attrs = {}
                             if package_type in self._gwf_boundary_attr_dict:
                                 fill_bound = False
                                 if bound.size == 0:
-                                    bound = np.zeros((len(nodelist),len(self._gwf_boundary_attr_dict[package_type])))
+                                    bound = np.zeros(
+                                        (
+                                            len(nodelist),
+                                            len(
+                                                self._gwf_boundary_attr_dict[
+                                                    package_type
+                                                ]
+                                            ),
+                                        )
+                                    )
                                     fill_bound = True
-                                for i,attr in enumerate(self._gwf_boundary_attr_dict[package_type]):
+                                for i, attr in enumerate(
+                                    self._gwf_boundary_attr_dict[package_type]
+                                ):
                                     vals = self._gwf.get_value(
-                                       self._gwf.get_var_address(attr.upper(), self._gwf_name, tag.upper()))
+                                        self._gwf.get_var_address(
+                                            attr.upper(), self._gwf_name, tag.upper()
+                                        )
+                                    )
                                     bnd_attrs[attr] = vals
                                     if fill_bound:
-                                        bound[:,i] = vals
-
+                                        bound[:, i] = vals
 
                             if package_type == "chd6":
-                                data_dict["drhsdh"][nodelist-1] = 0.0
+                                data_dict["drhsdh"][nodelist - 1] = 0.0
 
                             elif package_type == "sfr6":
                                 tag = self._gwf_package_dict[package_type][0]
                                 stage = self._gwf.get_value(
-                                    self._gwf.get_var_address("STAGE", self._gwf_name, tag.upper()))
-                                bound[:,0] = stage
-                                bound[:,1] = -1. * hcof
+                                    self._gwf.get_var_address(
+                                        "STAGE", self._gwf_name, tag.upper()
+                                    )
+                                )
+                                bound[:, 0] = stage
+                                bound[:, 1] = -1.0 * hcof
 
                             if pert_save:
                                 for i in range(nbound):
                                     # note bound is an array!
-                                    pak_data = {"node": nodelist[i], "bound": bound[i],
-                                         "hcof": hcof[i], "rhs": rhs[i], "packagename": tag,"simval":simvals[i]}
+                                    pak_data = {
+                                        "node": nodelist[i],
+                                        "bound": bound[i],
+                                        "hcof": hcof[i],
+                                        "rhs": rhs[i],
+                                        "packagename": tag,
+                                        "simval": simvals[i],
+                                    }
                                     for key, val in bnd_attrs.items():
-                                       pak_data[key] = val[i]
-                                    sp_package_data[package_type][kperkstp].append(pak_data)
-                            data_dict[tag] = {"ptype": package_type, "nodelist": nodelist, "bound": bound,"hcof":hcof,"rhs":rhs,"simvals":simvals}
-                            for key,val in bnd_attrs.items():
-                                assert key not in data_dict[tag],"boundary attribute '{0}' already in data dict for {1}".format(key,tag)
+                                        pak_data[key] = val[i]
+                                    sp_package_data[package_type][kperkstp].append(
+                                        pak_data
+                                    )
+                            data_dict[tag] = {
+                                "ptype": package_type,
+                                "nodelist": nodelist,
+                                "bound": bound,
+                                "hcof": hcof,
+                                "rhs": rhs,
+                                "simvals": simvals,
+                            }
+                            for key, val in bnd_attrs.items():
+                                assert key not in data_dict[tag], (
+                                    "boundary attribute '{0}' already in data dict for {1}".format(
+                                        key, tag
+                                    )
+                                )
                                 data_dict[tag][key] = val
-            attr_dict = {"ctime": ctime, "dt": dt1, "kper": kper, "kstp": kstp,"is_newton":is_newton,"has_sto":has_sto}
-            PerfMeas.write_group_to_hdf(fhd, group_name="solution_kper:{0:05d}_kstp:{1:05d}".format(kper, kstp), data_dict=data_dict,
-                                     attr_dict=attr_dict)
-
+            attr_dict = {
+                "ctime": ctime,
+                "dt": dt1,
+                "kper": kper,
+                "kstp": kstp,
+                "is_newton": is_newton,
+                "has_sto": has_sto,
+            }
+            PerfMeas.write_group_to_hdf(
+                fhd,
+                group_name="solution_kper:{0:05d}_kstp:{1:05d}".format(kper, kstp),
+                data_dict=data_dict,
+                attr_dict=attr_dict,
+            )
 
         sim_end = datetime.now()
         td = (sim_end - sim_start).total_seconds() / 60.0
         if verbose:
-            self.logger.info("\n...flow solution finished at {0}, took: {1:10.5G} mins".format(sim_end.strftime(DT_FMT), td))
+            self.logger.info(
+                "\n...flow solution finished at {0}, took: {1:10.5G} mins".format(
+                    sim_end.strftime(DT_FMT), td
+                )
+            )
             if num_fails > 0:
                 self.logger.info("...failed to converge {0} times".format(num_fails))
 
-        PerfMeas.write_group_to_hdf(fhd, "aux", {"totime": ctimes, "dt": dts, "kper": kpers, "kstp": kstps})
+        PerfMeas.write_group_to_hdf(
+            fhd, "aux", {"totime": ctimes, "dt": dts, "kper": kpers, "kstp": kstps}
+        )
         self._add_gwf_info_to_hdf(fhd)
         fhd.close()
         if pert_save:
             return head_dict, sp_package_data
 
-    def solve_adjoint(self,linear_solver=None,linear_solver_kwargs={}, use_precon=True):
+    def solve_adjoint(
+        self, linear_solver=None, linear_solver_kwargs={}, use_precon=True
+    ):
         """solve for the adjoint state, one performance measure at at time
 
         Parameters
         ----------
         linear_solver (varies) : the scipy sparse linear alg solver to use.  If None, a choice is made
-            between direct and bicgstab, depending if the number of nodes is less than 50,000.  If `str`, 
+            between direct and bicgstab, depending if the number of nodes is less than 50,000.  If `str`,
             can be "direct" or "bicgstab".  Otherwise, can be a function pointer to a solver function
             in which the first two args are the CSR amat matrix and the dense RHS vector, respectively
         linear_solver_kwargs (dict): dictionary of keyword args to pass to `linear_solver`.  Default is {}
@@ -889,9 +1154,12 @@ class Mf6Adj(object):
 
         dfs = {}
         for pm in self._performance_measures:
-            df = pm.solve_adjoint(self._hdf5_name,linear_solver=linear_solver,
-                                  linear_solver_kwargs=linear_solver_kwargs,
-                                  use_precon=use_precon)
+            df = pm.solve_adjoint(
+                self._hdf5_name,
+                linear_solver=linear_solver,
+                linear_solver_kwargs=linear_solver_kwargs,
+                use_precon=use_precon,
+            )
             dfs[pm.name] = df
         return dfs
 
@@ -909,18 +1177,18 @@ class Mf6Adj(object):
         if self._gwf is not None:
             self._gwf.finalize()
             self._gwf = None
-        gwf = modflowapi.ModflowApi(os.path.join(sim_ws, lib_name), working_directory=sim_ws)
+        gwf = modflowapi.ModflowApi(
+            os.path.join(sim_ws, lib_name), working_directory=sim_ws
+        )
         gwf.initialize()
         return gwf
 
     def finalize(self):
-        """close the api and file handles
-
-        """
+        """close the api and file handles"""
         try:
             self._gwf.finalize()
-        except:
-            pass
+        except Exception as e:
+            print(f"{e}\n\nCould not execute finalize()")
         self._gwf = None
 
     def _perturbation_test(self, pert_mult=1.01):
@@ -931,10 +1199,13 @@ class Mf6Adj(object):
 
         org_head, org_sp_package_data = self.solve_gwf(pert_save=True)
         tot = 0
-        for d in org_sp_package_data["ghb6"][(0,0)]:
-            #print(d)
+        for d in org_sp_package_data["ghb6"][(0, 0)]:
+            # print(d)
             tot += d["simval"]
-        base_results = {pm.name: pm.solve_forward(org_head,org_sp_package_data) for pm in self._performance_measures}
+        base_results = {
+            pm.name: pm.solve_forward(org_head, org_sp_package_data)
+            for pm in self._performance_measures
+        }
         assert len(base_results) == len(self._performance_measures)
 
         addr = ["NODEUSER", gwf_name, "DIS"]
@@ -949,8 +1220,8 @@ class Mf6Adj(object):
 
         kijs = None
         if self.is_structured:
-            kijs = PerfMeas.get_lrc(self._shape,list(nuser))
-            kijs = {n:kij for n,kij in zip(nuser,kijs)}
+            kijs = PerfMeas.get_lrc(self._shape, list(nuser))
+            kijs = {n: kij for n, kij in zip(nuser, kijs)}
         addr = ["NLAY", gwf_name, "DIS"]
         wbaddr = self._gwf.get_var_address(*addr)
         nlay = self._gwf.get_value(wbaddr)[0]
@@ -958,7 +1229,7 @@ class Mf6Adj(object):
         dfs = []
 
         # boundary condition perturbations
-        bnd_dict = PerfMeas.get_mf6_bound_dict()
+        _ = PerfMeas.get_mf6_bound_dict()
 
         for paktype, pdict in org_sp_package_data.items():
             if paktype == "chd6":
@@ -971,10 +1242,10 @@ class Mf6Adj(object):
             pert_results_dict = {pm.name: [] for pm in self._performance_measures}
             self.logger.info("running perturbations for ", paktype)
             for kk, infolist in pdict.items():
-                for ibnd,infodict in enumerate(infolist):
-                    #bnd_items = infodict["bound"].shape[0]
+                for ibnd, infodict in enumerate(infolist):
+                    # bnd_items = infodict["bound"].shape[0]
 
-                    #for ibnd in range(min(bnd_items,2)):
+                    # for ibnd in range(min(bnd_items,2)):
                     for pert_item in pert_items:
                         new_bound = infodict[pert_item].copy()
                         org = new_bound
@@ -982,14 +1253,27 @@ class Mf6Adj(object):
                         epsilons.append(delt - new_bound)
                         new_bound = delt
                         pakname = infodict["packagename"]
-                        pert_dict = {"kperkstp": kk, "packagename": pakname, "node": infodict["node"],
-                                     pert_item: new_bound,"packagetype":paktype}
-                        #print("...",pakname,pert_item,kk,org,delt,infodict["node"])
+                        pert_dict = {
+                            "kperkstp": kk,
+                            "packagename": pakname,
+                            "node": infodict["node"],
+                            pert_item: new_bound,
+                            "packagetype": paktype,
+                        }
+                        # print("...",pakname,pert_item,kk,org,delt,infodict["node"])
 
                         self._gwf = self._initialize_gwf(self._lib_name, self._flow_dir)
-                        pert_head, pert_sp_dict = self.solve_gwf(verbose=False, _sp_pert_dict=pert_dict,pert_save=True)
-                        pert_results = {pm.name: (pm.solve_forward(pert_head,pert_sp_dict) - base_results[pm.name]) / epsilons[-1]
-                                        for pm in self._performance_measures}
+                        pert_head, pert_sp_dict = self.solve_gwf(
+                            verbose=False, _sp_pert_dict=pert_dict, pert_save=True
+                        )
+                        pert_results = {
+                            pm.name: (
+                                pm.solve_forward(pert_head, pert_sp_dict)
+                                - base_results[pm.name]
+                            )
+                            / epsilons[-1]
+                            for pm in self._performance_measures
+                        }
                         for pm, result in pert_results.items():
                             pert_results_dict[pm].append(result)
                         bound_idx.append(ibnd)
@@ -999,29 +1283,31 @@ class Mf6Adj(object):
                         elif paktype == "rch6":
                             names.append("rch6_recharge")
                         else:
-                            names.append(pakname+"_"+pert_item+"_{0}".format(ibnd))
+                            names.append(
+                                pakname + "_" + pert_item + "_{0}".format(ibnd)
+                            )
             df = pd.DataFrame(pert_results_dict)
             df.loc[:, "node"] = nodes
-            df.loc[:,"epsilon"] = epsilons
-            df.loc[:,"addr"] = names
+            df.loc[:, "epsilon"] = epsilons
+            df.loc[:, "addr"] = names
             df.index = df.pop("node") - 1
-            df = df.loc[df.index != -1,:]
+            df = df.loc[df.index != -1, :]
             df.index = df.index.map(lambda x: nuser[x])
 
             if kijs is not None:
                 for idx, lab in zip([0, 1, 2], ["k", "i", "j"]):
                     df.loc[:, lab] = df.index.map(lambda x: kijs[x][idx])
-            col_dict = {col:df.loc[:,col].to_dict() for col in df.columns}
-            gdf = df.groupby(["node","addr"]).sum()
+            col_dict = {col: df.loc[:, col].to_dict() for col in df.columns}
+            gdf = df.groupby(["node", "addr"]).sum()
             gdf["node"] = gdf.index.get_level_values(0)
             gdf["addr"] = gdf.index.get_level_values(1)
             gdf.index = gdf.pop("node")
             for col in df.columns:
                 if col in pert_results_dict:
                     continue
-                if col in ["addr","node"]:
+                if col in ["addr", "node"]:
                     continue
-                gdf.loc[:,col] = gdf.index.map(lambda x: col_dict[col][x])
+                gdf.loc[:, col] = gdf.index.map(lambda x: col_dict[col][x])
             dfs.append(gdf)
         # property perturbations
         address = [["K11", gwf_name, "NPF"]]
@@ -1049,10 +1335,18 @@ class Mf6Adj(object):
                 delt = org * pert_mult
                 epsilons.append(delt - pert_arr[inode])
                 pert_arr[inode] = delt
-                #print("...",addr,inode,org,delt)
-                pert_head, pert_sp_dict = self.solve_gwf(verbose=False, _force_k_update=True,pert_save=True)
-                pert_results = {pm.name: (pm.solve_forward(pert_head,pert_sp_dict) - base_results[pm.name]) / epsilons[-1] for pm in
-                                self._performance_measures}
+                # print("...",addr,inode,org,delt)
+                pert_head, pert_sp_dict = self.solve_gwf(
+                    verbose=False, _force_k_update=True, pert_save=True
+                )
+                pert_results = {
+                    pm.name: (
+                        pm.solve_forward(pert_head, pert_sp_dict)
+                        - base_results[pm.name]
+                    )
+                    / epsilons[-1]
+                    for pm in self._performance_measures
+                }
                 for pm, result in pert_results.items():
                     pert_results_dict[pm].append(result)
 
@@ -1063,12 +1357,13 @@ class Mf6Adj(object):
             if kijs is not None:
                 for idx, lab in zip([0, 1, 2], ["k", "i", "j"]):
                     df.loc[:, lab] = df.index.map(lambda x: kijs[x][idx])
-            tag = '_'.join(addr).lower()
+            tag = "_".join(addr).lower()
             df.loc[:, "addr"] = tag
             dfs.append(df)
 
         if has_sto:
             import flopy
+
             if self._flow_dir != ".":
                 test_dir = self._flow_dir + "_pert_temp"
             else:
@@ -1084,11 +1379,16 @@ class Mf6Adj(object):
             sim.set_sim_path(test_dir)
             sim.set_all_data_external()
             sim.write_simulation()
-            ss_arr_name = os.path.join(test_dir,"{0}.sto_ss.txt".format(gwf.name))
+            ss_arr_name = os.path.join(test_dir, "{0}.sto_ss.txt".format(gwf.name))
             if not os.path.exists(ss_arr_name):
-                raise Exception("couldnt find ss_arr_name '{0}' needed for BS super hack")
-            if os.path.exists(os.path.join(self._flow_dir,self._lib_name)):
-                shutil.copy2(os.path.join(self._flow_dir,self._lib_name),os.path.join(test_dir,self._lib_name))
+                raise Exception(
+                    "couldnt find ss_arr_name '{0}' needed for BS super hack"
+                )
+            if os.path.exists(os.path.join(self._flow_dir, self._lib_name)):
+                shutil.copy2(
+                    os.path.join(self._flow_dir, self._lib_name),
+                    os.path.join(test_dir, self._lib_name),
+                )
 
             self.logger.info("running manual flopy based perturbations for sto ss")
             pert_results_dict = {pm.name: [] for pm in self._performance_measures}
@@ -1100,16 +1400,24 @@ class Mf6Adj(object):
                 org = ss[arr_node]
                 delt = org * pert_mult
                 epsilons.append(delt - pert_arr[arr_node])
-                #print("...ss", inode, arr_node, org, delt)
+                # print("...ss", inode, arr_node, org, delt)
                 pert_arr[arr_node] = delt
 
                 # reset the ss property
-                np.savetxt(ss_arr_name,pert_arr.flatten(),fmt="%15.6E")
+                np.savetxt(ss_arr_name, pert_arr.flatten(), fmt="%15.6E")
 
                 self._gwf = self._initialize_gwf(self._lib_name, test_dir)
-                pert_head, pert_sp_dict = self.solve_gwf(verbose=False, _force_k_update=True,pert_save=True)
-                pert_results = {pm.name: (pm.solve_forward(pert_head,pert_sp_dict) - base_results[pm.name]) / epsilons[-1] for pm in
-                                self._performance_measures}
+                pert_head, pert_sp_dict = self.solve_gwf(
+                    verbose=False, _force_k_update=True, pert_save=True
+                )
+                pert_results = {
+                    pm.name: (
+                        pm.solve_forward(pert_head, pert_sp_dict)
+                        - base_results[pm.name]
+                    )
+                    / epsilons[-1]
+                    for pm in self._performance_measures
+                }
                 for pm, result in pert_results.items():
                     pert_results_dict[pm].append(result)
             df = pd.DataFrame(pert_results_dict)
@@ -1119,7 +1427,7 @@ class Mf6Adj(object):
             if kijs is not None:
                 for idx, lab in zip([0, 1, 2], ["k", "i", "j"]):
                     df.loc[:, lab] = df.index.map(lambda x: kijs[x][idx])
-            tag = 'sto_ss'
+            tag = "sto_ss"
             df.loc[:, "addr"] = tag
             dfs.append(df)
 

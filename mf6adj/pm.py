@@ -6,6 +6,7 @@ import scipy.sparse as sparse
 from scipy.sparse.linalg import spsolve, bicgstab, spilu, LinearOperator
 import pandas as pd
 import h5py
+from typing import List
 
 
 class PerfMeasRecord(object):
@@ -29,20 +30,24 @@ class PerfMeasRecord(object):
 
     def __init__(
         self,
-        kper,
-        kstp,
-        inode,
-        pm_type,
-        pm_form,
-        weight,
-        obsval,
-        k=None,
-        i=None,
-        j=None,
+        kper: int,
+        kstp: int,
+        inode: int,
+        pm_type: str,
+        pm_form: str,
+        weight: float,
+        obsval: float,
+        k: int = None,
+        i: int = None,
+        j: int = None,
     ):
         self._kper = int(kper)
         self._kstp = int(kstp)
         self.kperkstp = (self._kper, self._kstp)
+        if isinstance(inode, np.int64):
+            inode = int(inode)
+        elif isinstance(inode, np.ndarray):
+            inode = int(inode[0])
         self.inode = int(inode)
         self._k = None
         if k is not None:
@@ -59,19 +64,15 @@ class PerfMeasRecord(object):
         self.pm_form = pm_form.lower().strip()
         if self.pm_form not in ["direct", "residual"]:
             raise Exception(
-                "PerfMeasRecord.pm_form must be 'direct' or 'residual', not '{0}'".format(
-                    self.pm_form
-                )
+                f"PerfMeasRecord.pm_form must be 'direct' or 'residual', not '{self.pm_form}'"
             )
 
     def __repr__(self):
-        s = "kperkstp:{0}, inode:{1}, k:{2}, type:{3}, form:{4}".format(
-            self.kperkstp, self.inode, self._k, self.pm_tpye, self.pm_form
-        )
+        s = f"kperkstp:{self.kperkstp}, inode:{self.inode}, k:{self._k}, type:{self.pm_type}, form:{self.pm_form}"
         if self._i is not None:
-            s += ", i:{0}".format(self._i)
+            s += f", i:{self._i}"
         if self._j is not None:
-            s += ", j:{0}".format(self._j)
+            s += f", j:{self._j}"
         return s
 
 
@@ -96,7 +97,9 @@ class PerfMeas(object):
 
     """
 
-    def __init__(self, pm_name, pm_entries, verbose_level=1):
+    def __init__(
+        self, pm_name: str, pm_entries: List[PerfMeasRecord], verbose_level: int = 1
+    ):
         self._name = pm_name.lower().strip()
         self._entries = pm_entries
         self.verbose_level = int(verbose_level)
@@ -171,11 +174,11 @@ class PerfMeas(object):
 
     def solve_adjoint(
         self,
-        hdf5_forward_solution_fname,
-        hdf5_adjoint_solution_fname=None,
+        hdf5_forward_solution_fname: str,
+        hdf5_adjoint_solution_fname: str = None,
         linear_solver=None,
-        linear_solver_kwargs={},
-        use_precon=True,
+        linear_solver_kwargs: dict = {},
+        use_precon: bool = True,
     ):
         """Solve for the adjoint state for the performance measure.
 
@@ -202,23 +205,18 @@ class PerfMeas(object):
             hdf = h5py.File(hdf5_forward_solution_fname, "r")
         except Exception as e:
             raise Exception(
-                "error opening hdf5 file '{0}' for PerfMeas {1}: {2}".format(
-                    hdf5_forward_solution_fname, self._name, str(e)
-                )
+                f"error opening hdf5 file '{hdf5_forward_solution_fname}' for PerfMeas {self._name}: {str(e)}"
             )
         if hdf5_adjoint_solution_fname is None:
             pth = os.path.split(hdf5_forward_solution_fname)[0]
             hdf5_adjoint_solution_fname = os.path.join(
                 pth,
-                "adjoint_solution_{0}_".format(self._name)
-                + hdf5_forward_solution_fname,
+                f"adjoint_solution_{self._name}_" + hdf5_forward_solution_fname,
             )
 
         if os.path.exists(hdf5_adjoint_solution_fname):
             self.logger.warning(
-                "WARNING: removing existing adjoint solution file '{0}'".format(
-                    hdf5_adjoint_solution_fname
-                )
+                f"WARNING: removing existing adjoint solution file '{hdf5_adjoint_solution_fname}'"
             )
             os.remove(hdf5_adjoint_solution_fname)
 
@@ -236,9 +234,7 @@ class PerfMeas(object):
         ]
         if len(kperkstp) != len(sol_keys):
             raise Exception(
-                "number of solution datasets ({0}) != number of kper,kstp entries ({1})".format(
-                    len(sol_keys), len(kperkstp)
-                )
+                f"number of solution datasets ({len(sol_keys)}) != number of kper,kstp entries ({len(kperkstp)})"
             )
         kk_sol_map = {}
         for kk in kperkstp:
@@ -250,9 +246,7 @@ class PerfMeas(object):
                     sol = s
                     break
             if sol is None:
-                raise Exception(
-                    "no solution dataset found for kper,kstp:{0}".format(str(kk))
-                )
+                raise Exception(f"no solution dataset found for kper,kstp:{str(kk)}")
             kk_sol_map[kk] = sol
 
         nnodes = hdf["gwf_info"]["nnodes"][:]
@@ -322,7 +316,7 @@ class PerfMeas(object):
             sol_key = kk_sol_map[kk]
             if sol_key in adf:
                 raise Exception(
-                    "solution key '{0}' already in adjoint hdf5 file".format(sol_key)
+                    f"solution key '{sol_key}' already in adjoint hdf5 file"
                 )
 
             start = datetime.now()
@@ -337,9 +331,7 @@ class PerfMeas(object):
                 rhs = (drhsdh * lamb) - dfdh
             else:
                 rhs = -dfdh
-                self.logger.info(
-                    "...took:{0}".format((datetime.now() - start).total_seconds())
-                )
+                self.logger.info(f"...took:{(datetime.now() - start).total_seconds()}")
 
             start = datetime.now()
 
@@ -351,9 +343,7 @@ class PerfMeas(object):
                 shape=(len(ia) - 1, len(ia) - 1),
             )
             amat = amat.transpose()
-            self.logger.info(
-                "...took:{0}".format((datetime.now() - start).total_seconds())
-            )
+            self.logger.info(f"...took:{(datetime.now() - start).total_seconds()}")
             start = datetime.now()
             self.logger.info("lambda solve")
             m = None
@@ -394,9 +384,7 @@ class PerfMeas(object):
                         )
                 else:
                     raise Exception(
-                        "unrecognized 'linear_solver' value: '{0}', should be 'direct' or 'bicgstab'".format(
-                            linear_solver
-                        )
+                        f"unrecognized 'linear_solver' value: '{linear_solver}', should be 'direct' or 'bicgstab'"
                     )
             else:
                 _linear_solver = linear_solver
@@ -418,13 +406,9 @@ class PerfMeas(object):
                 lamb = lamb[0]
             if np.any(np.isnan(lamb)):
                 self.logger.warning(
-                    "WARNING: nans in adjoint states for pm {0} at kperkstp {1}".format(
-                        self._name, kk
-                    )
+                    f"WARNING: nans in adjoint states for pm {self.name} at kperkstp {kk}"
                 )
-            self.logger.info(
-                "...took:{0}".format((datetime.now() - start).total_seconds())
-            )
+            self.logger.info(f"...took:{(datetime.now() - start).total_seconds()}")
             is_newton = hdf[sol_key].attrs["is_newton"]
             chd_nodelist = []
             if "chd6" in gwf_package_dict:
@@ -458,9 +442,7 @@ class PerfMeas(object):
             data["k33"] = k33_sens
             comp_k_sens += k_sens
             comp_k33_sens += k33_sens
-            self.logger.info(
-                "...took:{0}".format((datetime.now() - start).total_seconds())
-            )
+            self.logger.info(f"...took:{(datetime.now() - start).total_seconds()}")
 
             if has_sto:
                 start = datetime.now()
@@ -473,9 +455,7 @@ class PerfMeas(object):
                     ss_sens = np.zeros_like(lamb)
                 data["ss"] = ss_sens
                 comp_ss_sens += ss_sens
-                self.logger.info(
-                    "...took:{0}".format((datetime.now() - start).total_seconds())
-                )
+                self.logger.info(f"...took:{(datetime.now() - start).total_seconds()}")
 
             data["wel6_q"] = lamb
             comp_welq_sens += lamb
@@ -491,7 +471,7 @@ class PerfMeas(object):
                             continue
                         start = datetime.now()
 
-                        self.logger.info("{0},{1}".format(ptype, pname))
+                        self.logger.info(f"{ptype},{pname}")
 
                         sp_bnd_dict = {
                             "bound": hdf[sol_key][pname]["bound"][:],
@@ -510,9 +490,7 @@ class PerfMeas(object):
                             )
                             data[pname + "_" + bnd_dict[ptype][1]] = sens_cond
                         self.logger.info(
-                            "...took:{0}".format(
-                                (datetime.now() - start).total_seconds()
-                            )
+                            f"...took:{(datetime.now() - start).total_seconds()}"
                         )
 
             data["lambda"] = lamb
@@ -577,18 +555,18 @@ class PerfMeas(object):
             df["ss"] = comp_ss_sens
 
         df.index.name = "node"
-        df.to_csv("adjoint_summary_{0}.csv".format(self._name))
+        df.to_csv(f"adjoint_summary_{self._name}.csv")
 
         print(
             datetime.now(),
             "adjoint solve took: "
             + str((datetime.now() - adj_start).total_seconds())
-            + " for pm {0} at kperkstp {1}".format(self._name, kk),
+            + f" for pm {self._name} at kperkstp {kk}",
         )
         self.logger.info(
             "adjoint solve took: "
             + str((datetime.now() - adj_start).total_seconds())
-            + " for pm {0} at kperkstp {1}".format(self._name, kk)
+            + f" for pm {self._name} at kperkstp {kk}"
         )
         return df
 
@@ -615,7 +593,7 @@ class PerfMeas(object):
 
         """
         if group_name in hdf:
-            raise Exception("group_name {0} already in hdf file".format(group_name))
+            raise Exception(f"group_name {group_name} already in hdf file")
         grp = hdf.create_group(group_name)
         for name, val in attr_dict.items():
             grp.attrs[name] = val
@@ -641,13 +619,9 @@ class PerfMeas(object):
                     arr = np.zeros_like(nodereduced, dtype=item.dtype)
                     for inode, v in zip(nodeuser, item):
                         arr[inode] = v
-                    _ = grp.create_dataset(
-                        tag, arr.shape, dtype=item.dtype, data=arr
-                    )
+                    _ = grp.create_dataset(tag, arr.shape, dtype=item.dtype, data=arr)
                 else:
-                    _ = grp.create_dataset(
-                        tag, item.shape, dtype=item.dtype, data=item
-                    )
+                    _ = grp.create_dataset(tag, item.shape, dtype=item.dtype, data=item)
             elif isinstance(item, dict):
                 subgrp = grp.create_group(tag)
                 for k, v in item.items():
@@ -658,7 +632,7 @@ class PerfMeas(object):
 
             else:
                 raise Exception(
-                    "unrecognized data_dict entry: {0},type:{1}".format(tag, type(item))
+                    f"unrecognized data_dict entry: {tag},type:{type(item)}"
                 )
         if nodeuser is not None:
             _ = grp.create_dataset(

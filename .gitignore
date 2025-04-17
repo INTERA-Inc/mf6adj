@@ -135,3 +135,4 @@ dmypy.json
 examples/ex-gwf-zaidel/
 examples/freyberg/
 examples/sanpedro/
+autotest/*_test*/

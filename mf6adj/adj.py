@@ -28,11 +28,11 @@ class Mf6Adj(object):
 
     """
 
-    def __init__(self, adj_filename: str, lib_name: str, verbose_level=1):
+    def __init__(self, adj_filename: str, lib_name: str, verbose_level: int = 1):
         """ """
         self.verbose_level = int(verbose_level)
         if not os.path.exists(adj_filename):
-            raise Exception("adj_filename '{0}' not found".format(adj_filename))
+            raise Exception(f"adj_filename '{adj_filename}' not found")
         self.adj_filename = adj_filename
         self.logger = logging.getLogger(logging.__name__ + ".Mf6Adj")
         logging.basicConfig(
@@ -41,9 +41,7 @@ class Mf6Adj(object):
         # process the flow model
         # make sure the lib exists
         if not os.path.exists(lib_name):
-            raise Exception(
-                "MODFLOW-6 shared library  '{0}' not found".format(lib_name)
-            )
+            raise Exception(f"MODFLOW-6 shared library  '{lib_name}' not found")
         # find the model name
         self._gwf_model_dict, namfile_dict = Mf6Adj.get_model_names_from_mfsim(".")
         if len(self._gwf_model_dict) != 1:
@@ -55,9 +53,7 @@ class Mf6Adj(object):
         )
         if self._gwf_model_dict[self._gwf_name] != "gwf6":
             raise Exception(
-                "model is not a gwf6 type: {0}".format(
-                    self._gwf_model_dict[self._gwf_name]
-                )
+                f"model is not a gwf6 type: {self._gwf_model_dict[self._gwf_name]}"
             )
         if "dis6" in self._gwf_package_dict:
             self.logger.info("...structured grid found")
@@ -209,9 +205,7 @@ class Mf6Adj(object):
 
                     if len(raw) != 3:
                         raise Exception(
-                            "'begin' line {0} has wrong number of items, should be 3, not {1}".format(
-                                count, len(raw)
-                            )
+                            f"'begin' line {count} has wrong number of items, should be 3, not {len(raw)}"
                         )
 
                     pm_name = raw[2].strip().lower()
@@ -224,17 +218,13 @@ class Mf6Adj(object):
                         count += 1
                         if line2 == "":
                             raise EOFError(
-                                "EOF while reading performance_measure block '{0}'".format(
-                                    line
-                                )
+                                f"EOF while reading performance_measure block '{line}'"
                             )
                         elif len(line.strip()) == 0 or line.strip()[0] == "#":
                             continue
                         elif line2.lower().strip().startswith("begin"):
                             raise Exception(
-                                "a new begin block found while parsing performance_measure block '{0}'".format(
-                                    line
-                                )
+                                f"a new begin block found while parsing performance_measure block '{line}'"
                             )
                         elif (
                             line2.lower().strip().startswith("end performance_measure")
@@ -243,9 +233,7 @@ class Mf6Adj(object):
                         elif line2.lower().strip().startswith("open"):
                             fname = line2.split()[1]
                             if not os.path.exists(fname):
-                                raise Exception(
-                                    "external file '{0}' found".format(fname)
-                                )
+                                raise Exception(f"external file '{fname}' found")
                             # df = pd.read_csv()
                             raise NotImplementedError()
 
@@ -253,26 +241,20 @@ class Mf6Adj(object):
                         if self.is_structured and len(raw) != 9:
                             self.logger.info("parsed line: " + raw)
                             raise Exception(
-                                "performance measure entry on line {0} has the wrong number of items, found {1}, should have 9".format(
-                                    count, len(raw)
-                                )
+                                f"performance measure entry on line {count} has the wrong number of items, found {len(raw)}, should have 9"
                             )
                         elif not self.is_structured and len(raw) != 8:
                             self.logger.info("parsed line: " + raw)
                             raise Exception(
-                                "performance measure entry on line {0} has the wrong number of items, found {1}, should have 8".format(
-                                    count, len(raw)
-                                )
+                                f"performance measure entry on line {count} has the wrong number of items, found {len(raw)}, should have 8"
                             )
                         kper = int(raw[0]) - 1
                         kstp = int(raw[1]) - 1
                         if kper > nper - 1:
-                            raise Exception(
-                                "kper > nper -1 on line number {0}".format(count)
-                            )
+                            raise Exception(f"kper > nper -1 on line number {count}")
                         if kstp > nstp[kper] - 1:
                             raise Exception(
-                                "kstp > nstp[kper] -1 on line number {0}".format(count)
+                                f"kstp > nstp[kper] -1 on line number {count}"
                             )
 
                         i, j = None, None
@@ -323,9 +305,7 @@ class Mf6Adj(object):
                                 nn = np.where(nuser == inode)[0]
                                 if nn.shape[0] != 1:
                                     raise Exception(
-                                        "node num {0} not in reduced node num".format(
-                                            nuser
-                                        )
+                                        f"node num {nuser} not in reduced node num"
                                     )
                                 inode = nn[0]
 
@@ -344,9 +324,7 @@ class Mf6Adj(object):
                             if not found:
                                 self.logger.info(str(ppnames))
                                 raise Exception(
-                                    "`pm_type` {0} names a GWF package instance that was not found".format(
-                                        pm_type
-                                    )
+                                    f"`pm_type` {pm_type} names a GWF package instance that was not found"
                                 )
 
                         pm_entries.append(
@@ -364,7 +342,7 @@ class Mf6Adj(object):
                             )
                         )
                     if len(pm_entries) == 0:
-                        raise Exception("no entries found for PM {0}".format(pm_name))
+                        raise Exception(f"no entries found for PM {pm_name}")
                     pm_types = set([entry.pm_type for entry in pm_entries])
                     # if len(pm_types) > 1:
                     #     raise Exception("performance measure"+\
@@ -374,9 +352,7 @@ class Mf6Adj(object):
                     if len(pm_forms) > 1:
                         raise Exception(
                             "performance measure"
-                            + "{0} has mixed 'pm_forms' ({1}), this is not supported".format(
-                                pm_name, str(pm_forms)
-                            )
+                            + f"{pm_name} has mixed 'pm_forms' ({str(pm_forms)}), this is not supported"
                         )
                     if list(pm_types)[0] != "head" and list(pm_forms)[0] != "direct":
                         raise Exception(
@@ -386,22 +362,20 @@ class Mf6Adj(object):
                             + "residual 'pm_type', this is not supported"
                         )
                     if pm_name in [pm._name for pm in self._performance_measures]:
-                        raise Exception("PM {0} multiply defined".format(pm_name))
+                        raise Exception(f"PM {pm_name} multiply defined")
                     self._performance_measures.append(
                         PerfMeas(pm_name, pm_entries, self.verbose_level)
                     )
 
                 else:
                     raise Exception(
-                        "unrecognized adj file input on line {0}: '{1}'".format(
-                            count, line
-                        )
+                        f"unrecognized adj file input on line {count}: '{line}'"
                     )
         if len(self._performance_measures) == 0:
             raise Exception("no PMs found in adj file")
 
     @staticmethod
-    def get_model_names_from_mfsim(sim_ws):
+    def get_model_names_from_mfsim(sim_ws: str):
         """return the model names from an mfsim.nam file
 
         Parameters
@@ -416,7 +390,7 @@ class Mf6Adj(object):
         """
         sim_nam = os.path.join(sim_ws, "mfsim.nam")
         if not os.path.exists(sim_nam):
-            raise Exception("simulation nam file '{0}' not found".format(sim_nam))
+            raise Exception(f"simulation nam file '{sim_nam}' not found")
         model_dict = {}
         namfile_dict = {}
         with open(sim_nam, "r") as f:
@@ -439,16 +413,14 @@ class Mf6Adj(object):
                             break
                         raw = line2.strip().lower().split()
                         if raw[-1] in model_dict:
-                            raise Exception(
-                                "duplicate model name found: '{0}'".format(raw[-1])
-                            )
+                            raise Exception(f"duplicate model name found: '{raw[-1]}'")
                         model_dict[raw[2]] = raw[0]
                         namfile_dict[raw[2]] = raw[1]
                     break
         return model_dict, namfile_dict
 
     @staticmethod
-    def get_package_names_from_gwfname(gwf_nam_file):
+    def get_package_names_from_gwfname(gwf_nam_file: str):
         """return the package names from a GWF nam file
 
         Parameters
@@ -461,7 +433,7 @@ class Mf6Adj(object):
 
         """
         if not os.path.exists(gwf_nam_file):
-            raise Exception("gwf nam file '{0}' not found".format(gwf_nam_file))
+            raise Exception(f"gwf nam file '{gwf_nam_file}' not found")
         package_dict = {}
         count_dict = {}
         with open(gwf_nam_file, "r") as f:
@@ -488,9 +460,7 @@ class Mf6Adj(object):
                         if "#" in line2:
                             raw = line2.split("#")[0].lower().split()
                         if len(raw) < 2:
-                            raise Exception(
-                                "wrong number of items on line: {0}".format(line2)
-                            )
+                            raise Exception(f"wrong number of items on line: {line2}")
                         tag_name = None
                         if len(raw) > 2:
                             tag_name = raw[2]
@@ -501,8 +471,9 @@ class Mf6Adj(object):
                         if package_type not in package_dict:
                             package_dict[package_type] = []
                         if tag_name is None:
-                            tag_name = package_type.replace("6", "") + "-{0}".format(
-                                count_dict[package_type]
+                            tag_name = (
+                                package_type.replace("6", "")
+                                + f"-{count_dict[package_type]}"
                             )
                         package_dict[package_type].append(tag_name)
                         count_dict[package_type] += 1
@@ -511,7 +482,7 @@ class Mf6Adj(object):
         return package_dict
 
     @staticmethod
-    def write_group_to_hdf(hdf, group_name, data_dict, attr_dict={}):
+    def write_group_to_hdf(hdf, group_name: str, data_dict: dict, attr_dict: dict = {}):
         """write information to an open HDF5 file
 
         Parameters
@@ -525,7 +496,7 @@ class Mf6Adj(object):
                 group
         """
         if group_name in hdf:
-            raise Exception("group_name {0} already in hdf file".format(group_name))
+            raise Exception(f"group_name {group_name} already in hdf file")
         grp = hdf.create_group(group_name)
         for name, val in attr_dict.items():
             grp.attrs[name] = val
@@ -547,16 +518,14 @@ class Mf6Adj(object):
                     )
                 else:
                     Mf6Adj.logger.info(
-                        "Mf6Adj._write_group_to_hdf(): unused data_dict item {0}".format(
-                            tag
-                        )
+                        f"Mf6Adj._write_group_to_hdf(): unused data_dict item {tag}"
                     )
             else:
                 raise Exception(
-                    "unrecognized data_dict entry: {0},type:{1}".format(tag, type(item))
+                    f"unrecognized data_dict entry: {tag},type:{type(item)}"
                 )
 
-    def _open_hdf(self, tag):
+    def _open_hdf(self, tag: str):
         """private method to open an HDF5 filehandle for writing
 
         Parameters
@@ -659,7 +628,15 @@ class Mf6Adj(object):
         )
 
     @staticmethod
-    def dresdss_h(gwf_name, gwf, head, head_old, dt, sat, sat_old):
+    def dresdss_h(
+        gwf_name: str,
+        gwf,
+        head: np.ndarray,
+        head_old: np.ndarray,
+        dt: float,
+        sat: np.ndarray,
+        sat_old: np.ndarray,
+    ):
         """partial of residual wrt ss times h.  Just need to mult
         times lambda in the PerfMeas.solve_adjoint()
 
@@ -705,7 +682,7 @@ class Mf6Adj(object):
         return result
 
     @staticmethod
-    def drhsdh(gwf_name, gwf, dt):
+    def drhsdh(gwf_name: str, gwf, dt: float):
         """partial of the RHS WRT H
 
         Parameters
@@ -728,11 +705,11 @@ class Mf6Adj(object):
 
     def solve_gwf(
         self,
-        verbose=True,
-        _force_k_update=False,
-        _sp_pert_dict=None,
-        pert_save=False,
-        hdf5_name=None,
+        verbose: bool = True,
+        _force_k_update: bool = False,
+        _sp_pert_dict: dict = None,
+        pert_save: bool = False,
+        hdf5_name: str = None,
         solve_func_ptr: Callable[[modflowapi.ModflowApi], None] = None,
         presolve_func_ptr: Callable[[modflowapi.ModflowApi], None] = None,
         postsolve_func_ptr: Callable[[modflowapi.ModflowApi], None] = None,
@@ -764,9 +741,7 @@ class Mf6Adj(object):
         fhd = self._open_hdf(self._hdf5_name)
         sim_start = datetime.now()
 
-        self.logger.info(
-            "...starting flow solution at {0}".format(sim_start.strftime(DT_FMT))
-        )
+        self.logger.info(f"...starting flow solution at {sim_start.strftime(DT_FMT)}")
         # get current sim time
         ctime = self._gwf.get_current_time()
         # get ending sim time
@@ -841,7 +816,7 @@ class Mf6Adj(object):
                     ]:
                         if pert_item not in _sp_pert_dict:
                             self.logger.info(
-                                "pert_item '{0}' not in _sp_pert_dict".format(pert_item)
+                                f"pert_item '{pert_item}' not in _sp_pert_dict"
                             )
                             continue
                         addr = [
@@ -883,9 +858,7 @@ class Mf6Adj(object):
                     td = (datetime.now() - sol_start).total_seconds() / 60.0
                     if verbose:
                         self.logger.info(
-                            "flow stress period,time step {0},{1} converged with {2} iters, took {3:10.5G} mins".format(
-                                stress_period, time_step, kiter, td
-                            )
+                            f"flow stress period,time step {stress_period},{time_step} converged with {kiter} iters, took {td:10.5G} mins"
                         )
                     break
                 kiter += 1
@@ -894,9 +867,7 @@ class Mf6Adj(object):
                 td = (datetime.now() - sol_start).total_seconds() / 60.0
                 if verbose:
                     self.logger.info(
-                        "flow stress period,time step {0},{1} did not converge, {2} iters, took {3:10.5G} mins".format(
-                            stress_period, time_step, kiter, td
-                        )
+                        f"flow stress period,time step {stress_period},{time_step} did not converge, {kiter} iters, took {td:10.5G} mins"
                     )
                 num_fails += 1
             try:
@@ -917,7 +888,7 @@ class Mf6Adj(object):
             kstps.append(kstp)
 
             if kperkstp in visited:
-                raise Exception("{0} already visited".format(kperkstp))
+                raise Exception(f"{kperkstp} already visited")
             visited.append(kperkstp)
 
             amat = self._gwf.get_value(
@@ -986,9 +957,7 @@ class Mf6Adj(object):
                             if pert_save and kperkstp in sp_package_data[package_type]:
                                 if len(self._gwf_package_dict[package_type]) == 1:
                                     raise Exception(
-                                        "kperkstp '{0}' already in sp_package_data".format(
-                                            str(kperkstp)
-                                        )
+                                        f"kperkstp '{kperkstp}' already in sp_package_data"
                                     )
                                 else:
                                     pass
@@ -1086,9 +1055,7 @@ class Mf6Adj(object):
                             }
                             for key, val in bnd_attrs.items():
                                 assert key not in data_dict[tag], (
-                                    "boundary attribute '{0}' already in data dict for {1}".format(
-                                        key, tag
-                                    )
+                                    f"boundary attribute '{key}' already in data dict for {tag}"
                                 )
                                 data_dict[tag][key] = val
             attr_dict = {
@@ -1101,7 +1068,7 @@ class Mf6Adj(object):
             }
             PerfMeas.write_group_to_hdf(
                 fhd,
-                group_name="solution_kper:{0:05d}_kstp:{1:05d}".format(kper, kstp),
+                group_name=f"solution_kper:{kper:05d}_kstp:{kstp:05d}",
                 data_dict=data_dict,
                 attr_dict=attr_dict,
             )
@@ -1110,12 +1077,10 @@ class Mf6Adj(object):
         td = (sim_end - sim_start).total_seconds() / 60.0
         if verbose:
             self.logger.info(
-                "\n...flow solution finished at {0}, took: {1:10.5G} mins".format(
-                    sim_end.strftime(DT_FMT), td
-                )
+                f"\n...flow solution finished at {sim_end.strftime(DT_FMT)}, took: {td:10.5G} mins"
             )
             if num_fails > 0:
-                self.logger.info("...failed to converge {0} times".format(num_fails))
+                self.logger.info(f"...failed to converge {num_fails} times")
 
         PerfMeas.write_group_to_hdf(
             fhd, "aux", {"totime": ctimes, "dt": dts, "kper": kpers, "kstp": kstps}
@@ -1126,7 +1091,10 @@ class Mf6Adj(object):
             return head_dict, sp_package_data
 
     def solve_adjoint(
-        self, linear_solver=None, linear_solver_kwargs={}, use_precon=True
+        self,
+        linear_solver=None,
+        linear_solver_kwargs: dict = {},
+        use_precon: bool = True,
     ):
         """solve for the adjoint state, one performance measure at at time
 
@@ -1163,7 +1131,7 @@ class Mf6Adj(object):
             dfs[pm.name] = df
         return dfs
 
-    def _initialize_gwf(self, lib_name, sim_ws):
+    def _initialize_gwf(self, lib_name: str, sim_ws: str):
         """initialze the MODFLOW6 API
 
         Parameters
@@ -1191,7 +1159,7 @@ class Mf6Adj(object):
             print(f"{e}\n\nCould not execute finalize()")
         self._gwf = None
 
-    def _perturbation_test(self, pert_mult=1.01):
+    def _perturbation_test(self, pert_mult: float = 1.01):
         """run the perturbation testing - this is for dev and testing only"""
 
         self._gwf = self._initialize_gwf(self._lib_name, self._flow_dir)
@@ -1283,9 +1251,7 @@ class Mf6Adj(object):
                         elif paktype == "rch6":
                             names.append("rch6_recharge")
                         else:
-                            names.append(
-                                pakname + "_" + pert_item + "_{0}".format(ibnd)
-                            )
+                            names.append(pakname + "_" + pert_item + f"_{ibnd}")
             df = pd.DataFrame(pert_results_dict)
             df.loc[:, "node"] = nodes
             df.loc[:, "epsilon"] = epsilons
@@ -1362,8 +1328,6 @@ class Mf6Adj(object):
             dfs.append(df)
 
         if has_sto:
-            import flopy
-
             if self._flow_dir != ".":
                 test_dir = self._flow_dir + "_pert_temp"
             else:
@@ -1379,7 +1343,7 @@ class Mf6Adj(object):
             sim.set_sim_path(test_dir)
             sim.set_all_data_external()
             sim.write_simulation()
-            ss_arr_name = os.path.join(test_dir, "{0}.sto_ss.txt".format(gwf.name))
+            ss_arr_name = os.path.join(test_dir, f"{gwf.name}.sto_ss.txt")
             if not os.path.exists(ss_arr_name):
                 raise Exception(
                     "couldnt find ss_arr_name '{0}' needed for BS super hack"

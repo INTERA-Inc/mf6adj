@@ -26,7 +26,10 @@ jobs:
         #include:
         #  - os: macos-latest
         #    python-version: 3.9
-
+    defaults:
+      run:
+        shell: bash -l {0}
+    
     steps:
     - name: Checkout repo
       uses:  actions/checkout@v3 # checksout this repo
@@ -42,11 +45,15 @@ jobs:
         extra-specs: |
           python=${{ matrix.python-version }}
 
-    - name: ${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.test-path }}
-      shell: bash -l {0}
-      #working-directory: ./autotest
+    - name: Install executables
       run: |
-        cd autotest
+        get-modflow --subset mf6,libmf6,gridgen $CONDA_PREFIX/bin
+
+    - name: Autotest on ${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.test-path }}
+      # shell: bash -l {0}
+      working-directory: ./autotest
+      run: |
+        # cd autotest
         ls
         pytest -v -n=auto --durations=0
       #env:

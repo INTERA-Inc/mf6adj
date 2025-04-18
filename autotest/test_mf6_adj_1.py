@@ -7,40 +7,61 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, ".")
 import modflowapi
 import flopy
 import flopy.utils.cvfdutil
 import pyemu
+import pathlib as pl
+
+sys.path.insert(0, str(pl.Path("../").resolve()))
+import mf6adj
+
+env_path = pl.Path(os.environ.get("CONDA_PREFIX", None))
+assert env_path is not None, (
+    "autotest script must be run from the mf6adj Conda environment"
+)
 
 if "linux" in platform.platform().lower():
-    lib_name = os.path.join("..", "bin", "linux", "libmf6.so")
-    mf6_bin = os.path.join("..", "bin", "linux", "mf6")
-    local_lib_name = "./libmf6.so"
-    local_mf6_bin = "./mf6"
-    gg_bin = os.path.join("..", "bin", "linux", "gridgen")
-elif (
-    "darwin" in platform.platform().lower() or "macos" in platform.platform().lower()
-) and "arm" not in platform.platform().lower():
-    lib_name = os.path.join("..", "bin", "mac", "libmf6.dylib")
-    mf6_bin = os.path.join("..", "bin", "mac", "mf6")
-    local_lib_name = "./libmf6.dylib"
-    local_mf6_bin = "./mf6"
-    gg_bin = os.path.join("..", "bin", "mac", "gridgen")
-elif (
-    "darwin" in platform.platform().lower() or "macos" in platform.platform().lower()
-) and "arm" in platform.platform().lower():
-    lib_name = os.path.join("..", "bin", "mac", "libmf6_arm.dylib")
-    mf6_bin = os.path.join("..", "bin", "mac", "mf6")
-    local_lib_name = "./libmf6_arm.dylib"
-    local_mf6_bin = "./mf6"
-    gg_bin = os.path.join("..", "bin", "mac", "gridgen")
+    lib_ext = ".so"
+    exe_ext = ""
+elif "darwin" in platform.platform().lower() or "macos" in platform.platform().lower():
+    lib_ext = ".dylib"
+    exe_ext = ""
 else:
-    lib_name = os.path.join("..", "bin", "win", "libmf6.dll")
-    mf6_bin = os.path.join("..", "bin", "win", "mf6.exe")
-    local_lib_name = "libmf6.dll"
-    local_mf6_bin = "mf6.exe"
-    gg_bin = os.path.join("..", "bin", "win", "gridgen.exe")
+    lib_ext = ".dll"
+    exe_ext = ".exe"
+lib_name = env_path / f"bin/libmf6{lib_ext}"
+mf6_bin = env_path / f"bin/mf6{exe_ext}"
+gg_bin = env_path / f"bin/gridgen{exe_ext}"
+
+# if "linux" in platform.platform().lower():
+#     lib_name = os.path.join("..", "bin", "linux", "libmf6.so")
+#     mf6_bin = os.path.join("..", "bin", "linux", "mf6")
+#     local_lib_name = "./libmf6.so"
+#     local_mf6_bin = "./mf6"
+#     gg_bin = os.path.join("..", "bin", "linux", "gridgen")
+# elif (
+#     "darwin" in platform.platform().lower() or "macos" in platform.platform().lower()
+# ) and "arm" not in platform.platform().lower():
+#     lib_name = os.path.join("..", "bin", "mac", "libmf6.dylib")
+#     mf6_bin = os.path.join("..", "bin", "mac", "mf6")
+#     local_lib_name = "./libmf6.dylib"
+#     local_mf6_bin = "./mf6"
+#     gg_bin = os.path.join("..", "bin", "mac", "gridgen")
+# elif (
+#     "darwin" in platform.platform().lower() or "macos" in platform.platform().lower()
+# ) and "arm" in platform.platform().lower():
+#     lib_name = os.path.join("..", "bin", "mac", "libmf6_arm.dylib")
+#     mf6_bin = os.path.join("..", "bin", "mac", "mf6")
+#     local_lib_name = "./libmf6_arm.dylib"
+#     local_mf6_bin = "./mf6"
+#     gg_bin = os.path.join("..", "bin", "mac", "gridgen")
+# else:
+#     lib_name = os.path.join("..", "bin", "win", "libmf6.dll")
+#     mf6_bin = os.path.join("..", "bin", "win", "mf6.exe")
+#     local_lib_name = "libmf6.dll"
+#     local_mf6_bin = "mf6.exe"
+#     gg_bin = os.path.join("..", "bin", "win", "gridgen.exe")
 
 
 def setup_xd_box_model(
@@ -76,7 +97,6 @@ def setup_xd_box_model(
     shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
     shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
 
-    # shutil.copytree(os.path.join('xmipy'), os.path.join(new_d, 'xmipy'))
     # shutil.copytree(os.path.join('bmipy'), os.path.join(new_d, 'bmipy'))
     # shutil.copytree(os.path.join('modflowapi'), os.path.join(new_d, 'modflowapi'))
     # shutil.copytree(os.path.join('flopy'), os.path.join(new_d, 'flopy'))
@@ -91,7 +111,7 @@ def setup_xd_box_model(
 
     sim = flopy.mf6.MFSimulation(
         sim_name=name,
-        exe_name=local_mf6_bin,
+        exe_name=mf6_bin,
         version="mf6",
         sim_ws=new_d,
         memory_print_option="ALL",
@@ -287,7 +307,7 @@ def setup_xd_box_model(
     #         if "begin options" in line.lower():
     #             f.write("tvk6_filename blank.tvk\n")
 
-    pyemu.os_utils.run(local_mf6_bin, cwd=new_d)
+    pyemu.os_utils.run(mf6_bin.name, cwd=new_d)
     return sim
 
 
@@ -307,7 +327,7 @@ def run_xd_box_pert(
     sys.path.append(os.path.join("..", ".."))
     print(os.listdir("."))
     print("test run to completion with API")
-    mf6api = modflowapi.ModflowApi(local_lib_name)
+    mf6api = modflowapi.ModflowApi(lib_name)
     mf6api.initialize()
     current_time = mf6api.get_current_time()
     end_time = mf6api.get_end_time()
@@ -411,7 +431,7 @@ def run_xd_box_pert(
                 fmt="%15.6E",
             )
             # sim.run_simulation()
-            mf6api = modflowapi.ModflowApi(local_lib_name)
+            mf6api = modflowapi.ModflowApi(lib_name)
             mf6api.initialize()
             current_time = mf6api.get_current_time()
             end_time = mf6api.get_end_time()
@@ -842,7 +862,6 @@ def test_xd_box_1():
 
     assert len(pm_locs) > 0
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
 
     if run_adj:
         bd = os.getcwd()
@@ -895,7 +914,7 @@ def test_xd_box_1():
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
 
-        adj = mf6adj.Mf6Adj("test.adj", local_lib_name, verbose_level=1)
+        adj = mf6adj.Mf6Adj("test.adj", lib_name, verbose_level=1)
         adj.solve_gwf()
         adj.solve_adjoint()
         adj._perturbation_test(pert_mult=pert_mult)
@@ -976,7 +995,7 @@ def test_xd_box_unstruct_1():
 
     gwf = sim.get_model()
     obsval = 1.0
-    shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
+    # shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
 
     pert_mult = 1.0001
     weight = 1.0
@@ -990,7 +1009,7 @@ def test_xd_box_unstruct_1():
     g = Gridgen(
         gwf.modelgrid,
         model_ws=new_d,
-        exe_name=os.path.join(new_d, os.path.split(gg_bin)[1]),
+        exe_name=gg_bin,
     )
     g.build(verbose=True)
     gridprops = g.get_gridprops_disv()
@@ -1112,7 +1131,6 @@ def test_xd_box_unstruct_1():
     #    run_xd_box_pert(new_d,p_kinodes,plot_pert_results,weight,pert_mult,obsval=obsval,pm_locs=pm_locs)
 
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
 
     if run_adj:
         bd = os.getcwd()
@@ -1138,7 +1156,7 @@ def test_xd_box_unstruct_1():
                     )
                 f.write("end performance_measure\n\n")
 
-        adj = mf6adj.Mf6Adj("test.adj", local_lib_name, verbose_level=1)
+        adj = mf6adj.Mf6Adj("test.adj", lib_name, verbose_level=1)
         adj.solve_gwf()
         adj.solve_adjoint()
         adj._perturbation_test(pert_mult=pert_mult)
@@ -1175,7 +1193,6 @@ def freyberg_structured_demo():
         shutil.rmtree("mf6adj")
     # shutil.copytree(os.path.join('..','mf6adj'),os.path.join('mf6adj'))
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
 
     org_d = "freyberg_structured"
     new_d = "freyberg_structured_test"
@@ -1184,15 +1201,7 @@ def freyberg_structured_demo():
     shutil.copytree(org_d, new_d)
     shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
     shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
-    shutil.copytree(os.path.join("xmipy"), os.path.join(new_d, "xmipy"))
-    shutil.copytree(os.path.join("bmipy"), os.path.join(new_d, "bmipy"))
-    shutil.copytree(os.path.join("modflowapi"), os.path.join(new_d, "modflowapi"))
-    # shutil.copytree(os.path.join('flopy'), os.path.join(new_d, 'flopy'))
-    # shutil.copytree(os.path.join('mf6adj'), os.path.join(new_d, 'mf6adj'))
 
-    # os.chdir(new_d)
-    # os.system("mf6")
-    # os.chdir("..")
     pyemu.os_utils.run("mf6", cwd=new_d)
 
     sim = flopy.mf6.MFSimulation.load(sim_ws=new_d)
@@ -1253,7 +1262,7 @@ def freyberg_structured_demo():
 
     start = datetime.now()
     os.chdir(new_d)
-    adj = mf6adj.Mf6Adj("test.adj", os.path.split(local_lib_name)[1], verbose_level=2)
+    adj = mf6adj.Mf6Adj("test.adj", lib_name, verbose_level=2)
     adj.solve_gwf()
     adj.solve_adjoint()
     adj.finalize()
@@ -1308,7 +1317,6 @@ def freyberg_quadtree_demo():
         shutil.rmtree("mf6adj")
     # shutil.copytree(os.path.join('..', 'mf6adj'), os.path.join('mf6adj'))
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
     import h5py
     import flopy
 
@@ -1326,14 +1334,7 @@ def freyberg_quadtree_demo():
         shutil.copytree(org_d, new_d)
         shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
         shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
-        shutil.copytree(os.path.join("xmipy"), os.path.join(new_d, "xmipy"))
-        shutil.copytree(os.path.join("bmipy"), os.path.join(new_d, "bmipy"))
-        shutil.copytree(os.path.join("modflowapi"), os.path.join(new_d, "modflowapi"))
-        # shutil.copytree(os.path.join('flopy'), os.path.join(new_d, 'flopy'))
 
-        # os.chdir(new_d)
-        # os.system("mf6")
-        # os.chdir("..")
         pyemu.os_utils.run("mf6", cwd=new_d)
 
     if run_adj:
@@ -1373,9 +1374,7 @@ def freyberg_quadtree_demo():
 
         start = datetime.now()
         os.chdir(new_d)
-        adj = mf6adj.Mf6Adj(
-            "test.adj", os.path.split(local_lib_name)[1], verbose_level=2
-        )
+        adj = mf6adj.Mf6Adj("test.adj", lib_name, verbose_level=2)
         adj.solve_gwf()
         adj.solve_adjoint()
         adj.finalize()
@@ -1450,7 +1449,6 @@ def freyberg_structured_highres_demo():
         shutil.rmtree("mf6adj")
     # shutil.copytree(os.path.join('..','mf6adj'),os.path.join('mf6adj'))
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
 
     org_d = "freyberg_highres"
     new_d = "freyberg_highres_test"
@@ -1460,10 +1458,6 @@ def freyberg_structured_highres_demo():
     shutil.copytree(org_d, new_d)
     shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
     shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
-    shutil.copytree(os.path.join("xmipy"), os.path.join(new_d, "xmipy"))
-    shutil.copytree(os.path.join("bmipy"), os.path.join(new_d, "bmipy"))
-    shutil.copytree(os.path.join("modflowapi"), os.path.join(new_d, "modflowapi"))
-    # shutil.copytree(os.path.join('flopy'), os.path.join(new_d, 'flopy'))
 
     pyemu.os_utils.run("mf6", cwd=new_d)
 
@@ -1504,7 +1498,7 @@ def freyberg_structured_highres_demo():
 
     start = datetime.now()
     os.chdir(new_d)
-    adj = mf6adj.Mf6Adj("test.adj", os.path.split(local_lib_name)[1], verbose_level=2)
+    adj = mf6adj.Mf6Adj("test.adj", lib_name, verbose_level=2)
     adj.solve_gwf()
     adj.solve_adjoint()
     adj.finalize()
@@ -1556,25 +1550,16 @@ def freyberg_notional_unstruct_demo():
         shutil.rmtree("mf6adj")
     # shutil.copytree(os.path.join('..','mf6adj'),os.path.join('mf6adj'))
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
 
     org_d = "freyberg_structured"
     new_d = "freyberg_notional_unstructured_test"
     if os.path.exists(new_d):
         shutil.rmtree(new_d)
     shutil.copytree(org_d, new_d)
-    shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
-    shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
-    shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
-    shutil.copytree(os.path.join("xmipy"), os.path.join(new_d, "xmipy"))
-    shutil.copytree(os.path.join("bmipy"), os.path.join(new_d, "bmipy"))
-    shutil.copytree(os.path.join("modflowapi"), os.path.join(new_d, "modflowapi"))
-    # shutil.copytree(os.path.join('flopy'), os.path.join(new_d, 'flopy'))
-    # shutil.copytree(os.path.join('mf6adj'), os.path.join(new_d, 'mf6adj'))
+    # shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
+    # shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
+    # shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
 
-    # os.chdir(new_d)
-    # os.system("mf6")
-    # os.chdir("..")
     pyemu.os_utils.run("mf6", cwd=new_d)
 
     sim = flopy.mf6.MFSimulation.load(sim_ws=new_d)
@@ -1588,7 +1573,9 @@ def freyberg_notional_unstruct_demo():
     from flopy.utils.gridgen import Gridgen
 
     g = Gridgen(
-        gwf.dis, model_ws=new_d, exe_name=os.path.join(new_d, os.path.split(gg_bin)[1])
+        gwf.dis,
+        model_ws=new_d,
+        exe_name=gg_bin,
     )
     g.build(verbose=True)
     gridprops = g.get_gridprops_disv()
@@ -1744,7 +1731,7 @@ def freyberg_notional_unstruct_demo():
 
     start = datetime.now()
     os.chdir(new_d)
-    adj = mf6adj.Mf6Adj("test.adj", os.path.split(local_lib_name)[1], verbose_level=2)
+    adj = mf6adj.Mf6Adj("test.adj", lib_name, verbose_level=2)
     adj.solve_gwf()
     adj.solve_adjoint()
     adj.finalize()
@@ -1796,7 +1783,6 @@ def test_sagehen1():
         shutil.rmtree("mf6adj")
     # shutil.copytree(os.path.join('..','mf6adj'),os.path.join('mf6adj'))
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
 
     org_d = "ex-gwf-sagehen-external"
     new_d = "sagehen_test1"
@@ -1806,13 +1792,9 @@ def test_sagehen1():
         if os.path.exists(new_d):
             shutil.rmtree(new_d)
         shutil.copytree(org_d, new_d)
-        shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
-        shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
-        shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
-        shutil.copytree(os.path.join("xmipy"), os.path.join(new_d, "xmipy"))
-        shutil.copytree(os.path.join("bmipy"), os.path.join(new_d, "bmipy"))
-        shutil.copytree(os.path.join("modflowapi"), os.path.join(new_d, "modflowapi"))
-        # shutil.copytree(os.path.join('flopy'), os.path.join(new_d, 'flopy'))
+        # shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
+        # shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
+        # shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
 
         pyemu.os_utils.run("mf6", cwd=new_d)
     sim = flopy.mf6.MFSimulation.load(sim_ws=new_d, load_only=["dis", "sfr"])
@@ -1839,9 +1821,7 @@ def test_sagehen1():
     start = datetime.now()
     os.chdir(new_d)
 
-    adj = mf6adj.Mf6Adj(
-        os.path.split(adj_file)[1], os.path.split(local_lib_name)[1], verbose_level=2
-    )
+    adj = mf6adj.Mf6Adj(os.path.split(adj_file)[1], lib_name, verbose_level=2)
 
     adj.solve_gwf()
     adj.solve_adjoint()
@@ -1975,7 +1955,6 @@ def test_xd_box_chd():
 
     assert len(pm_locs) > 0
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
 
     if run_adj:
         bd = os.getcwd()
@@ -2027,7 +2006,7 @@ def test_xd_box_chd():
                     lines.append("end performance_measure\n\n")
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
-        adj = mf6adj.Mf6Adj("test.adj", local_lib_name, verbose_level=1)
+        adj = mf6adj.Mf6Adj("test.adj", lib_name, verbose_level=1)
         adj.solve_gwf()
         adj.solve_adjoint()
         adj._perturbation_test(pert_mult=pert_mult)
@@ -2135,7 +2114,6 @@ def test_xd_box_ss():
 
     assert len(pm_locs) > 0
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
 
     if run_adj:
         bd = os.getcwd()
@@ -2188,7 +2166,7 @@ def test_xd_box_ss():
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
 
-        adj = mf6adj.Mf6Adj("test.adj", local_lib_name, verbose_level=1)
+        adj = mf6adj.Mf6Adj("test.adj", lib_name, verbose_level=1)
         adj.solve_gwf()
         adj.solve_adjoint()
         adj._perturbation_test(pert_mult=pert_mult)
@@ -2231,7 +2209,6 @@ def test_sanpedro1():
         shutil.rmtree("mf6adj")
     # shutil.copytree(os.path.join('..','mf6adj'),os.path.join('mf6adj'))
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
 
     org_d = os.path.join("sanpedro", "mf6_transient_ghb")
     new_d = "sanpedro_test1"
@@ -2241,13 +2218,9 @@ def test_sanpedro1():
         if os.path.exists(new_d):
             shutil.rmtree(new_d)
         shutil.copytree(org_d, new_d)
-        shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
-        shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
-        shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
-        shutil.copytree(os.path.join("xmipy"), os.path.join(new_d, "xmipy"))
-        shutil.copytree(os.path.join("bmipy"), os.path.join(new_d, "bmipy"))
-        shutil.copytree(os.path.join("modflowapi"), os.path.join(new_d, "modflowapi"))
-        # shutil.copytree(os.path.join('flopy'), os.path.join(new_d, 'flopy'))
+        # shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
+        # shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
+        # shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
 
         pyemu.os_utils.run("mf6", cwd=new_d)
 
@@ -2267,9 +2240,7 @@ def test_sanpedro1():
     start = datetime.now()
     os.chdir(new_d)
 
-    adj = mf6adj.Mf6Adj(
-        os.path.split(adj_file)[1], os.path.split(local_lib_name)[1], verbose_level=2
-    )
+    adj = mf6adj.Mf6Adj(os.path.split(adj_file)[1], lib_name, verbose_level=2)
 
     adj.solve_gwf()
     adj.solve_adjoint(
@@ -2409,7 +2380,6 @@ def test_xd_box_drn():
 
     assert len(pm_locs) > 0
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
 
     if run_adj:
         bd = os.getcwd()
@@ -2462,7 +2432,7 @@ def test_xd_box_drn():
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
 
-        adj = mf6adj.Mf6Adj("test.adj", local_lib_name, verbose_level=1)
+        adj = mf6adj.Mf6Adj("test.adj", lib_name, verbose_level=1)
         adj.solve_gwf()
         adj.solve_adjoint()
         adj._perturbation_test(pert_mult=pert_mult)
@@ -2505,7 +2475,6 @@ def test_ie_nomaw_1sp():
         shutil.rmtree("mf6adj")
     # shutil.copytree(os.path.join('..','mf6adj'),os.path.join('mf6adj'))
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
 
     org_d = os.path.join("ie_nomaw_1sp")
     new_d = "ie_nomaw_1sp_test1"
@@ -2515,13 +2484,9 @@ def test_ie_nomaw_1sp():
         if os.path.exists(new_d):
             shutil.rmtree(new_d)
         shutil.copytree(org_d, new_d)
-        shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
-        shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
-        shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
-        shutil.copytree(os.path.join("xmipy"), os.path.join(new_d, "xmipy"))
-        shutil.copytree(os.path.join("bmipy"), os.path.join(new_d, "bmipy"))
-        shutil.copytree(os.path.join("modflowapi"), os.path.join(new_d, "modflowapi"))
-        # shutil.copytree(os.path.join('flopy'), os.path.join(new_d, 'flopy'))
+        # shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
+        # shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
+        # shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
 
         pyemu.os_utils.run("mf6", cwd=new_d)
 
@@ -2538,9 +2503,7 @@ def test_ie_nomaw_1sp():
     start = datetime.now()
     os.chdir(new_d)
 
-    adj = mf6adj.Mf6Adj(
-        os.path.split(adj_file)[1], os.path.split(local_lib_name)[1], verbose_level=2
-    )
+    adj = mf6adj.Mf6Adj(os.path.split(adj_file)[1], lib_name, verbose_level=2)
 
     adj.solve_gwf()
     adj.solve_adjoint(
@@ -2560,7 +2523,6 @@ def test_ie_1sp():
         shutil.rmtree("mf6adj")
     # shutil.copytree(os.path.join('..','mf6adj'),os.path.join('mf6adj'))
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
 
     org_d = os.path.join("ie_1sp")
     new_d = "ie_1sp_test1"
@@ -2570,13 +2532,9 @@ def test_ie_1sp():
         if os.path.exists(new_d):
             shutil.rmtree(new_d)
         shutil.copytree(org_d, new_d)
-        shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
-        shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
-        shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
-        shutil.copytree(os.path.join("xmipy"), os.path.join(new_d, "xmipy"))
-        shutil.copytree(os.path.join("bmipy"), os.path.join(new_d, "bmipy"))
-        shutil.copytree(os.path.join("modflowapi"), os.path.join(new_d, "modflowapi"))
-        # shutil.copytree(os.path.join('flopy'), os.path.join(new_d, 'flopy'))
+        # shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
+        # shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
+        # shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
 
         pyemu.os_utils.run("mf6", cwd=new_d)
 
@@ -2593,9 +2551,7 @@ def test_ie_1sp():
     start = datetime.now()
     os.chdir(new_d)
 
-    adj = mf6adj.Mf6Adj(
-        os.path.split(adj_file)[1], os.path.split(local_lib_name)[1], verbose_level=2
-    )
+    adj = mf6adj.Mf6Adj(os.path.split(adj_file)[1], lib_name, verbose_level=2)
 
     adj.solve_gwf()
     adj.solve_adjoint(
@@ -2723,7 +2679,6 @@ def test_xd_box_maw():
 
     assert len(pm_locs) > 0
     sys.path.insert(0, os.path.join(".."))
-    import mf6adj
 
     if run_adj:
         bd = os.getcwd()
@@ -2776,7 +2731,7 @@ def test_xd_box_maw():
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
 
-        adj = mf6adj.Mf6Adj("test.adj", local_lib_name, verbose_level=1)
+        adj = mf6adj.Mf6Adj("test.adj", lib_name, verbose_level=1)
         adj.solve_gwf()
         adj.solve_adjoint()
         adj._perturbation_test(pert_mult=pert_mult)

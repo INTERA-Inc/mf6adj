@@ -1349,10 +1349,13 @@ class Mf6Adj(object):
                     "couldnt find ss_arr_name '{0}' needed for BS super hack"
                 )
             if os.path.exists(os.path.join(self._flow_dir, self._lib_name)):
-                shutil.copy2(
-                    os.path.join(self._flow_dir, self._lib_name),
-                    os.path.join(test_dir, self._lib_name),
-                )
+                src = os.path.join(self._flow_dir, self._lib_name)
+                dst = os.path.join(test_dir, self._lib_name)
+                if src != dst:
+                    shutil.copy2(
+                        src,
+                        dst,
+                    )
 
             self.logger.info("running manual flopy based perturbations for sto ss")
             pert_results_dict = {pm.name: [] for pm in self._performance_measures}

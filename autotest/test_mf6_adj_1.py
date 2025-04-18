@@ -98,11 +98,11 @@ def setup_xd_box_model(
         continue_=True,
     )
 
-    tdis = flopy.mf6.ModflowTdis(
+    flopy.mf6.ModflowTdis(
         sim, pname="tdis", time_units="DAYS", nper=len(tdis_pd), perioddata=tdis_pd
     )
 
-    ims = flopy.mf6.ModflowIms(
+    flopy.mf6.ModflowIms(
         sim,
         pname="ims",
         complexity="COMPLEX",
@@ -134,7 +134,7 @@ def setup_xd_box_model(
             idm[0, 1, 1] = 0
             idm[0, 3, 3] = 0
 
-    dis = flopy.mf6.ModflowGwfdis(
+    flopy.mf6.ModflowGwfdis(
         gwf,
         nlay=nlay,
         nrow=nrow,
@@ -145,10 +145,10 @@ def setup_xd_box_model(
         botm=botm,
         idomain=idm,
     )
-    id = dis.idomain.array.copy()
+    # id = dis.idomain.array.copy()
     # ### Create the initial conditions (`IC`) Package
     start = top * np.ones((nlay, nrow, ncol))
-    ic = flopy.mf6.ModflowGwfic(gwf, pname="ic", strt=start)
+    flopy.mf6.ModflowGwfic(gwf, pname="ic", strt=start)
 
     # ### Create the storage (`STO`) Package
     if include_sto:
@@ -168,7 +168,7 @@ def setup_xd_box_model(
             transient = {kper: True for kper in range(len(tdis_pd))}
             transient[0] = False
 
-        sto = flopy.mf6.ModflowGwfsto(
+        flopy.mf6.ModflowGwfsto(
             gwf,
             iconvert=iconvert,
             steady_state=steady_state,
@@ -231,7 +231,7 @@ def setup_xd_box_model(
     ghb_spd = {kper: ghb_rec for kper in range(nper)}
     if alt_bnd is None:
         ghb_spd.update({kper: alt_rec for kper in bnd_nper})
-    ghb = flopy.mf6.ModflowGwfghb(gwf, stress_period_data=ghb_spd)
+    flopy.mf6.ModflowGwfghb(gwf, stress_period_data=ghb_spd)
 
     # if nrow > 1 and ncol > 1:
     # wel_rec = [(nlay - 1, int(nrow / 2), int(ncol / 2), q)]
@@ -249,7 +249,7 @@ def setup_xd_box_model(
                         continue
                     wel_rec.append([(k, i, j), q * (kper + 1)])
         wspd[kper] = wel_rec
-    wel = flopy.mf6.ModflowGwfwel(gwf, stress_period_data=wspd)
+    flopy.mf6.ModflowGwfwel(gwf, stress_period_data=wspd)
 
     # flopy.mf6.ModflowGwfrcha(gwf, recharge=0.0001)
 
@@ -259,7 +259,7 @@ def setup_xd_box_model(
     budget_filerecord = [budgetfile]
     saverecord = {kper: [("HEAD", "ALL"), ("BUDGET", "ALL")] for kper in range(nper)}
     printrecord = {kper: [("HEAD", "ALL")] for kper in range(nper)}
-    oc = flopy.mf6.ModflowGwfoc(
+    flopy.mf6.ModflowGwfoc(
         gwf,
         saverecord=saverecord,
         head_filerecord=head_filerecord,
@@ -267,10 +267,10 @@ def setup_xd_box_model(
         printrecord=printrecord,
     )
 
-    npf = flopy.mf6.ModflowGwfnpf(gwf, icelltype=icelltype, k=hk, k33=k33)
+    flopy.mf6.ModflowGwfnpf(gwf, icelltype=icelltype, k=hk, k33=k33)
 
     rech = {kper: np.zeros((nrow, ncol)) + 0.0000001 for kper in range(nper)}
-    rch = flopy.mf6.ModflowGwfrcha(gwf, recharge=rech)
+    flopy.mf6.ModflowGwfrcha(gwf, recharge=rech)
 
     # # ### Write the datasets and run to make sure it works
     sim.write_simulation()
@@ -336,16 +336,14 @@ def run_xd_box_pert(
         mf6api.finalize_solve(1)
         mf6api.finalize_time_step()
         current_time = mf6api.get_current_time()
-        dt1 = mf6api.get_time_step()
+        # dt1 = mf6api.get_time_step()
         head_base.append(
             mf6api.get_value_ptr(mf6api.get_var_address("X", f"{name}")).copy()
         )
         swr_head_base.append(
             (
                 (
-                    mf6api.get_value_ptr(
-                        mf6api.get_var_address("X", f"{name}")
-                    ).copy()
+                    mf6api.get_value_ptr(mf6api.get_var_address("X", f"{name}")).copy()
                     - obsval
                 )
                 * weight
@@ -368,9 +366,8 @@ def run_xd_box_pert(
     kijs = gwf.modelgrid.get_lrc(list(nuser))
     try:
         mf6api.finalize()
-        success = True
-    except:
-        raise RuntimeError()
+    except Exception as e:
+        raise RuntimeError(e)
 
     props = [gwf.npf.k.array.copy()]
     flopy_objects = [gwf.npf]
@@ -454,9 +451,8 @@ def run_xd_box_pert(
                     break
             try:
                 mf6api.finalize()
-                success = True
-            except:
-                raise RuntimeError()
+            except Exception as e:
+                raise RuntimeError(e)
             kper += 1
 
         pert_direct_sens = {}
@@ -518,9 +514,7 @@ def run_xd_box_pert(
                         plt.colorbar(cb, ax=axes[k, 1])
                         cb = axes[k, 2].imshow(ssens_plot[k, :, :])
                         plt.colorbar(cb, ax=axes[k, 2])
-                        axes[k, 0].set_title(
-                            f"heads k:{k},kper:{kper}", loc="left"
-                        )
+                        axes[k, 0].set_title(f"heads k:{k},kper:{kper}", loc="left")
                         axes[k, 1].set_title(
                             f"dsens kij:{p_kij} k:{k},kper:{kper}",
                             loc="left",
@@ -538,7 +532,7 @@ def run_xd_box_pert(
                         f"pert-phi_kper{kper:03d}_pk{pk:03d}_pi{pi:03d}_pj{pj:03d}_comp_sens_{tag}_k{k:03d}.dat",
                         ssens_plot[k, :, :],
                         fmt="%15.6E",
-                        )
+                    )
 
                 if plot_pert_results:
                     plt.tight_layout()
@@ -867,7 +861,7 @@ def test_xd_box_1():
                 f.write(f"begin performance_measure {pm_name}\n")
                 for kper in range(sim.tdis.nper.data):
                     f.write(
-                        f"{kper+1} 1 {k+1} {i+1} {j+1} head direct {weight} -1e+30\n"
+                        f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} head direct {weight} -1e+30\n"
                     )
                 f.write("end performance_measure\n\n")
 
@@ -875,7 +869,7 @@ def test_xd_box_1():
                 f.write(f"begin performance_measure {pm_name}\n")
                 for kper in range(sim.tdis.nper.data):
                     f.write(
-                        f"{kper+1} 1 {k+1} {i+1} {j+1} head residual {weight} {obsval}\n"
+                        f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} head residual {weight} {obsval}\n"
                     )
                 f.write("end performance_measure\n\n")
 
@@ -1022,7 +1016,6 @@ def test_xd_box_unstruct_1():
                 mxbnd = max(mxbnd, wel.stress_period_data.data[kper].shape[0])
         f_wel.write(f"begin dimensions\nmaxbound {mxbnd}\nend dimensions\n\n")
 
-        wel_spd = {}
         for kper in range(sim.tdis.nper.data):
             if kper not in wel.stress_period_data.data:
                 continue
@@ -1076,9 +1069,7 @@ def test_xd_box_unstruct_1():
             ghb_spd[kper] = data
             f_ghb.write(f"begin period {kper + 1}\n")
             [
-                f_ghb.write(
-                    f"{il + 1:9d} {inode + 1:9d} {bhead:15.6E} {cond:15.6E}\n"
-                )
+                f_ghb.write(f"{il + 1:9d} {inode + 1:9d} {bhead:15.6E} {cond:15.6E}\n")
                 for il, inode, bhead, cond in zip(
                     ilay, inodes, rarray.bhead, rarray.cond
                 )
@@ -1135,7 +1126,7 @@ def test_xd_box_unstruct_1():
                 f.write(f"begin performance_measure {pm_name}\n")
                 for kper in range(sim.tdis.nper.data):
                     f.write(
-                        f"{kper+1} 1 {k+1} {inode+1} head direct {weight} -1.0e+30\n"
+                        f"{kper + 1} 1 {k + 1} {inode + 1} head direct {weight} -1.0e+30\n"
                     )
                 f.write("end performance_measure\n\n")
 
@@ -1143,7 +1134,7 @@ def test_xd_box_unstruct_1():
                 f.write(f"begin performance_measure {pm_name}\n")
                 for kper in range(sim.tdis.nper.data):
                     f.write(
-                        f"{kper + 1} 1 {k+1} {inode+1} head direct {weight} {obsval}\n"
+                        f"{kper + 1} 1 {k + 1} {inode + 1} head direct {weight} {obsval}\n"
                     )
                 f.write("end performance_measure\n\n")
 
@@ -1206,7 +1197,6 @@ def freyberg_structured_demo():
 
     sim = flopy.mf6.MFSimulation.load(sim_ws=new_d)
     gwf = sim.get_model()
-    ib = gwf.dis.idomain.array
     sfr_data = pd.DataFrame.from_records(gwf.sfr.packagedata.array)
 
     lrcs = []
@@ -1231,9 +1221,7 @@ def freyberg_structured_demo():
         f.write("begin performance_measure pm1\n")
         for rval, lrc in zip(rvals, lrcs):
             for kper in range(sim.tdis.nper.data):
-                f.write(
-                    f"{kper + 1} 1 {lrc} head direct 1.0 -1.0e+30\n"
-                )
+                f.write(f"{kper + 1} 1 {lrc} head direct 1.0 -1.0e+30\n")
         f.write("end performance_measure\n\n")
 
         sfr_data = pd.DataFrame.from_records(gwf.sfr.packagedata.array)
@@ -1246,27 +1234,20 @@ def freyberg_structured_demo():
             for kper in range(sim.tdis.nper.data):
                 for kij in bdf.cellid.values:
                     f.write(
-                        "{} 1 {} {} {} sfr_1 direct 1.0 -1.0e+30\n".format(
-                            kper + 1, kij[0] + 1, kij[1] + 1, kij[2] + 1
-                        )
+                        f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} sfr_1 direct 1.0 -1.0e+30\n"
                     )
             f.write("end performance_measure\n\n")
 
         f.write("begin performance_measure pm-combo\n")
         for rval, lrc in zip(rvals, lrcs):
             for kper in range(sim.tdis.nper.data):
-                # f.write("{} 1 {} 1.0  {}\n".format(kper+1,lrc,rval))
-                f.write(
-                    f"{kper + 1} 1 {lrc} head direct 1.0 -1.0e+30\n"
-                )
+                f.write(f"{kper + 1} 1 {lrc} head direct 1.0 -1.0e+30\n")
         for bname in bnames:
             bdf = sfr_data.loc[sfr_data.boundname == bname, :].copy()
             for kper in range(sim.tdis.nper.data):
                 for kij in bdf.cellid.values:
                     f.write(
-                        "{} 1 {} {} {} sfr_1 direct 1.0 -1.0e+30\n".format(
-                            kper + 1, kij[0] + 1, kij[1] + 1, kij[2] + 1
-                        )
+                        f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} sfr_1 direct 1.0 -1.0e+30\n"
                     )
         f.write("end performance_measure\n\n")
 
@@ -1313,16 +1294,9 @@ def freyberg_structured_demo():
                     for k, karr in enumerate(arr):
                         karr[idomain < 1] = np.nan
                         fig, ax = plt.subplots(1, 1, figsize=(6, 5))
-                        mx = np.nanmax(np.abs(karr))
-                        cb = ax.imshow(
-                            karr, cmap="gist_stern"
-                        )  # vmax=mx, vmin=-mx, cmap="seismic")
+                        cb = ax.imshow(karr, cmap="gist_stern")
                         plt.colorbar(cb, ax=ax, label="composite sensitivity")
-                        # cb = ax.imshow(karr)
-                        # plt.colorbar(cb,ax=ax)
-                        ax.set_title(
-                            key + ", " + pkey + f", layer:{k + 1}", loc="left"
-                        )
+                        ax.set_title(key + ", " + pkey + f", layer:{k + 1}", loc="left")
                         plt.tight_layout()
                         pdf.savefig()
                         plt.close(fig)
@@ -1377,9 +1351,7 @@ def freyberg_quadtree_demo():
             f.write("begin performance_measure pm1\n")
             for rval, lay, node in zip(rvals, df.layer, df.node):
                 for kper in range(25):
-                    f.write(
-                        f"{kper + 1} 1 {lay} {node} head residual 1.0  {rval}\n"
-                    )
+                    f.write(f"{kper + 1} 1 {lay} {node} head residual 1.0  {rval}\n")
             f.write("end performance_measure\n\n")
 
             sfr_data = pd.DataFrame.from_records(m.sfr.packagedata.array)
@@ -1395,11 +1367,7 @@ def freyberg_quadtree_demo():
                     for kij in bdf.cellid.values:
                         print(kij)
                         f.write(
-                            "{} 1 {} {} sfr_0 direct 1.0 -1.0e+30\n".format(
-                                kper + 1,
-                                kij[0] + 1,
-                                kij[1] + 1,
-                            )
+                            f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} sfr_0 direct 1.0 -1.0e+30\n"
                         )
                 f.write("end performance_measure\n\n")
 
@@ -1443,7 +1411,7 @@ def freyberg_quadtree_demo():
     idomain = idomain.reshape((nlay, nplc))
     from matplotlib.backends.backend_pdf import PdfPages
 
-    with PdfPages(os.path.join(new_d, "results.pdf")) as pdf:
+    with PdfPages(os.path.join(new_d, "results.pdf")) as _:
         for key in keys:
             print(key)
             if key != "composite":
@@ -1465,7 +1433,7 @@ def freyberg_quadtree_demo():
                     print(np.nanmin(karr), np.nanmax(karr))
                     # fig, ax = plt.subplots(1, 1, figsize=(6, 5))
                     m.dis.top = karr  # np.log10(np.abs(karr))
-                    ax = m.dis.top.plot(colorbar=True)
+                    m.dis.top.plot(colorbar=True)
                     h = head[k].copy()
                     h[idomain[k] == 0] = np.nan
                     m.dis.top = h
@@ -1517,10 +1485,7 @@ def freyberg_structured_highres_demo():
         f.write("begin performance_measure pm1\n")
         for rval, lay, row, col in zip(rvals, df.layer, df.row, df.col):
             for kper in range(25):
-                # f.write("{} 1 {} {} {} 1.0  {}\n".format(kper + 1, lay, row, col, rval))
-                f.write(
-                    f"{kper + 1} 1 {lay} {row} {col} head direct 1.0 -1.0e+30\n"
-                )
+                f.write(f"{kper + 1} 1 {lay} {row} {col} head direct 1.0 -1.0e+30\n")
         f.write("end performance_measure\n\n")
 
         sfr_data = pd.DataFrame.from_records(gwf.sfr.packagedata.array)
@@ -1533,21 +1498,9 @@ def freyberg_structured_highres_demo():
             for kper in range(sim.tdis.nper.data):
                 for kij in bdf.cellid.values:
                     f.write(
-                        "{} 1 {} {} {} sfr_1 direct 1.0 -1.0e+30\n".format(
-                            kper + 1, kij[0] + 1, kij[1] + 1, kij[2] + 1
-                        )
+                        f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} sfr_1 direct 1.0 -1.0e+30\n"
                     )
             f.write("end performance_measure\n\n")
-
-    # np.random.seed(11111)
-    # rvals = np.random.random(len(lrcs)) + 36
-    # with open(os.path.join(new_d, "test.adj"), 'w') as f:
-    #
-    #     f.write("begin performance_measure pm1 type residual\n")
-    #     for rval, lrc in zip(rvals, lrcs):
-    #         for kper in range(25):
-    #             f.write("{} 1 {} 1.0  {}\n".format(kper + 1, lrc, rval))
-    #     f.write("end performance_measure\n\n")
 
     start = datetime.now()
     os.chdir(new_d)
@@ -1591,9 +1544,7 @@ def freyberg_structured_highres_demo():
                     mx = np.nanmax(np.abs(karr))
                     cb = ax.imshow(karr, vmax=mx, vmin=-mx, cmap="bwr")
                     plt.colorbar(cb, ax=ax, label="composite sensitivity")
-                    ax.set_title(
-                        key + ", " + pkey + f", layer:{k + 1}", loc="left"
-                    )
+                    ax.set_title(key + ", " + pkey + f", layer:{k + 1}", loc="left")
                     plt.tight_layout()
                     pdf.savefig()
                     plt.close(fig)
@@ -1670,12 +1621,9 @@ def freyberg_notional_unstruct_demo():
         )
 
         f_wel.write(
-            "begin dimensions\nmaxbound {}\nend dimensions\n\n".format(
-                wel.stress_period_data.data[0].shape[0]
-            )
+            f"begin dimensions\nmaxbound {wel.stress_period_data.data[0].shape[0]}\nend dimensions\n\n"
         )
 
-        wel_spd = {}
         for kper in range(sim.tdis.nper.data):
             if kper not in wel.stress_period_data.data:
                 continue
@@ -1706,9 +1654,7 @@ def freyberg_notional_unstruct_demo():
         )
 
         f_ghb.write(
-            "begin dimensions\nmaxbound {}\nend dimensions\n\n".format(
-                ghb.stress_period_data.data[0].shape[0]
-            )
+            f"begin dimensions\nmaxbound {ghb.stress_period_data.data[0].shape[0]}\nend dimensions\n\n"
         )
 
         ghb_spd = {}
@@ -1732,9 +1678,7 @@ def freyberg_notional_unstruct_demo():
             ghb_spd[kper] = data
             f_ghb.write(f"begin period {kper + 1}\n")
             [
-                f_ghb.write(
-                    f"{il + 1:9d} {inode + 1:9d} {bhead:15.6E} {cond:15.6E}\n"
-                )
+                f_ghb.write(f"{il + 1:9d} {inode + 1:9d} {bhead:15.6E} {cond:15.6E}\n")
                 for il, inode, bhead, cond in zip(
                     ilay, inodes, rarray.bhead, rarray.cond
                 )
@@ -1795,7 +1739,6 @@ def freyberg_notional_unstruct_demo():
         f.write("begin performance_measure pm1\n")
         for rval, ln in zip(rvals, laynode):
             for kper in range(25):
-                # f.write("{} 1 {} 1.0  {}\n".format(kper+1,lrc,rval))
                 f.write(f"{kper + 1} 1 {ln} head direct 1.0 {rval}\n")
         f.write("end performance_measure\n\n")
 
@@ -1840,9 +1783,7 @@ def freyberg_notional_unstruct_demo():
                     fig, ax = plt.subplots(1, 1, figsize=(6, 5))
                     cb = ax.imshow(karr)
                     plt.colorbar(cb, ax=ax)
-                    ax.set_title(
-                        key + ", " + pkey + f", layer:{k + 1}", loc="left"
-                    )
+                    ax.set_title(key + ", " + pkey + f", layer:{k + 1}", loc="left")
                     plt.tight_layout()
                     pdf.savefig()
                     plt.close(fig)
@@ -1883,9 +1824,7 @@ def test_sagehen1():
         for kper in range(sim.tdis.nper.data):
             for kij in sfr_data.cellid.values:
                 f.write(
-                    "{} 1 {} {} {} sfr-1 direct 1.0 -1.0e+30\n".format(
-                        kper + 1, kij[0] + 1, kij[1] + 1, kij[2] + 1
-                    )
+                    f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} sfr-1 direct 1.0 -1.0e+30\n"
                 )
         f.write("end performance_measure\n\n")
 
@@ -1893,9 +1832,7 @@ def test_sagehen1():
         f.write("begin performance_measure terminalhead\n")
         for kper in range(sim.tdis.nper.data):
             f.write(
-                "{} 1 {} {} {} head direct 1.0 -1.0e+30\n".format(
-                    kper + 1, kij[0] + 1, kij[1] + 1, kij[2] + 1
-                )
+                f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} head direct 1.0 -1.0e+30\n"
             )
         f.write("end performance_measure\n")
 
@@ -2057,9 +1994,7 @@ def test_xd_box_chd():
                 f.write(f"begin performance_measure {pm_name}\n")
                 for kper in range(sim.tdis.nper.data):
                     f.write(
-                        "{} 1 {} {} {} head direct {} -1e+30\n".format(
-                            kper + 1, k + 1, i + 1, j + 1, weight
-                        )
+                        f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} head direct {weight} -1e+30\n"
                     )
                 f.write("end performance_measure\n\n")
 
@@ -2067,9 +2002,7 @@ def test_xd_box_chd():
                 f.write(f"begin performance_measure {pm_name}\n")
                 for kper in range(sim.tdis.nper.data):
                     f.write(
-                        "{} 1 {} {} {} head residual {} {}\n".format(
-                            kper + 1, k + 1, i + 1, j + 1, weight, obsval
-                        )
+                        f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} head residual {weight} {obsval}\n"
                     )
                 f.write("end performance_measure\n\n")
 
@@ -2088,9 +2021,7 @@ def test_xd_box_chd():
 
                         for k, i, j in kijs:
                             lines.append(
-                                "{} 1 {} {} {} ghb_0 direct 1.0 -1.0e+30\n".format(
-                                    kper + 1, k + 1, i + 1, j + 1
-                                )
+                                f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} ghb_0 direct 1.0 -1.0e+30\n"
                             )
 
                     lines.append("end performance_measure\n\n")
@@ -2223,9 +2154,7 @@ def test_xd_box_ss():
                 f.write(f"begin performance_measure {pm_name}\n")
                 for kper in range(sim.tdis.nper.data):
                     f.write(
-                        "{} 1 {} {} {} head direct {} -1e+30\n".format(
-                            kper + 1, k + 1, i + 1, j + 1, weight
-                        )
+                        f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} head direct {weight} -1e+30\n"
                     )
                 f.write("end performance_measure\n\n")
 
@@ -2233,9 +2162,7 @@ def test_xd_box_ss():
                 f.write(f"begin performance_measure {pm_name}\n")
                 for kper in range(sim.tdis.nper.data):
                     f.write(
-                        "{} 1 {} {} {} head residual {} {}\n".format(
-                            kper + 1, k + 1, i + 1, j + 1, weight, obsval
-                        )
+                        f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} head residual {weight} {obsval}\n"
                     )
                 f.write("end performance_measure\n\n")
 
@@ -2254,9 +2181,7 @@ def test_xd_box_ss():
 
                         for k, i, j in kijs:
                             lines.append(
-                                "{} 1 {} {} {} ghb_0 direct 1.0 -1.0e+30\n".format(
-                                    kper + 1, k + 1, i + 1, j + 1
-                                )
+                                f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} ghb_0 direct 1.0 -1.0e+30\n"
                             )
 
                     lines.append("end performance_measure\n\n")
@@ -2335,9 +2260,7 @@ def test_sanpedro1():
         for kper in range(sim.tdis.nper.data):
             for kij in sfr_data.cellid.values:
                 f.write(
-                    "{} 1 {} {} {} sfr-1 direct 1.0 -1.0e+30\n".format(
-                        kper + 1, kij[0] + 1, kij[1] + 1, kij[2] + 1
-                    )
+                    f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} sfr-1 direct 1.0 -1.0e+30\n"
                 )
         f.write("end performance_measure\n\n")
 
@@ -2505,9 +2428,7 @@ def test_xd_box_drn():
                 f.write(f"begin performance_measure {pm_name}\n")
                 for kper in range(sim.tdis.nper.data):
                     f.write(
-                        "{} 1 {} {} {} head direct {} -1e+30\n".format(
-                            kper + 1, k + 1, i + 1, j + 1, weight
-                        )
+                        f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} head direct {weight} -1e+30\n"
                     )
                 f.write("end performance_measure\n\n")
 
@@ -2515,9 +2436,7 @@ def test_xd_box_drn():
                 f.write(f"begin performance_measure {pm_name}\n")
                 for kper in range(sim.tdis.nper.data):
                     f.write(
-                        "{} 1 {} {} {} head residual {} {}\n".format(
-                            kper + 1, k + 1, i + 1, j + 1, weight, obsval
-                        )
+                        f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} head residual {weight} {obsval}\n"
                     )
                 f.write("end performance_measure\n\n")
 
@@ -2536,7 +2455,7 @@ def test_xd_box_drn():
 
                         for k, i, j in kijs:
                             lines.append(
-                                f"{kper+1} 1 {k+1} {i+1} {j+1} ghb_0 direct 1.0 -1.0e+30\n"
+                                f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} ghb_0 direct 1.0 -1.0e+30\n"
                             )
 
                     lines.append("end performance_measure\n\n")
@@ -2607,16 +2526,13 @@ def test_ie_nomaw_1sp():
         pyemu.os_utils.run("mf6", cwd=new_d)
 
     sim = flopy.mf6.MFSimulation.load(sim_ws=new_d, load_only=["dis", "sfr"])
-    gwf = sim.get_model()
 
     with open(adj_file, "w") as f:
         f.write("begin performance_measure single_all_times\n")
         for kper in range(sim.tdis.nper.data):
             nstp = sim.tdis.perioddata.array[0][1]
             print(nstp)
-            f.write(
-                f"{kper + 1} {nstp} {32} {1808} head direct 1.0 -1.0e+30\n"
-            )
+            f.write(f"{kper + 1} {nstp} {32} {1808} head direct 1.0 -1.0e+30\n")
         f.write("end performance_measure\n\n")
 
     start = datetime.now()
@@ -2665,16 +2581,13 @@ def test_ie_1sp():
         pyemu.os_utils.run("mf6", cwd=new_d)
 
     sim = flopy.mf6.MFSimulation.load(sim_ws=new_d, load_only=["dis", "sfr"])
-    gwf = sim.get_model()
 
     with open(adj_file, "w") as f:
         f.write("begin performance_measure single_all_times\n")
         for kper in range(sim.tdis.nper.data):
             nstp = sim.tdis.perioddata.array[0][1]
             print(nstp)
-            f.write(
-                f"{kper + 1} {nstp} {32} {1808} head direct 1.0 -1.0e+30\n"
-            )
+            f.write(f"{kper + 1} {nstp} {32} {1808} head direct 1.0 -1.0e+30\n")
         f.write("end performance_measure\n\n")
 
     start = datetime.now()
@@ -2775,7 +2688,7 @@ def test_xd_box_maw():
         0: [[0, "STATUS", "INACTIVE"]],
         1: [[0, "STATUS", "ACTIVE"], [0, "RATE", -1.0]],
     }
-    maw = flopy.mf6.ModflowGwfmaw(
+    flopy.mf6.ModflowGwfmaw(
         gwf,
         nmawwells=len(maw_pakdata),
         packagedata=maw_pakdata,
@@ -2829,7 +2742,7 @@ def test_xd_box_maw():
                 f.write(f"begin performance_measure {pm_name}\n")
                 for kper in range(sim.tdis.nper.data):
                     f.write(
-                        f"{kper+1} 1 {k+1} {i+1} {j+1} head direct {weight} -1e+30\n"
+                        f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} head direct {weight} -1e+30\n"
                     )
                 f.write("end performance_measure\n\n")
 
@@ -2837,7 +2750,7 @@ def test_xd_box_maw():
                 f.write(f"begin performance_measure {pm_name}\n")
                 for kper in range(sim.tdis.nper.data):
                     f.write(
-                        f"{kper+1} 1 {k+1} {i+1} {j+1} head residual {weight} {obsval}\n"
+                        f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} head residual {weight} {obsval}\n"
                     )
                 f.write("end performance_measure\n\n")
 
@@ -2856,7 +2769,7 @@ def test_xd_box_maw():
 
                         for k, i, j in kijs:
                             lines.append(
-                                f"{kper+1} 1 {k+1} {i+1} {j+1} ghb_0 direct 1.0 -1.0e+30\n"
+                                f"{kper + 1} 1 {k + 1} {i + 1} {j + 1} ghb_0 direct 1.0 -1.0e+30\n"
                             )
 
                     lines.append("end performance_measure\n\n")
@@ -2911,7 +2824,7 @@ if __name__ == "__main__":
     # test_xd_box_chd()
     # test_xd_box_drn()
     test_xd_box_1()
-    xd_box_compare(new_d, True)
+    # xd_box_compare(new_d, True)
     # test_sagehen1()
     # test_sanpedro1()
     # freyberg_structured_demo()

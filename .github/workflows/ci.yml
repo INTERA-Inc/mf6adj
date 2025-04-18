@@ -47,9 +47,9 @@ jobs:
 
     - name: Install executables
       run: |
-        get-modflow --subset mf6,libmf6,gridgen $CONDA_PREFIX/bin
+        get-modflow --subset mf6,libmf6,gridgen :python
 
-    - name: Autotest on ${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.test-path }}
+    - name: Autotest on ${{ matrix.os }}-python${{ matrix.python-version }}
       # shell: bash -l {0}
       working-directory: ./autotest
       run: |

@@ -34,35 +34,6 @@ lib_name = env_path / f"bin/libmf6{lib_ext}"
 mf6_bin = env_path / f"bin/mf6{exe_ext}"
 gg_bin = env_path / f"bin/gridgen{exe_ext}"
 
-# if "linux" in platform.platform().lower():
-#     lib_name = os.path.join("..", "bin", "linux", "libmf6.so")
-#     mf6_bin = os.path.join("..", "bin", "linux", "mf6")
-#     local_lib_name = "./libmf6.so"
-#     local_mf6_bin = "./mf6"
-#     gg_bin = os.path.join("..", "bin", "linux", "gridgen")
-# elif (
-#     "darwin" in platform.platform().lower() or "macos" in platform.platform().lower()
-# ) and "arm" not in platform.platform().lower():
-#     lib_name = os.path.join("..", "bin", "mac", "libmf6.dylib")
-#     mf6_bin = os.path.join("..", "bin", "mac", "mf6")
-#     local_lib_name = "./libmf6.dylib"
-#     local_mf6_bin = "./mf6"
-#     gg_bin = os.path.join("..", "bin", "mac", "gridgen")
-# elif (
-#     "darwin" in platform.platform().lower() or "macos" in platform.platform().lower()
-# ) and "arm" in platform.platform().lower():
-#     lib_name = os.path.join("..", "bin", "mac", "libmf6_arm.dylib")
-#     mf6_bin = os.path.join("..", "bin", "mac", "mf6")
-#     local_lib_name = "./libmf6_arm.dylib"
-#     local_mf6_bin = "./mf6"
-#     gg_bin = os.path.join("..", "bin", "mac", "gridgen")
-# else:
-#     lib_name = os.path.join("..", "bin", "win", "libmf6.dll")
-#     mf6_bin = os.path.join("..", "bin", "win", "mf6.exe")
-#     local_lib_name = "libmf6.dll"
-#     local_mf6_bin = "mf6.exe"
-#     gg_bin = os.path.join("..", "bin", "win", "gridgen.exe")
-
 
 def setup_xd_box_model(
     new_d,
@@ -94,8 +65,8 @@ def setup_xd_box_model(
     if os.path.exists(new_d):
         shutil.rmtree(new_d)
     os.mkdir(new_d)
-    shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
-    shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
+    # shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
+    # shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
 
     # shutil.copytree(os.path.join('bmipy'), os.path.join(new_d, 'bmipy'))
     # shutil.copytree(os.path.join('modflowapi'), os.path.join(new_d, 'modflowapi'))
@@ -995,7 +966,6 @@ def test_xd_box_unstruct_1():
 
     gwf = sim.get_model()
     obsval = 1.0
-    # shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
 
     pert_mult = 1.0001
     weight = 1.0
@@ -1199,8 +1169,8 @@ def freyberg_structured_demo():
     if os.path.exists(new_d):
         shutil.rmtree(new_d)
     shutil.copytree(org_d, new_d)
-    shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
-    shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
+    # shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
+    # shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
 
     pyemu.os_utils.run("mf6", cwd=new_d)
 
@@ -1332,8 +1302,8 @@ def freyberg_quadtree_demo():
         if os.path.exists(new_d):
             shutil.rmtree(new_d)
         shutil.copytree(org_d, new_d)
-        shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
-        shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
+        # shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
+        # shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
 
         pyemu.os_utils.run("mf6", cwd=new_d)
 
@@ -1456,8 +1426,8 @@ def freyberg_structured_highres_demo():
     if os.path.exists(new_d):
         shutil.rmtree(new_d)
     shutil.copytree(org_d, new_d)
-    shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
-    shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
+    # shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
+    # shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
 
     pyemu.os_utils.run("mf6", cwd=new_d)
 

@@ -19,6 +19,7 @@ def find_files_with_extension(directory, extension):
 
     return list(path.rglob(f"*{extension}"))
 
+
 directory_path = ".."
 file_extension = ".ipynb"
 notebook_count = 0
@@ -28,10 +29,14 @@ try:
         print(f"Files with extension '{file_extension}' found in '{directory_path}':")
         for file in files:
             print(f"clearing...{file}")
-            os.system(f"jupyter nbconvert --ClearOutputPreprocessor.enabled=True --ClearMetadataPreprocessor.enabled=True --inplace {file}")
+            os.system(
+                f"jupyter nbconvert --ClearOutputPreprocessor.enabled=True --ClearMetadataPreprocessor.enabled=True --inplace {file}"
+            )
             notebook_count += 1
     else:
-        print(f"No files with extension '{file_extension}' found in '{directory_path}'.")
+        print(
+            f"No files with extension '{file_extension}' found in '{directory_path}'."
+        )
     print(f"notebooks cleared...{notebook_count}")
 
 except NotADirectoryError as e:

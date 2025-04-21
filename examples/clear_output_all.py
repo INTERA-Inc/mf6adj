@@ -4,7 +4,8 @@ import pathlib as pl
 
 def find_files_with_extension(directory, extension):
     """
-    Finds all files with the specified extension in the given directory and its subdirectories.
+    Finds all files with the specified extension in the given directory and
+    its subdirectories.
 
     Args:
         directory: The path to the directory to search.
@@ -30,7 +31,8 @@ try:
         for file in files:
             print(f"clearing...{file}")
             os.system(
-                f"jupyter nbconvert --ClearOutputPreprocessor.enabled=True --ClearMetadataPreprocessor.enabled=True --inplace {file}"
+                "jupyter nbconvert --ClearOutputPreprocessor.enabled=True "
+                + f"--ClearMetadataPreprocessor.enabled=True --inplace {file}"
             )
             notebook_count += 1
     else:

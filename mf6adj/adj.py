@@ -46,7 +46,7 @@ class Mf6Adj(object):
         self._gwf_model_dict, namfile_dict = Mf6Adj.get_model_names_from_mfsim(".")
         if len(self._gwf_model_dict) != 1:
             raise Exception("only one model is current supported")
-        self._gwf_name = list(self._gwf_model_dict.keys())[0]
+        self._gwf_name = next(iter(self._gwf_model_dict.keys()))
         self._gwf_namfile = namfile_dict[self._gwf_name]
         self._gwf_package_dict = Mf6Adj.get_package_names_from_gwfname(
             self._gwf_namfile
@@ -118,31 +118,30 @@ class Mf6Adj(object):
         have information about the spatial and temporal location of the quantity such as
         node/lay-row-col information and stress period/time step information, as well as
         information about which output quantity to use (head or flux).  The entries must
-        also include a weight and optionally an observed value (for residual type performance
-        measures).
+        also include a weight and optionally an observed value (for residual type
+        performance measures).
 
-        For example, if the performance measure was for a head in a single cell located in
-        layer 3, row 10, column 34 during the 4th timestep of the 25th stress period and
-        it is a direct performance measure, the entry would be:
-           25 3 3 10 34 head direct 1.0 -999 # the -999 is a null value for the unused obsval
-        Alternatively, if the same spatial temporal location was used for a sum-of-squared
-        residual performance measure and the observed value is 123.45, the entry would be:
+        For example, if the performance measure was for a head in a single cell located
+        in layer 3, row 10, column 34 during the 4th timestep of the 25th stress period
+        and it is a direct performance measure, the entry would be:
+           25 3 3 10 34 head direct 1.0 -999 # -999 is a null value for a unused obsval
+        Alternatively, if the same spatial temporal location was used for a sum-of-
+        squared residual performance measure and the observed value is 123.45, the entry
+        would be:
            25 3 3 10 34 head residual 1.0 123.45
 
-        If the performance measure is for the simulated flux exchanged with a GHB boundary
-        in model layer 10, row 2, column 3 for stress periods 1 and 2 (assuming 1 timestep
-        per stress period and assuming the GHB package is named 'ghb_1' in the GWF nam file):
+        If the performance measure is for the simulated flux exchanged with a GHB
+        boundary in model layer 10, row 2, column 3 for stress periods 1 and 2 (assuming
+        1 timestep per stress period and assuming the GHB package is named 'ghb_1' in
+        the GWF nam file):
            1 1 10 2 3 ghb_1 direct 1.0 -999
            2 1 10 2 3 ghb_1 direct 1.0 -999
-        The resulting adjoint sensitivities will be with respect to the ghb flux in model cell
-        (10,2,3) for both stress periods 1 and 2
+        The resulting adjoint sensitivities will be with respect to the ghb flux in
+        model cell (10,2,3) for both stress periods 1 and 2
 
-        As presently coded, performance measure forms (i.e. 'direct' or 'residual') cannot be mixed
-        for a given performance measure and performance type (i.e. 'head' or flux) cannot be mixed
-        for a given performance measure.
-
-
-
+        As presently coded, performance measure forms (i.e. 'direct' or 'residual')
+        cannot be mixed for a given performance measure and performance type
+        (i.e. 'head' or flux) cannot be mixed for a given performance measure.
 
 
         """
@@ -205,7 +204,10 @@ class Mf6Adj(object):
 
                     if len(raw) != 3:
                         raise Exception(
-                            f"'begin' line {count} has wrong number of items, should be 3, not {len(raw)}"
+                            (
+                                f"'begin' line {count} has wrong number of items, "
+                                + f"should be 3, not {len(raw)}"
+                            )
                         )
 
                     pm_name = raw[2].strip().lower()
@@ -224,7 +226,10 @@ class Mf6Adj(object):
                             continue
                         elif line2.lower().strip().startswith("begin"):
                             raise Exception(
-                                f"a new begin block found while parsing performance_measure block '{line}'"
+                                (
+                                    "a new begin block found while parsing "
+                                    + f"performance_measure block '{line}'"
+                                )
                             )
                         elif (
                             line2.lower().strip().startswith("end performance_measure")
@@ -241,12 +246,20 @@ class Mf6Adj(object):
                         if self.is_structured and len(raw) != 9:
                             self.logger.info("parsed line: " + raw)
                             raise Exception(
-                                f"performance measure entry on line {count} has the wrong number of items, found {len(raw)}, should have 9"
+                                (
+                                    f"performance measure entry on line {count} has "
+                                    + f"the wrong number of items, found {len(raw)}, "
+                                    + "should have 9"
+                                )
                             )
                         elif not self.is_structured and len(raw) != 8:
                             self.logger.info("parsed line: " + raw)
                             raise Exception(
-                                f"performance measure entry on line {count} has the wrong number of items, found {len(raw)}, should have 8"
+                                (
+                                    f"performance measure entry on line {count} has "
+                                    + f"the wrong number of items, found {len(raw)}, "
+                                    + "should have 8"
+                                )
                             )
                         kper = int(raw[0]) - 1
                         kstp = int(raw[1]) - 1
@@ -265,7 +278,8 @@ class Mf6Adj(object):
                                     kij.append(int(raw[i + 2]) - 1)
                                 except Exception as e:
                                     print(
-                                        f"{e}\n\nerror casting k-i-j info on line {count}: '{line2}'"
+                                        f"{e}\n\nerror casting k-i-j info on "
+                                        + f"line {count}: '{line2}'"
                                     )
                             k, i, j = kij[0], kij[1], kij[2]
                             # convert to node number
@@ -288,14 +302,16 @@ class Mf6Adj(object):
                                 lay = int(raw[2])
                             except Exception as e:
                                 print(
-                                    f"{e}\n\nerror casting layer info info on line {count}: '{line2}'"
+                                    f"{e}\n\nerror casting layer info info on "
+                                    + f"line {count}: '{line2}'"
                                 )
                             k = lay - 1
                             try:
                                 node = int(raw[3])
                             except Exception as e:
                                 print(
-                                    f"{e}\n\nerror casting layer info info on line {count}: '{line2}'"
+                                    f"{e}\n\nerror casting layer info info on "
+                                    + f"line {count}: '{line2}'"
                                 )
 
                             inode = ((ncpl * (lay - 1)) + node) - 1
@@ -324,7 +340,8 @@ class Mf6Adj(object):
                             if not found:
                                 self.logger.info(str(ppnames))
                                 raise Exception(
-                                    f"`pm_type` {pm_type} names a GWF package instance that was not found"
+                                    f"`pm_type` {pm_type} names a GWF package "
+                                    + "instance that was not found"
                                 )
 
                         pm_entries.append(
@@ -343,18 +360,19 @@ class Mf6Adj(object):
                         )
                     if len(pm_entries) == 0:
                         raise Exception(f"no entries found for PM {pm_name}")
-                    pm_types = set([entry.pm_type for entry in pm_entries])
-                    # if len(pm_types) > 1:
-                    #     raise Exception("performance measure"+\
-                    #                     "{0} has mixed 'pm_types' ({1}), this is not supported".\
-                    #                     format(pm_name,str(pm_types)))
-                    pm_forms = set([entry.pm_form for entry in pm_entries])
+                    pm_types = {entry.pm_type for entry in pm_entries}
+
+                    pm_forms = {entry.pm_form for entry in pm_entries}
                     if len(pm_forms) > 1:
                         raise Exception(
                             "performance measure"
-                            + f"{pm_name} has mixed 'pm_forms' ({pm_forms!s}), this is not supported"
+                            + f"{pm_name} has mixed 'pm_forms' ({pm_forms!s}), "
+                            + "this is not supported"
                         )
-                    if list(pm_types)[0] != "head" and list(pm_forms)[0] != "direct":
+                    if (
+                        next(iter(pm_types)) != "head"
+                        and next(iter(pm_forms)) != "direct"
+                    ):
                         raise Exception(
                             "performance measure"
                             + pm_name
@@ -384,8 +402,9 @@ class Mf6Adj(object):
 
         Returns
         -------
-            dict,dict: a pair of dicts, first is model-name:model-type (e.g. {"gwf-1":"gwf"},
-                the second is model namfile: model-type (e.g. {"gwf-1":"gwf_1.nam"})
+            dict,dict: a pair of dicts, first is model-name:model-type
+                (e.g. {"gwf-1":"gwf"}, the second is model
+                namfile: model-type (e.g. {"gwf-1":"gwf_1.nam"})
 
         """
         sim_nam = os.path.join(sim_ws, "mfsim.nam")
@@ -707,12 +726,12 @@ class Mf6Adj(object):
         self,
         verbose: bool = True,
         _force_k_update: bool = False,
-        _sp_pert_dict: dict = None,
+        _sp_pert_dict: dict | None = None,
         pert_save: bool = False,
-        hdf5_name: str = None,
-        solve_func_ptr: Callable[[modflowapi.ModflowApi], None] = None,
-        presolve_func_ptr: Callable[[modflowapi.ModflowApi], None] = None,
-        postsolve_func_ptr: Callable[[modflowapi.ModflowApi], None] = None,
+        hdf5_name: str | None = None,
+        solve_func_ptr: Callable[[modflowapi.ModflowApi], None] | None = None,
+        presolve_func_ptr: Callable[[modflowapi.ModflowApi], None] | None = None,
+        postsolve_func_ptr: Callable[[modflowapi.ModflowApi], None] | None = None,
     ):
         """solve the flow across the modflow sim times and harvest the solution
         components needed for the adjoint solution and store them in the HDF5 file
@@ -720,13 +739,14 @@ class Mf6Adj(object):
         Parameters
         ----------
         verbose (bool) : flag to control stdout reporting
-        _force_k_update (bool) : flag to force MODFLOW6 to re-process the K and K33 arrays.
+        _force_k_update (bool) : flag to force MODFLOW6 to re-process the K and
+            K33 arrays.
             This is used in the perturbation testing
         _sp_pert_dict (dict) : a dictionary of perturbed boundary information.
             This is used in the perturbation testing
         pert_save (bool) : flag to save more information for the perturbation testing
-        hdf5_name (str) : optional hdf5 filename to store forward solution components in.
-            If None, a generic time-stamped filename is created
+        hdf5_name (str) : optional hdf5 filename to store forward solution components
+            in. If None, a generic time-stamped filename is created.
 
         Returns
         -------
@@ -752,7 +772,7 @@ class Mf6Adj(object):
         num_fails = 0
 
         sat_old = None
-        visited = list()
+        visited = []
         ctimes = []
         dts = []
         kpers, kstps = [], []
@@ -858,7 +878,9 @@ class Mf6Adj(object):
                     td = (datetime.now() - sol_start).total_seconds() / 60.0
                     if verbose:
                         self.logger.info(
-                            f"flow stress period,time step {stress_period},{time_step} converged with {kiter} iters, took {td:10.5G} mins"
+                            f"flow stress period,time step {stress_period},"
+                            + f"{time_step} converged with {kiter} iters, took "
+                            + f"{td:10.5G} mins"
                         )
                     break
                 kiter += 1
@@ -867,7 +889,8 @@ class Mf6Adj(object):
                 td = (datetime.now() - sol_start).total_seconds() / 60.0
                 if verbose:
                     self.logger.info(
-                        f"flow stress period,time step {stress_period},{time_step} did not converge, {kiter} iters, took {td:10.5G} mins"
+                        f"flow stress period,time step {stress_period},{time_step} "
+                        + f"did not converge, {kiter} iters, took {td:10.5G} mins"
                     )
                 num_fails += 1
             try:
@@ -957,7 +980,8 @@ class Mf6Adj(object):
                             if pert_save and kperkstp in sp_package_data[package_type]:
                                 if len(self._gwf_package_dict[package_type]) == 1:
                                     raise Exception(
-                                        f"kperkstp '{kperkstp}' already in sp_package_data"
+                                        f"kperkstp '{kperkstp}' already in "
+                                        + "sp_package_data"
                                     )
                                 else:
                                     pass
@@ -1055,7 +1079,8 @@ class Mf6Adj(object):
                             }
                             for key, val in bnd_attrs.items():
                                 assert key not in data_dict[tag], (
-                                    f"boundary attribute '{key}' already in data dict for {tag}"
+                                    f"boundary attribute '{key}' already in "
+                                    + f"data dict for {tag}"
                                 )
                                 data_dict[tag][key] = val
             attr_dict = {
@@ -1077,7 +1102,8 @@ class Mf6Adj(object):
         td = (sim_end - sim_start).total_seconds() / 60.0
         if verbose:
             self.logger.info(
-                f"\n...flow solution finished at {sim_end.strftime(DT_FMT)}, took: {td:10.5G} mins"
+                f"\n...flow solution finished at {sim_end.strftime(DT_FMT)}, "
+                + f"took: {td:10.5G} mins"
             )
             if num_fails > 0:
                 self.logger.info(f"...failed to converge {num_fails} times")
@@ -1096,16 +1122,20 @@ class Mf6Adj(object):
         linear_solver_kwargs: dict = {},
         use_precon: bool = True,
     ):
-        """solve for the adjoint state, one performance measure at at time
+        """Solve for the adjoint state, one performance measure at at time
 
         Parameters
         ----------
-        linear_solver (varies) : the scipy sparse linear alg solver to use.  If None, a choice is made
-            between direct and bicgstab, depending if the number of nodes is less than 50,000.  If `str`,
-            can be "direct" or "bicgstab".  Otherwise, can be a function pointer to a solver function
-            in which the first two args are the CSR amat matrix and the dense RHS vector, respectively
-        linear_solver_kwargs (dict): dictionary of keyword args to pass to `linear_solver`.  Default is {}
-        use_precon (bool): flag to use an ILU preconditioner with iterative linear solver.
+        linear_solver (varies) : the scipy sparse linear alg solver to use.  If None,
+            a choice is made between direct and bicgstab, depending if the number of
+            nodes is less than 50,000.  If `str`, can be "direct" or "bicgstab".
+            Otherwise, can be a function pointer to a solver function in which the
+            first two args are the CSR amat matrix and the dense RHS vector,
+            respectively.
+        linear_solver_kwargs (dict): dictionary of keyword args to pass to
+            `linear_solver`.  Default is {}
+        use_precon (bool): flag to use an ILU preconditioner with iterative
+            linear solver.
 
         Returns
         -------
@@ -1180,7 +1210,7 @@ class Mf6Adj(object):
         wbaddr = self._gwf.get_var_address(*addr)
         nuser = self._gwf.get_value(wbaddr) - 1
         if len(nuser) == 1:
-            nuser = np.arange(org_head[list(org_head.keys())[0]].shape[0], dtype=int)
+            nuser = np.arange(org_head[next(iter(org_head.keys()))].shape[0], dtype=int)
 
         addr = ["NODES", gwf_name, "DIS"]
         wbaddr = self._gwf.get_var_address(*addr)
@@ -1189,7 +1219,7 @@ class Mf6Adj(object):
         kijs = None
         if self.is_structured:
             kijs = PerfMeas.get_lrc(self._shape, list(nuser))
-            kijs = {n: kij for n, kij in zip(nuser, kijs)}
+            kijs = dict(zip(nuser, kijs))
         addr = ["NLAY", gwf_name, "DIS"]
         wbaddr = self._gwf.get_var_address(*addr)
         nlay = self._gwf.get_value(wbaddr)[0]
@@ -1275,6 +1305,7 @@ class Mf6Adj(object):
                     continue
                 gdf.loc[:, col] = gdf.index.map(lambda x: col_dict[col][x])
             dfs.append(gdf)
+
         # property perturbations
         address = [["K11", gwf_name, "NPF"]]
         if nlay > 1:

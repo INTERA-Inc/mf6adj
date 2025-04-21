@@ -62,7 +62,8 @@ def test_sanpedro():
         for kper in range(sim.tdis.nper.data):
             for kij in sfr_data.cellid.values:
                 f.write(
-                    f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} sfr-1 direct 1.0 -1.0e+30\n"
+                    f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} "
+                    + "sfr-1 direct 1.0 -1.0e+30\n"
                 )
         f.write("end performance_measure\n\n")
 

@@ -38,7 +38,7 @@ dependencies = [
 dynamic = ["version", "readme"]
 
 [project.optional-dependencies]
-dev = ["mf6adj[codegen,lint,test,doc]", "tach"]
+dev = ["mf6adj[lint,test,doc]"]
 lint = ["codespell[toml] >=2.2.2", "ruff"]
 test = [
     "mf6adj[lint]",
@@ -50,7 +50,7 @@ test = [
     "pytest-xdist",
 ]
 doc = [
-    "mf6adj[optional]",
+    "mf6adj[test]",
     "ipython[kernel]",
     "jupytext",
     "myst-parser",

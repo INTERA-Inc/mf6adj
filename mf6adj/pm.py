@@ -1,7 +1,7 @@
 import logging
 import os
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 import h5py
 import numpy as np
@@ -11,7 +11,8 @@ from scipy.sparse.linalg import LinearOperator, bicgstab, spilu, spsolve
 
 
 class PerfMeasRecord(object):
-    """a performance measure record class - an instance for each row in the performance measure block
+    """A performance measure record class - an instance for each row in the
+    performance measure block
 
     Parameters
     ----------
@@ -38,9 +39,9 @@ class PerfMeasRecord(object):
         pm_form: str,
         weight: float,
         obsval: float,
-        k: int = None,
-        i: int = None,
-        j: int = None,
+        k: Optional[int] = None,
+        i: Optional[int] = None,
+        j: Optional[int] = None,
     ):
         self._kper = int(kper)
         self._kstp = int(kstp)
@@ -62,14 +63,19 @@ class PerfMeasRecord(object):
         self.weight = float(weight)
         self.obsval = float(obsval)
         self.pm_type = pm_type.lower().strip()
+
         self.pm_form = pm_form.lower().strip()
         if self.pm_form not in ["direct", "residual"]:
             raise Exception(
-                f"PerfMeasRecord.pm_form must be 'direct' or 'residual', not '{self.pm_form}'"
+                "PerfMeasRecord.pm_form must be 'direct' or 'residual', "
+                + f"not '{self.pm_form}'"
             )
 
     def __repr__(self):
-        s = f"kperkstp:{self.kperkstp}, inode:{self.inode}, k:{self._k}, type:{self.pm_type}, form:{self.pm_form}"
+        s = (
+            f"kperkstp:{self.kperkstp}, inode:{self.inode}, "
+            + f"k:{self._k}, type:{self.pm_type}, form:{self.pm_form}"
+        )
         if self._i is not None:
             s += f", i:{self._i}"
         if self._j is not None:
@@ -90,11 +96,14 @@ class PerfMeas(object):
     todo: preprocess all the connectivity in to faster look dict containers,
         including nnode to kij info for structured grids
 
-        todo: convert several class methods to static methods - this might make testing easier
+        todo: convert several class methods to static methods - this might make
+              testing easier
 
-        todo: add a no-data value var to fill empty spots in output arrays.  currently using zero :(
+        todo: add a no-data value var to fill empty spots in output arrays.
+              Currently using zero :(
 
-        todo: check that each entry's kperkstp is in the dicts being passed to solve_adjoint()
+        todo: check that each entry's kperkstp is in the dicts being passed to
+              solve_adjoint()
 
     """
 
@@ -176,7 +185,7 @@ class PerfMeas(object):
     def solve_adjoint(
         self,
         hdf5_forward_solution_fname: str,
-        hdf5_adjoint_solution_fname: str = None,
+        hdf5_adjoint_solution_fname: Optional[str] = None,
         linear_solver=None,
         linear_solver_kwargs: dict = {},
         use_precon: bool = True,
@@ -185,16 +194,22 @@ class PerfMeas(object):
 
         Parameters
         ----------
-        hdf5_forward_solution_fname (str) : the HDF5 file written during the forward GWF solution
-            that contains all the information needed to solve for the adjoint state
-        hdf5_adjoint_solution_fname (str) : the HDF5 file to be created by the adjoint solution process.
-            If None, use `"adjoint_solution_{0}_".format(self._name) + hdf5_forward_solution_fname`.
-        linear_solver (varies) : the scipy sparse linear alg solver to use.  If None, a choice is made
-            between direct and bicgstab, depending if the number of nodes is less than 50,000.  If `str`,
-            can be "direct" or "bicgstab".  Otherwise, can be a function pointer to a solver function
-            in which the first two args are the CSR amat matrix and the dense RHS vector, respectively
-        linear_solver_kwargs (dict): dictionary of keyword args to pass to `linear_solver`.  Default is {}
-        use_precon (bool): flag to use an ILU preconditioner with iterative linear solver.
+        hdf5_forward_solution_fname (str) : the HDF5 file written during the forward
+            GWF  solution that contains all the information needed to solve for the
+            adjoint state
+        hdf5_adjoint_solution_fname (str) : the HDF5 file to be created by the adjoint
+            solution process. If None, use `f"adjoint_solution_{self._name0}_" +
+            hdf5_forward_solution_fname`.
+        linear_solver (varies) : the scipy sparse linear alg solver to use.  If None,
+            a choice is made between direct and bicgstab, depending if the number of
+            nodes is less than 50,000.  If `str`, can be "direct" or "bicgstab".
+            Otherwise, can be a function pointer to a solver function in which the
+            first two args are the CSR amat matrix and the dense RHS vector,
+            respectively
+        linear_solver_kwargs (dict): dictionary of keyword args to pass to
+            `linear_solver`.  Default is {}
+        use_precon (bool): flag to use an ILU preconditioner with iterative
+            linear solver.
 
         Returns
         -------
@@ -206,7 +221,10 @@ class PerfMeas(object):
             hdf = h5py.File(hdf5_forward_solution_fname, "r")
         except Exception as e:
             raise Exception(
-                f"error opening hdf5 file '{hdf5_forward_solution_fname}' for PerfMeas {self._name}: {e!s}"
+                (
+                    f"error opening hdf5 file '{hdf5_forward_solution_fname}' "
+                    + f"for PerfMeas {self._name}: {e!s}"
+                )
             )
         if hdf5_adjoint_solution_fname is None:
             pth = os.path.split(hdf5_forward_solution_fname)[0]
@@ -217,14 +235,17 @@ class PerfMeas(object):
 
         if os.path.exists(hdf5_adjoint_solution_fname):
             self.logger.warning(
-                f"WARNING: removing existing adjoint solution file '{hdf5_adjoint_solution_fname}'"
+                (
+                    "WARNING: removing existing adjoint solution "
+                    + f"file '{hdf5_adjoint_solution_fname}'"
+                )
             )
             os.remove(hdf5_adjoint_solution_fname)
 
         adf = h5py.File(hdf5_adjoint_solution_fname, "w")
 
         keys = list(hdf.keys())
-        gwf_package_dict = {k: v for k, v in hdf["gwf_info"].attrs.items()}
+        gwf_package_dict = dict(hdf["gwf_info"].attrs.items())
 
         sol_keys = [k for k in keys if k.startswith("solution")]
         sol_keys.sort()
@@ -235,7 +256,10 @@ class PerfMeas(object):
         ]
         if len(kperkstp) != len(sol_keys):
             raise Exception(
-                f"number of solution datasets ({len(sol_keys)}) != number of kper,kstp entries ({len(kperkstp)})"
+                (
+                    f"number of solution datasets ({len(sol_keys)}) != number "
+                    + f"of kper,kstp entries ({len(kperkstp)})"
+                )
             )
         kk_sol_map = {}
         for kk in kperkstp:
@@ -385,7 +409,9 @@ class PerfMeas(object):
                         )
                 else:
                     raise Exception(
-                        f"unrecognized 'linear_solver' value: '{linear_solver}', should be 'direct' or 'bicgstab'"
+                        "unrecognized 'linear_solver' value: "
+                        + f"'{linear_solver}', "
+                        + "should be 'direct' or 'bicgstab'"
                     )
             else:
                 _linear_solver = linear_solver
@@ -407,7 +433,10 @@ class PerfMeas(object):
                 lamb = lamb[0]
             if np.any(np.isnan(lamb)):
                 self.logger.warning(
-                    f"WARNING: nans in adjoint states for pm {self.name} at kperkstp {kk}"
+                    (
+                        f"WARNING: nans in adjoint states for pm {self.name} "
+                        + f"at kperkstp {kk}"
+                    )
                 )
             self.logger.info(f"...took:{(datetime.now() - start).total_seconds()}")
             is_newton = hdf[sol_key].attrs["is_newton"]
@@ -646,7 +675,7 @@ class PerfMeas(object):
 
     @staticmethod
     def _dconddhk(k1, k2, cl1, cl2, width, height1, height2):
-        """partial of conductance with respect to K
+        """Partial of conductance with respect to K
 
         Parameters
         ----------
@@ -673,7 +702,7 @@ class PerfMeas(object):
 
     @staticmethod
     def smooth_sat(sat):
-        """smoother saturation using sigmoid function a la MODFLOW6
+        """Saturation smoother using sigmoid function from MODFLOW6
 
         Parameters
         ----------
@@ -699,7 +728,7 @@ class PerfMeas(object):
 
     @staticmethod
     def d_smooth_sat_dh(sat, top, bot):
-        """partial of smoother saturation with respect to head
+        """Partial of smoother saturation with respect to head
 
         Parameters
         ----------
@@ -725,7 +754,7 @@ class PerfMeas(object):
 
     @staticmethod
     def _smooth_sat(sat1, sat2, h1, h2):
-        """private method for upstream smoothing
+        """Private method for upstream smoothing
 
         Parameters
         ----------
@@ -747,7 +776,8 @@ class PerfMeas(object):
 
     @staticmethod
     def _d_smooth_sat_dh(sat, h1, h2, top, bot):
-        """private method of partial of smoothed saturation with respect to upstream head
+        """Private method of partial of smoothed saturation
+           with respect to upstream head
 
         Parameters
         ----------
@@ -811,7 +841,8 @@ class PerfMeas(object):
 
         Returns
         -------
-        result_k, result_k33 (ndarray) : the adjoint state times the partial of residual with respect to k and k33 times head
+        result_k, result_k33 (ndarray) : the adjoint state times the partial of
+                                         residual with respect to k and k33 times head
         """
         iac = np.array([ia[i + 1] - ia[i] for i in range(len(ia) - 1)])
         # array of number of connections per node (size nodes)

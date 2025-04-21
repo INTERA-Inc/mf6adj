@@ -88,7 +88,8 @@ def test_freyberg_structured():
             for kper in range(sim.tdis.nper.data):
                 for kij in bdf.cellid.values:
                     f.write(
-                        f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} sfr_1 direct 1.0 -1.0e+30\n"
+                        f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} "
+                        + "sfr_1 direct 1.0 -1.0e+30\n"
                     )
             f.write("end performance_measure\n\n")
 
@@ -101,7 +102,8 @@ def test_freyberg_structured():
             for kper in range(sim.tdis.nper.data):
                 for kij in bdf.cellid.values:
                     f.write(
-                        f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} sfr_1 direct 1.0 -1.0e+30\n"
+                        f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} "
+                        + "sfr_1 direct 1.0 -1.0e+30\n"
                     )
         f.write("end performance_measure\n\n")
 
@@ -197,7 +199,8 @@ def test_freyberg_quadtree():
                     for kij in bdf.cellid.values:
                         print(kij)
                         f.write(
-                            f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} sfr_0 direct 1.0 -1.0e+30\n"
+                            f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} "
+                            + "sfr_0 direct 1.0 -1.0e+30\n"
                         )
                 f.write("end performance_measure\n\n")
 
@@ -240,7 +243,7 @@ def test_freyberg_quadtree():
             if key != "composite":
                 continue
             grp = hdf[key]
-            plot_keys = [i for i in grp.keys()]
+            plot_keys = list(grp.keys())
 
             for pkey in plot_keys:
                 print(pkey)
@@ -308,7 +311,8 @@ def freyberg_structured_highres():
             for kper in range(sim.tdis.nper.data):
                 for kij in bdf.cellid.values:
                     f.write(
-                        f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} sfr_1 direct 1.0 -1.0e+30\n"
+                        f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} "
+                        + "sfr_1 direct 1.0 -1.0e+30\n"
                     )
             f.write("end performance_measure\n\n")
 
@@ -410,7 +414,8 @@ def test_freyberg_notional_unstruct():
         )
 
         f_wel.write(
-            f"begin dimensions\nmaxbound {wel.stress_period_data.data[0].shape[0]}\nend dimensions\n\n"
+            "begin dimensions\nmaxbound "
+            + f"{wel.stress_period_data.data[0].shape[0]}\nend dimensions\n\n"
         )
 
         for kper in range(sim.tdis.nper.data):
@@ -441,7 +446,8 @@ def test_freyberg_notional_unstruct():
         )
 
         f_ghb.write(
-            f"begin dimensions\nmaxbound {ghb.stress_period_data.data[0].shape[0]}\nend dimensions\n\n"
+            "begin dimensions\nmaxbound "
+            + f"{ghb.stress_period_data.data[0].shape[0]}\nend dimensions\n\n"
         )
 
         ghb_spd = {}

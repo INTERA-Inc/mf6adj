@@ -33,21 +33,19 @@ else:
     exe_ext = ".exe"
 lib_name = env_path / f"{bin_path}/libmf6{lib_ext}"
 mf6_bin = env_path / f"{bin_path}/mf6{exe_ext}"
-gg_bin = env_path / f"{bin_path}/gridgen{exe_ext}"
 
 
-def test_sanpedro():
+def test_sagehen():
     prep = True
 
-    org_d = os.path.join("sanpedro", "mf6_transient_ghb")
-    new_d = "sanpedro_test1"
+    org_d = "ex-gwf-sagehen-external"
+    new_d = "sagehen_test"
 
     adj_file = os.path.join(new_d, "test.adj")
     if prep:
         if os.path.exists(new_d):
             shutil.rmtree(new_d)
         shutil.copytree(org_d, new_d)
-
         pyemu.os_utils.run("mf6", cwd=new_d)
 
     sim = flopy.mf6.MFSimulation.load(sim_ws=new_d, load_only=["dis", "sfr"])
@@ -63,17 +61,22 @@ def test_sanpedro():
                 )
         f.write("end performance_measure\n\n")
 
+        # now a direct head pm at the terminal sfr reach (the last kij covered)
+        f.write("begin performance_measure terminalhead\n")
+        for kper in range(sim.tdis.nper.data):
+            f.write(
+                f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} head direct 1.0 -1.0e+30\n"
+            )
+        f.write("end performance_measure\n")
+
     start = datetime.now()
     os.chdir(new_d)
 
+    print("calculating adjoint...")
     adj = mf6adj.Mf6Adj(os.path.split(adj_file)[1], lib_name, verbose_level=2)
 
     adj.solve_gwf()
-    adj.solve_adjoint(
-        linear_solver="bicgstab",
-        linear_solver_kwargs={"maxiter": 50, "rtol": 0.1, "atol": 0.1},
-        use_precon=False,
-    )
+    adj.solve_adjoint()
     adj.finalize()
     os.chdir("..")
     duration = (datetime.now() - start).total_seconds()
@@ -84,7 +87,6 @@ def test_sanpedro():
         for f in os.listdir(new_d)
         if f.endswith("hd5") and f.startswith("adjoint_solution_swgw")
     ]
-
     assert len(result_hdf) == 1
     result_hdf = result_hdf[0]
 

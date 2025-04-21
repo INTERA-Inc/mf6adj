@@ -51,12 +51,9 @@ jobs:
         get-modflow --subset mf6,libmf6,gridgen :python
 
     - name: Autotest on ${{ matrix.os }}-python${{ matrix.python-version }}
-      # shell: bash -l {0}
       working-directory: ./autotest
       run: |
-        # cd autotest
-        ls
-        pytest -n=auto --durations=0
+        pytest -v -n=auto --durations=0
       #env:
       #  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

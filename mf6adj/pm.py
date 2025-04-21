@@ -206,7 +206,7 @@ class PerfMeas(object):
             hdf = h5py.File(hdf5_forward_solution_fname, "r")
         except Exception as e:
             raise Exception(
-                f"error opening hdf5 file '{hdf5_forward_solution_fname}' for PerfMeas {self._name}: {str(e)}"
+                f"error opening hdf5 file '{hdf5_forward_solution_fname}' for PerfMeas {self._name}: {e!s}"
             )
         if hdf5_adjoint_solution_fname is None:
             pth = os.path.split(hdf5_forward_solution_fname)[0]
@@ -247,7 +247,7 @@ class PerfMeas(object):
                     sol = s
                     break
             if sol is None:
-                raise Exception(f"no solution dataset found for kper,kstp:{str(kk)}")
+                raise Exception(f"no solution dataset found for kper,kstp:{kk!s}")
             kk_sol_map[kk] = sol
 
         nnodes = hdf["gwf_info"]["nnodes"][:]
@@ -814,7 +814,7 @@ class PerfMeas(object):
         result_k, result_k33 (ndarray) : the adjoint state times the partial of residual with respect to k and k33 times head
         """
         iac = np.array([ia[i + 1] - ia[i] for i in range(len(ia) - 1)])
-        # array of number of connections per node (size ndoes)
+        # array of number of connections per node (size nodes)
 
         sat_mod = sat.copy()
         sat_mod[icelltype == 0] = 1.0
@@ -996,7 +996,7 @@ class PerfMeas(object):
 
         Parameters
         ----------
-        lrc_list (list): list of layer row columnn values
+        lrc_list (list): list of layer row column values
 
         Returns
         -------

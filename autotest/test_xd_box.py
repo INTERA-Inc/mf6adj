@@ -139,9 +139,9 @@ def setup_xd_box_model(
         steady_state = [False]
         transient = [True]
         if len(tdis_pd) > 1:
-            steady_state = {kper: False for kper in range(len(tdis_pd))}
+            steady_state = dict.fromkeys(range(len(tdis_pd)), False)
             steady_state[0] = True
-            transient = {kper: True for kper in range(len(tdis_pd))}
+            transient = dict.fromkeys(range(len(tdis_pd)), True)
             transient[0] = False
 
         flopy.mf6.ModflowGwfsto(
@@ -181,15 +181,15 @@ def setup_xd_box_model(
 
         if alt_bnd == "riv":
             _ = flopy.mf6.ModflowGwfriv(
-                gwf, stress_period_data={kper: alt_rec for kper in bnd_nper}
+                gwf, stress_period_data=dict.fromkeys(bnd_nper, alt_rec)
             )
         elif alt_bnd == "drn":
             _ = flopy.mf6.ModflowGwfdrn(
-                gwf, stress_period_data={kper: alt_rec for kper in bnd_nper}
+                gwf, stress_period_data=dict.fromkeys(bnd_nper, alt_rec)
             )
         elif alt_bnd == "chd":
             _ = flopy.mf6.ModflowGwfchd(
-                gwf, stress_period_data={kper: alt_rec for kper in bnd_nper}
+                gwf, stress_period_data=dict.fromkeys(bnd_nper, alt_rec)
             )
         elif alt_bnd is None:
             pass
@@ -203,9 +203,9 @@ def setup_xd_box_model(
     for k in [0]:
         for i in range(nrow):
             ghb_rec.append(((k, i, ncol - 1), ghb_stage, 1000.0))
-    ghb_spd = {kper: ghb_rec for kper in range(nper)}
+    ghb_spd = dict.fromkeys(range(nper), ghb_rec)
     if alt_bnd is None:
-        ghb_spd.update({kper: alt_rec for kper in bnd_nper})
+        ghb_spd.update(dict.fromkeys(bnd_nper, alt_rec))
     flopy.mf6.ModflowGwfghb(gwf, stress_period_data=ghb_spd)
 
     wspd = {}

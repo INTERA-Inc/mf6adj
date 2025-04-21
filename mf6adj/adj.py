@@ -352,7 +352,7 @@ class Mf6Adj(object):
                     if len(pm_forms) > 1:
                         raise Exception(
                             "performance measure"
-                            + f"{pm_name} has mixed 'pm_forms' ({str(pm_forms)}), this is not supported"
+                            + f"{pm_name} has mixed 'pm_forms' ({pm_forms!s}), this is not supported"
                         )
                     if list(pm_types)[0] != "head" and list(pm_forms)[0] != "direct":
                         raise Exception(
@@ -1132,7 +1132,7 @@ class Mf6Adj(object):
         return dfs
 
     def _initialize_gwf(self, lib_name: str, sim_ws: str):
-        """initialze the MODFLOW6 API
+        """initialize the MODFLOW6 API
 
         Parameters
         ----------
@@ -1337,7 +1337,7 @@ class Mf6Adj(object):
             sim = flopy.mf6.MFSimulation.load(sim_ws=self._flow_dir)
             gwf = sim.get_model()
             ss = gwf.sto.ss.array.copy().flatten()
-            # this is an attempt to make sure we arent using "layered"
+            # this is an attempt to make sure we aren't using "layered"
             gwf.sto.ss = ss
 
             sim.set_sim_path(test_dir)
@@ -1346,7 +1346,7 @@ class Mf6Adj(object):
             ss_arr_name = os.path.join(test_dir, f"{gwf.name}.sto_ss.txt")
             if not os.path.exists(ss_arr_name):
                 raise Exception(
-                    "couldnt find ss_arr_name '{0}' needed for BS super hack"
+                    "couldn't find ss_arr_name '{0}' needed for BS super hack"
                 )
             if os.path.exists(os.path.join(self._flow_dir, self._lib_name)):
                 src = os.path.join(self._flow_dir, self._lib_name)

@@ -1,0 +1,159 @@
+[build-system]
+requires = ["hatchling", "hatch-fancy-pypi-readme"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mf6adj"
+description = "FloPy is a Python package to create, run, and post-process MODFLOW-based models"
+authors = [
+    {name = "INTERA Incorporated"},
+]
+maintainers = [
+    {name = "INTERA Incorporated"},
+]
+keywords = ["MODFLOW", "groundwater", "hydrogeology", "adjoint"]
+license = {text = "CC0"}
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "License :: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Hydrology",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.20.3",
+    "matplotlib >=1.4.0",
+    "pandas>=2.0.0",
+    "flopy",
+    "modflowapi",
+    "h5py",
+    "scipy",
+    "pyemu",
+]
+dynamic = ["version", "readme"]
+
+[project.optional-dependencies]
+dev = ["mf6adj[codegen,lint,test,doc]", "tach"]
+lint = ["codespell[toml] >=2.2.2", "ruff"]
+test = [
+    "mf6adj[lint]",
+    "jupyter",
+    "jupyter_client >=8.4.0", # avoid datetime.utcnow() deprecation warning
+    "shapely",
+    "pytest !=8.1.0",
+    "pytest-cov",
+    "pytest-xdist",
+]
+doc = [
+    "mf6adj[optional]",
+    "ipython[kernel]",
+    "jupytext",
+    "myst-parser",
+    "nbconvert <7.14.0",
+    "nbsphinx",
+    "PyYAML",
+    "rtds-action",
+    "sphinx ==7.1.2",
+    "sphinx-rtd-theme >=1",
+]
+
+[project.urls]
+Documentation = "https://mf6adj.readthedocs.io"
+"Bug Tracker" = "https://github.com/INTERA-Inc/mf6adj/issues"
+"Source Code" = "https://github.com/INTERA-Inc/mf6adj"
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "README.md",
+    "examples",
+    "mf6adj",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["mf6adj"]
+
+[tool.hatch.metadata]
+# temporary, until new devtools release
+allow-direct-references = true
+
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[tool.hatch.version]
+path = "mf6adj/version.py"
+
+[tool.ruff]
+line-length = 88
+include = [
+    "pyproject.toml",
+    "mf6adj/**/*.py",
+    "autotest/**/*.py",
+    "examples/**/*.py",
+]
+extend-include = [
+    "examples/**/*.ipynb"
+]
+exclude = [
+    "original_scripts/**/*.py",
+    "autotest/ie_*/**/*.py",
+    "autotest/mh_org_codes/**/*.py",
+]
+
+[tool.ruff.lint]
+select = [
+    "C4",   # flake8 comprehensions
+    "D409", # pydocstyle - section-underline-matches-section-length
+    "E",    # pycodestyle error
+    "F",    # Pyflakes
+    "I001", # isort - unsorted-imports
+    # "ISC001",  # implicitly concatenated string literals
+    "RUF",  # Ruff-specific rules
+]
+ignore = [
+    "E402", # module level import not at top of file
+    "E712", # Avoid equality comparisons to `True`
+    "E722", # do not use bare `except`
+    "E721", # use `is`/`is not` for type comparisons
+    "E741", # ambiguous variable name
+    "F401", # unused import
+    "F403", # unable to detect undefined names (star imports)
+    "F524", # `.format` missing argument(s) for placeholder(s)
+    "F811", # Redefinition of unused variable
+    "F841", # local variable assigned but never used
+    "RUF005", # collection literal concatenation
+    "RUF012", # mutable class default
+    "RUF017", # quadratic-list-summation
+]
+
+[tool.codespell]
+skip = './original_scripts/*,./autotest/**,./examples/**'
+ignore-words-list = [
+    "alltime",
+    "dum",
+    "inout",
+    "intot",
+    "delt",
+    "gage",
+    "gages",
+    "datbase",
+    "wel",
+    "nam",
+    "lke",
+    "ist",
+    "ninj",
+    "drob",
+    "thck",
+    "vor",
+    "yur",
+    "localy",
+    "vertx",
+    "nd",
+]

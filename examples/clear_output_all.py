@@ -1,6 +1,7 @@
 import os
 import pathlib as pl
 
+
 def find_files_with_extension(directory, extension):
     """
     Finds all files with the specified extension in the given directory and its subdirectories.

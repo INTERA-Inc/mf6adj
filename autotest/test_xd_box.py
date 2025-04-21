@@ -13,8 +13,11 @@ import pyemu
 from flopy.utils.gridgen import Gridgen
 from matplotlib.backends.backend_pdf import PdfPages
 
-sys.path.insert(0, str(pl.Path("../").resolve()))
-import mf6adj
+try:
+    import mf6adj
+except ImportError:
+    sys.path.insert(0, str(pl.Path("../").resolve()))
+    import mf6adj
 
 env_path = pl.Path(os.environ.get("CONDA_PREFIX", None))
 assert env_path is not None, (

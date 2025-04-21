@@ -1,12 +1,13 @@
+import logging
 import os
 from datetime import datetime
-import logging
-import numpy as np
-import scipy.sparse as sparse
-from scipy.sparse.linalg import spsolve, bicgstab, spilu, LinearOperator
-import pandas as pd
-import h5py
 from typing import List
+
+import h5py
+import numpy as np
+import pandas as pd
+import scipy.sparse as sparse
+from scipy.sparse.linalg import LinearOperator, bicgstab, spilu, spsolve
 
 
 class PerfMeasRecord(object):

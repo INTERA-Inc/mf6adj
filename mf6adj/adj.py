@@ -1,16 +1,16 @@
+import logging
 import os
 import shutil
+from collections.abc import Callable
 from datetime import datetime
-import logging
-import numpy as np
-import pandas as pd
+
+import flopy
 import h5py
 import modflowapi
-import flopy
-from collections.abc import Callable
+import numpy as np
+import pandas as pd
 
-
-from .pm import PerfMeasRecord, PerfMeas
+from .pm import PerfMeas, PerfMeasRecord
 
 DT_FMT = "%Y-%m-%d %H:%M:%S"
 

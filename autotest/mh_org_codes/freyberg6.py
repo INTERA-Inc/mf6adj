@@ -8,14 +8,17 @@ import sys
 sys.path.insert(0,os.path.join(".."))
 
 import platform
-import numpy as np
-import matplotlib.pyplot as plt
-import flopy
-import modflowapi
 from operator import add
+
+import flopy
+import matplotlib.pyplot as plt
+import modflowapi
+import numpy as np
+
 # from APIData import *
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import spsolve
+
 # from scipy.linalg import solve_banded
 
 # ### Executables

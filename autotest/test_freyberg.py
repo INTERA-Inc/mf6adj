@@ -14,8 +14,11 @@ import pyemu
 from flopy.utils.gridgen import Gridgen
 from matplotlib.backends.backend_pdf import PdfPages
 
-sys.path.insert(0, str(pl.Path("../").resolve()))
-import mf6adj
+try:
+    import mf6adj
+except ImportError:
+    sys.path.insert(0, str(pl.Path("../").resolve()))
+    import mf6adj
 
 env_path = pl.Path(os.environ.get("CONDA_PREFIX", None))
 assert env_path is not None, (
@@ -478,6 +481,7 @@ def test_freyberg_notional_unstruct():
         header=None,
         names=["site", "otype", "l", "r", "c"],
         sep=r"\s+",
+        engine="python",
     )
     df.loc[:, "node"] = df.apply(lambda x: (int(x.r) * ncol) + int(x.c), axis=1)
     with open(os.path.join(new_d, "head.obs"), "w") as f:

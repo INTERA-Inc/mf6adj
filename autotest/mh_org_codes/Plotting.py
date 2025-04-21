@@ -1,5 +1,6 @@
 from freyberg6 import *
 
+
 def plot_contour(x, y, l_anal, l_num, contour_intervals):
         fig = plt.figure(figsize=(6, 6))
         ax = fig.add_subplot(1, 1, 1, aspect="equal")

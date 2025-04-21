@@ -46,6 +46,8 @@ jobs:
           python=${{ matrix.python-version }}
 
     - name: Install executables
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}    
       run: |
         get-modflow --subset mf6,libmf6,gridgen :python
 

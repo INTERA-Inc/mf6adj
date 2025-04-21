@@ -5,6 +5,7 @@ on:
     - cron: '0 8 * * *' # run at 8 AM UTC (12 AM PST, 8 PM NZST)
   push:
   pull_request:
+    - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -103,24 +104,8 @@ jobs:
       working-directory: ./autotest
       run: |
         pytest -v -n=auto --durations=0
-      #env:
-      #  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    # - name: Coveralls
-    #   uses: coverallsapp/github-action@master
-    #   with:
-    #     github-token: ${{ secrets.GITHUB_TOKEN }}
-    #     flag-name: ${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.test-path }}
-    #     parallel: true
-    #     path-to-lcov: autotest/coverage.lcov
-
-  # coveralls_finish:
-  #   needs: pyemuCI
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #   - name: Coveralls Finished
-  #     uses: coverallsapp/github-action@master
-  #     with:
-  #       github-token: ${{ secrets.GITHUB_TOKEN }}
-  #       parallel-finished: true
-  #       path-to-lcov: autotest/coverage.lcov
+    - name: Test notebooks on ${{ matrix.os }}-python${{ matrix.python-version }}
+      working-directory: ./examples
+      run: |
+        pytest -v -n=auto --durations=0 --nbmake "."

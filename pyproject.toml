@@ -44,6 +44,8 @@ test = [
     "mf6adj[lint]",
     "jupyter",
     "jupyter_client >=8.4.0", # avoid datetime.utcnow() deprecation warning
+    "nbmake",
+    "ipython[kernel]",
     "shapely",
     "pytest !=8.1.0",
     "pytest-cov",
@@ -51,8 +53,6 @@ test = [
 ]
 doc = [
     "mf6adj[test]",
-    "ipython[kernel]",
-    "jupytext",
     "myst-parser",
     "nbconvert <7.14.0",
     "nbsphinx",

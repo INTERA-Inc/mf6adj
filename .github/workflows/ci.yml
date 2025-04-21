@@ -11,8 +11,57 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
+
+      - name: Build package
+        run: uv build
+
+      - name: Check package
+        run: uvx twine check --strict dist/*
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
+
+      - name: Lint
+        run: uvx ruff check
+
+      - name: Check format
+        run: uvx ruff format --check
+
+      - name: Check spelling
+        run: uvx codespell
+
   mf6adjCI:
     name: autotest
+    needs: lint
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:

@@ -21,18 +21,19 @@ assert env_path is not None, (
     "autotest script must be run from the mf6adj Conda environment"
 )
 
+bin_path = "bin"
+exe_ext = ""
 if "linux" in platform.platform().lower():
     lib_ext = ".so"
-    exe_ext = ""
 elif "darwin" in platform.platform().lower() or "macos" in platform.platform().lower():
     lib_ext = ".dylib"
-    exe_ext = ""
 else:
+    bin_path = "Scripts"
     lib_ext = ".dll"
     exe_ext = ".exe"
-lib_name = env_path / f"bin/libmf6{lib_ext}"
-mf6_bin = env_path / f"bin/mf6{exe_ext}"
-gg_bin = env_path / f"bin/gridgen{exe_ext}"
+lib_name = env_path / f"{bin_path}/libmf6{lib_ext}"
+mf6_bin = env_path / f"{bin_path}/mf6{exe_ext}"
+gg_bin = env_path / f"{bin_path}/gridgen{exe_ext}"
 
 
 def setup_xd_box_model(
@@ -2171,111 +2172,6 @@ def test_xd_box_ss():
 
     xd_box_compare(new_d, plot_compare)
     return
-
-
-def test_sanpedro1():
-    prep = True
-    if os.path.exists("mf6adj"):
-        shutil.rmtree("mf6adj")
-    # shutil.copytree(os.path.join('..','mf6adj'),os.path.join('mf6adj'))
-    sys.path.insert(0, os.path.join(".."))
-
-    org_d = os.path.join("sanpedro", "mf6_transient_ghb")
-    new_d = "sanpedro_test1"
-
-    adj_file = os.path.join(new_d, "test.adj")
-    if prep:
-        if os.path.exists(new_d):
-            shutil.rmtree(new_d)
-        shutil.copytree(org_d, new_d)
-        # shutil.copy2(lib_name, os.path.join(new_d, os.path.split(lib_name)[1]))
-        # shutil.copy2(mf6_bin, os.path.join(new_d, os.path.split(mf6_bin)[1]))
-        # shutil.copy2(gg_bin, os.path.join(new_d, os.path.split(gg_bin)[1]))
-
-        pyemu.os_utils.run("mf6", cwd=new_d)
-
-    sim = flopy.mf6.MFSimulation.load(sim_ws=new_d, load_only=["dis", "sfr"])
-    gwf = sim.get_model()
-
-    with open(adj_file, "w") as f:
-        sfr_data = pd.DataFrame.from_records(gwf.sfr.packagedata.array)
-        f.write("begin performance_measure swgw\n")
-        for kper in range(sim.tdis.nper.data):
-            for kij in sfr_data.cellid.values:
-                f.write(
-                    f"{kper + 1} 1 {kij[0] + 1} {kij[1] + 1} {kij[2] + 1} sfr-1 direct 1.0 -1.0e+30\n"
-                )
-        f.write("end performance_measure\n\n")
-
-    start = datetime.now()
-    os.chdir(new_d)
-
-    adj = mf6adj.Mf6Adj(os.path.split(adj_file)[1], lib_name, verbose_level=2)
-
-    adj.solve_gwf()
-    adj.solve_adjoint(
-        linear_solver="bicgstab",
-        linear_solver_kwargs={"maxiter": 50, "rtol": 0.1, "atol": 0.1},
-        use_precon=False,
-    )
-    adj.finalize()
-    os.chdir("..")
-    duration = (datetime.now() - start).total_seconds()
-    print("took:", duration)
-
-    result_hdf = [
-        f
-        for f in os.listdir(new_d)
-        if f.endswith("hd5") and f.startswith("adjoint_solution_swgw")
-    ]
-    # print(result_hdf)
-    assert len(result_hdf) == 1
-    result_hdf = result_hdf[0]
-    import h5py
-
-    hdf = h5py.File(os.path.join(new_d, result_hdf), "r")
-    keys = list(hdf.keys())
-    keys.sort()
-    # print(keys)
-    from matplotlib.backends.backend_pdf import PdfPages
-
-    nlay, nrow, ncol = gwf.dis.nlay.data, gwf.dis.nrow.data, gwf.dis.ncol.data
-
-    idomain = gwf.dis.idomain.array
-    thresh = 0.0001
-    with PdfPages(os.path.join(new_d, "results.pdf")) as pdf:
-        for key in keys:
-            if key != "composite":
-                continue
-            grp = hdf[key]
-            # print(grp.keys())
-
-            plot_keys = [i for i in grp.keys() if grp[i].shape == (nlay, nrow, ncol)]
-            # print(plot_keys)
-            for pkey in plot_keys:
-                arr = grp[pkey][:].reshape((nlay, nrow, ncol))
-                for k, karr in enumerate(arr):
-                    karr[idomain[k, :, :] < 1] = np.nan
-                    ib = idomain[k, :, :].copy().astype(float)
-                    ib[ib > 0] = np.nan
-                    # karr[np.abs(karr)>1e20] = np.nan
-                    karr[np.abs(karr) < thresh] = np.nan
-                    # karr = np.log10(karr)
-                    fig, ax = plt.subplots(1, 1, figsize=(6, 5))
-                    ax.imshow(ib, cmap="Greys_r")
-                    cb = ax.imshow(karr)
-                    plt.colorbar(cb, ax=ax)
-                    ax.set_title(
-                        key
-                        + ", "
-                        + pkey
-                        + f", layer:{k + 1}, masked where abs < {thresh}",
-                        loc="left",
-                    )
-                    plt.tight_layout()
-                    pdf.savefig()
-                    plt.close(fig)
-                    print("...", key, pkey, k + 1)
 
 
 def test_xd_box_drn():

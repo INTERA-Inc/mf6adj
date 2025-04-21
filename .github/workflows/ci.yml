@@ -56,7 +56,7 @@ jobs:
       run: |
         # cd autotest
         ls
-        pytest -v -s --durations=0
+        pytest -n=auto --durations=0
       #env:
       #  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

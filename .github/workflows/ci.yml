@@ -100,12 +100,12 @@ jobs:
       run: |
         get-modflow --subset mf6,libmf6,gridgen :python
 
-    - name: Autotest on ${{ matrix.os }}-python${{ matrix.python-version }}
+    - name: Autotest ${{ matrix.os }}-python${{ matrix.python-version }}
       working-directory: ./autotest
       run: |
         pytest -v -n=auto --durations=0
 
-    - name: Test notebooks on ${{ matrix.os }}-python${{ matrix.python-version }}
+    - name: Test notebooks ${{ matrix.os }}-python${{ matrix.python-version }}
       working-directory: ./examples
       run: |
-        pytest -v -n=auto --durations=0 --nbmake "."
+        pytest -v -n=auto --durations=0 --nbmake

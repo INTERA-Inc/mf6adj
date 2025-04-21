@@ -41,8 +41,7 @@ jobs:
         environment-file: environment.yml
         environment-name: mf6adj
         cache-downloads: false
-        cache-env: false
-        extra-specs: |
+        create-args: |
           python=${{ matrix.python-version }}
 
     - name: Install executables

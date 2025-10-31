@@ -137,3 +137,4 @@ examples/freyberg/
 examples/sanpedro/
 examples/xd_box_chd_ana_working
 autotest/*_test*/
+.figures/

@@ -294,7 +294,6 @@ def test_unstructured():
     ws.mkdir(parents=True, exist_ok=True)
     sim, pm_fname = build_model(ws, name=name)
     solve_adjoint(ws, pm_fname)
-    disv_riv, disv_drn = get_observations(sim)
 
     result_disv = get_sensitivities(ws)
 
@@ -303,7 +302,6 @@ def test_unstructured():
     ws.mkdir(parents=True, exist_ok=True)
     _, pm_fname = build_model(ws, name=name)
     solve_adjoint(ws, pm_fname)
-    disu_riv, disu_drn = get_observations(sim)
 
     result_disu = get_sensitivities(ws)
 

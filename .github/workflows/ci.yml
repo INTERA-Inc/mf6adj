@@ -49,7 +49,6 @@ jobs:
           pixi-version: v0.41.4
 
       - name: Custom pixi install
-        working-directory: modflow6
         run: pixi run install
 
       - name: Check python lint
@@ -86,7 +85,6 @@ jobs:
         pixi-version: v0.41.4
 
     - name: Custom pixi install
-      working-directory: modflow6
       run: pixi run install
 
     - name: Install executables

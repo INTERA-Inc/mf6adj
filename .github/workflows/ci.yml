@@ -49,10 +49,10 @@ jobs:
           pixi-version: v0.41.4
 
       - name: Check python lint
-        run: pixi run check-python-lint
+        run: pixi run check-lint
 
       - name: Check python format
-        run: pixi run check-python-format
+        run: pixi run check-format
 
       - name: Check spelling
         run: pixi run check-spelling

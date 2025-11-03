@@ -292,7 +292,7 @@ def test_unstructured():
     name = "disv"
     ws = pl.Path(f"unstructured_{name}_test")
     ws.mkdir(parents=True, exist_ok=True)
-    sim, pm_fname = build_model(ws, name=name)
+    _, pm_fname = build_model(ws, name=name)
     solve_adjoint(ws, pm_fname)
 
     result_disv = get_sensitivities(ws)

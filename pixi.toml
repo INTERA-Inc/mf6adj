@@ -1,0 +1,62 @@
+[project]
+name = "mf6adj"
+channels = ["conda-forge"]
+platforms = ["win-64", "linux-64", "linux-aarch64", "osx-arm64", "osx-64"]
+version = "0.1.0.dev0"
+
+[dependencies]
+appdirs = "*"
+codespell = "*"
+coverage = "*"
+filelock = "*"
+flaky = "*"
+flopy = "*"
+hatchling = ">=1.27.0,<2"
+h5py = "*"
+ipykernel = "*"
+jupyter = "*"
+jupyter_client = ">=8.4.0"
+matplotlib = "*"
+modflowapi = "*"
+nbmake = "*"
+numpy = "*"
+pip = "*"
+pyemu = "*"
+pyshp = "*"
+pytest = "*"
+pytest-benchmark = "*"
+pytest-cov = "*"
+pytest-dotenv = "*"
+pytest-order = "*"
+pytest-xdist = "*"
+python = "3.10.*"
+requests = "*"
+ruff = "*"
+scipy = "*"
+shapely = "*"
+
+[pypi-dependencies]
+modflow-devtools = { git = "https://github.com/MODFLOW-ORG/modflow-devtools.git", extras = ["dfn"] }
+
+[tasks]
+postinstall = "pip install --no-build-isolation --no-deps --disable-pip-version-check -e ."
+
+# format
+check-lint = "ruff check ."
+check-format = "ruff format . --check"
+check-spelling = "codespell"
+fix-style = "ruff check . --fix; ruff format ."
+
+# install 
+install-executables = { cmd = "pixi run install-modflow; pixi run install-gridgen" }
+install-modflow = {cmd = "get-modflow --repo modflow6-nightly-build :python"}
+install-gridgen = {cmd = "get-modflow --subset gridgen :python"}
+
+# test
+autotest = { cmd = "pixi run autotest-base; pixi run autotest-notebooks" }
+autotest-base = { cmd = "pytest -v -n=auto --durations=0 --cov=mf6adj --cov-report=xml --keep-failed .failed", cwd = "autotest" }
+autotest-notebooks = { cmd = "pytest -v -n=auto --durations=0 --nbmake --nbmake-timeout=3000", cwd = "examples" }
+clean-notebooks = { cmd = "python clear_output_all.py", cwd = "examples" }
+
+# coverage report
+coverage-report = { cmd = "coverage report", cwd = "autotest"}

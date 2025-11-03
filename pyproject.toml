@@ -137,6 +137,7 @@ ignore = [
 skip = './original_scripts/*,./autotest/**,./examples/**'
 ignore-words-list = [
     "alltime",
+    "astroid",
     "dum",
     "inout",
     "intot",

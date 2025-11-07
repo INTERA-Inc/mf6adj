@@ -83,7 +83,6 @@ jobs:
         manifest-path: "pixi.toml"
 
     - name: pixi post-install
-      working-directory: pymake
       run: |
         pixi run postinstall
         

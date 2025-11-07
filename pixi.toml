@@ -41,10 +41,6 @@ modflow-devtools = { git = "https://github.com/MODFLOW-ORG/modflow-devtools.git"
 hatch-fancy-pypi-readme = "*"
 
 [tasks]
-install = { depends-on = [
-  "update-flopy",
-  "install-executables",
-] }
 postinstall = "pip install --no-build-isolation --no-deps --disable-pip-version-check -e ."
 
 # jupyter

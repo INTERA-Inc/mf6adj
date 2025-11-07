@@ -101,6 +101,7 @@ class Mf6Adj(object):
         self._lib_name = lib_name
         self._flow_dir = "."
         self._gwf = self._initialize_gwf(lib_name, self._flow_dir)
+        self._gwf_version = self._get_gwf_version()
         self._hdf5_name = None
 
         self._structured_mg = None
@@ -682,6 +683,18 @@ class Mf6Adj(object):
         data_dict["iac"] = iac
         icelltype = PerfMeas.get_ptr_from_gwf(gwf_name, "NPF", "ICELLTYPE", gwf)
         data_dict["icelltype"] = icelltype
+        if self._gwf_version > "6.6.3":
+            ihighcellsat = PerfMeas.get_ptr_from_gwf(
+                gwf_name,
+                "NPF",
+                "IHIGHCELLSAT",
+                gwf,
+            )
+        else:
+            ihighcellsat = np.array([0], dtype=int)
+        if ihighcellsat != 0:
+            self.logger.info("HIGHEST_CELL_SATURATION option specified")
+        data_dict["ihighcellsat"] = ihighcellsat
 
         area = PerfMeas.get_ptr_from_gwf(gwf_name, dis_pak, "AREA", gwf)
         data_dict["area"] = area
@@ -827,6 +840,7 @@ class Mf6Adj(object):
         if self._gwf is None:
             raise Exception("gwf is None")
             self._gwf = self._initialize_gwf(self._lib_name, self._flow_dir)
+            self._gwf_version = self._get_gwf_version()
         if hdf5_name is not None:
             self._hdf5_name = hdf5_name
         fhd = self._open_hdf(self._hdf5_name)
@@ -1256,6 +1270,18 @@ class Mf6Adj(object):
         gwf.initialize()
         return gwf
 
+    def _get_gwf_version(self):
+        """Get the MODFLOW 6 version number
+
+        Returns
+        -------
+        version (str) : MODFLOW 6 version number
+
+        """
+        version = self._gwf.get_version()
+        self.logger.info(f"MODFLOW 6 version: {version}")
+        return version
+
     def finalize(self):
         """close the api and file handles"""
         try:
@@ -1271,6 +1297,8 @@ class Mf6Adj(object):
         """run the perturbation testing - this is for dev and testing only"""
 
         self._gwf = self._initialize_gwf(self._lib_name, self._flow_dir)
+        self._gwf_version = self._get_gwf_version()
+
         gwf_name = self._gwf_name.upper()
 
         org_head, org_sp_package_data = self.solve_gwf(pert_save=True)
@@ -1342,6 +1370,7 @@ class Mf6Adj(object):
                         # print("...",pakname,pert_item,kk,org,delt,infodict["node"])
 
                         self._gwf = self._initialize_gwf(self._lib_name, self._flow_dir)
+                        self._gwf_version = self._get_gwf_version()
                         pert_head, pert_sp_dict = self.solve_gwf(
                             verbose=False, _sp_pert_dict=pert_dict, pert_save=True
                         )
@@ -1408,6 +1437,7 @@ class Mf6Adj(object):
 
             for inode in range(inodes):
                 self._gwf = self._initialize_gwf(self._lib_name, self._flow_dir)
+                self._gwf_version = self._get_gwf_version()
                 pert_arr = self._gwf.get_value_ptr(wbaddr)
                 org = pert_arr[inode]
                 delt = org * pert_mult
@@ -1486,6 +1516,7 @@ class Mf6Adj(object):
                 np.savetxt(ss_arr_name, pert_arr.flatten(), fmt="%15.6E")
 
                 self._gwf = self._initialize_gwf(self._lib_name, test_dir)
+                self._gwf_version = self._get_gwf_version()
                 pert_head, pert_sp_dict = self.solve_gwf(
                     verbose=False, _force_k_update=True, pert_save=True
                 )

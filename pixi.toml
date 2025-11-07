@@ -38,6 +38,7 @@ shapely = "*"
 
 [pypi-dependencies]
 modflow-devtools = { git = "https://github.com/MODFLOW-ORG/modflow-devtools.git", extras = ["dfn"] }
+hatch-fancy-pypi-readme = "*"
 
 [tasks]
 install = { depends-on = [

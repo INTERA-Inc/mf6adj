@@ -1370,7 +1370,6 @@ class Mf6Adj(object):
                         # print("...",pakname,pert_item,kk,org,delt,infodict["node"])
 
                         self._gwf = self._initialize_gwf(self._lib_name, self._flow_dir)
-                        self._gwf_version = self._get_gwf_version()
                         pert_head, pert_sp_dict = self.solve_gwf(
                             verbose=False, _sp_pert_dict=pert_dict, pert_save=True
                         )
@@ -1437,7 +1436,6 @@ class Mf6Adj(object):
 
             for inode in range(inodes):
                 self._gwf = self._initialize_gwf(self._lib_name, self._flow_dir)
-                self._gwf_version = self._get_gwf_version()
                 pert_arr = self._gwf.get_value_ptr(wbaddr)
                 org = pert_arr[inode]
                 delt = org * pert_mult
@@ -1516,7 +1514,6 @@ class Mf6Adj(object):
                 np.savetxt(ss_arr_name, pert_arr.flatten(), fmt="%15.6E")
 
                 self._gwf = self._initialize_gwf(self._lib_name, test_dir)
-                self._gwf_version = self._get_gwf_version()
                 pert_head, pert_sp_dict = self.solve_gwf(
                     verbose=False, _force_k_update=True, pert_save=True
                 )

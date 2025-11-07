@@ -1,8 +1,8 @@
-[project]
+[workspace]
 name = "mf6adj"
 channels = ["conda-forge"]
 platforms = ["win-64", "linux-64", "linux-aarch64", "osx-arm64", "osx-64"]
-version = "0.1.0.dev0"
+version = "1.0.0"
 
 [dependencies]
 appdirs = "*"

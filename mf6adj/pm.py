@@ -872,31 +872,31 @@ class PerfMeas(object):
             s_sat = 1 - (A_omega / (2 * satomega)) * ((1 - sat) ** 2)
         return s_sat
 
-    # @staticmethod
-    # def d_smooth_sat_dh(sat, top, bot):
-    #     """Partial of smoother saturation with respect to head
+    @staticmethod
+    def d_smooth_sat_dh(sat, top, bot):
+        """Partial of smoother saturation with respect to head
 
-    #     Parameters
-    #     ----------
-    #     sat (ndarray) : saturation
-    #     top (ndarray) : cell top
-    #     bot (ndarray) : cell bottom
+        Parameters
+        ----------
+        sat (ndarray) : saturation
+        top (ndarray) : cell top
+        bot (ndarray) : cell bottom
 
-    #     Returns
-    #     -------
-    #     d_s_sat_dh (ndarray) : partial of smoothed saturation WRT head
+        Returns
+        -------
+        d_s_sat_dh (ndarray) : partial of smoothed saturation WRT head
 
-    #     """
-    #     satomega = 1.0e-6
-    #     A_omega = 1 / (1 - satomega)
-    #     d_s_sat_dh = 0.0
-    #     if sat >= 0 and sat < satomega:
-    #         d_s_sat_dh = (A_omega / satomega) * sat / (top - bot)
-    #     elif sat >= satomega and sat < 1 - satomega:
-    #         d_s_sat_dh = A_omega / (top - bot)
-    #     elif sat >= 1 - satomega and sat < 1:
-    #         d_s_sat_dh = (A_omega / satomega) * (1 - sat) / (top - bot)
-    #     return d_s_sat_dh
+        """
+        satomega = 1.0e-6
+        A_omega = 1 / (1 - satomega)
+        d_s_sat_dh = 0.0
+        if sat >= 0 and sat < satomega:
+            d_s_sat_dh = (A_omega / satomega) * sat / (top - bot)
+        elif sat >= satomega and sat < 1 - satomega:
+            d_s_sat_dh = A_omega / (top - bot)
+        elif sat >= 1 - satomega and sat < 1:
+            d_s_sat_dh = (A_omega / satomega) * (1 - sat) / (top - bot)
+        return d_s_sat_dh
 
     @staticmethod
     def _cell_sat(top, bot, h):

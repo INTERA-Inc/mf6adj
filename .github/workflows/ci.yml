@@ -80,7 +80,13 @@ jobs:
       uses: prefix-dev/setup-pixi@v0.9.3
       with:
         pixi-version: v0.59.0
+        manifest-path: "pixi.toml"
 
+    - name: pixi post-install
+      working-directory: pymake
+      run: |
+        pixi run postinstall
+        
     - name: Autotest ${{ matrix.os }}-python${{ matrix.python-version }}
       run: |
         pixi run autotest-base 

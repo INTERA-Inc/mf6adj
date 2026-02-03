@@ -1,0 +1,3980 @@
+import pandas as pd
+import numpy as np
+import flopy
+import pyemu
+import matplotlib.pyplot as plt
+import os
+import socket
+import shutil
+import platform
+from flopy.utils.gridintersect import GridIntersect
+from shapely.geometry import Polygon
+import math
+import matplotlib.dates as mdates
+import matplotlib
+from matplotlib.ticker import FormatStrFormatter
+from matplotlib.gridspec import GridSpec
+#matplotlib.use('Qt5Agg')
+import matplotlib.patches as patches
+
+start_date_time='2025-01-01'
+top=110
+botm=0
+hlim_pit = 50
+hlim_mar = 110
+gde_stage = 85
+chd_stage = 95
+drn_ratio_lim=0.6
+begin_mine = 1826.
+end_mine = 3650.
+begin_drn_constraint = 1.0# 5476.
+Lx=2000
+pit_side_length=200
+delr=20
+
+dewater_years = 10
+tr_perlen=dewater_years*365
+tr_tsps=12*dewater_years
+
+recovery_years = 100
+recovery_perlen = recovery_years*365
+recovery_tsps = recovery_years
+
+dewater_rate = -800
+mar_rate = 800#abs(0.25*dewater_rate*20)
+
+# figure stuff
+
+# SME journal
+width_max = 174 / 25.4 # mm to inch
+width_1col = 84 / 25.4 # mm to inch
+height_max = 234 / 25.4 # mm to inch
+
+def get_heads(ws='model', fname='model.hds'):
+    # load uwir simulated heads
+    hds_path = os.path.join(ws,fname)
+    hds = flopy.utils.HeadFile(hds_path)
+    times = hds.get_times()
+    heads = hds.get_alldata()
+    del hds
+    return heads, times
+
+
+def get_lst_budget(ws='.',start_datetime=None, casename='model'):
+    """get the inc and cum dataframes from a MODFLOW-6 list file
+    Parameters
+    ----------
+    ws : str
+        path to the model workspace
+    start_datetime : str
+        a string that can be parsed by pandas.to_datetime
+    Returns
+    -------
+    inc : pandas.DataFrame
+        the incremental budget
+    cum : pandas.DataFrame
+        the cumulative budget
+        """
+    print("postprocessing lst obs...")
+    import flopy
+    lst_file = os.path.join(ws,f"{casename}.lst")
+    assert os.path.exists(lst_file), f"{lst_file} not found"
+    lst = flopy.utils.Mf6ListBudget(os.path.join(ws,f"{casename}.lst"))
+    inc,cum = lst.get_dataframes(diff=True,start_datetime=start_datetime)
+    inc.columns = inc.columns.map(lambda x: x.lower().replace("_","-"))
+    cum.columns = cum.columns.map(lambda x: x.lower().replace("_", "-"))
+    # we can see in nam file: wel-dewater=wel, wel-mar=wel2
+    inc["dewater-minus-mar"] = np.abs(inc["wel"].values) - inc["wel2"]
+    cum["dewater-minus-mar"] = np.abs(cum["wel"].values) - cum["wel2"]
+    inc.index.name = "time"
+    cum.index.name = "time"
+    inc.to_csv(os.path.join(ws,"inc.csv"))
+    cum.to_csv(os.path.join(ws,"cum.csv"))
+    return inc, cum
+
+
+def prep_bins(dest_path, src_path=os.path.join('bin'), get_only=[]):
+    """copy the executables from the bin folder to the destination folder
+    Parameters
+    ----------
+    dest_path : str
+        path to the destination folder
+    src_path : str
+        path to the source folder
+    get_only : list
+        list of executables to copy
+    Returns
+        -------
+        None"""
+    
+    if "linux" in platform.platform().lower():
+        bin_path = os.path.join(src_path, "linux")
+    elif "darwin" in platform.platform().lower() or "macos" in platform.platform().lower():
+        bin_path = os.path.join(src_path, "mac")
+    else:
+        bin_path = os.path.join(src_path, "win")
+    files = os.listdir(bin_path)
+    if len(get_only)>0:
+        files = [f for f in files if f.split(".")[0] in get_only]
+    for f in files:
+        if os.path.exists(os.path.join(dest_path,f)):
+            try:
+                os.remove(os.path.join(dest_path,f))
+            except:
+                continue
+        shutil.copy2(os.path.join(bin_path,f),os.path.join(dest_path,f))
+    return
+
+
+def build_tdis(sim):
+    """build a tdis package for a simulation
+    Parameters
+    ----------
+    sim : flopy.mf6.MFSimulation
+        the simulation
+    Returns
+    -------
+    tdis : flopy.mf6.ModflowTdis
+        """
+
+    print("building tdis package...")
+
+    
+
+
+    perioddata = [(1,1,1),
+                  (tr_perlen,tr_tsps,1),
+                  (recovery_perlen,recovery_tsps,1),]
+    nper = len(perioddata)
+
+
+    tdis = flopy.mf6.ModflowTdis(sim, pname="tdis",
+                                    nper=nper, 
+                                    perioddata=perioddata, 
+                                    time_units='days', 
+                                    start_date_time=start_date_time)
+    return tdis
+
+def build_ims(sim, gwf):
+    print("building ims package...")
+    #---IMS---#
+    modelname = gwf.name
+    nouter = 1000
+    ninner = 100
+    outer_dvclose = 0.001 
+    inner_dvclose = 0.001 
+    rclose = 1 #
+
+    ims = flopy.mf6.ModflowIms(sim, 
+                                complexity='COMPLEX',
+                                linear_acceleration='BICGSTAB',
+                                outer_maximum=nouter,
+                                outer_dvclose=outer_dvclose,
+                                inner_maximum=ninner,
+                                inner_dvclose=inner_dvclose,
+                                rcloserecord="{} strict".format(rclose),
+                                reordering_method='none',
+                                csv_output_filerecord=f'{modelname}.ims.csv',
+                                #under_relaxation='dbd',
+                                no_ptcrecord='FIRST',
+                                )
+    # lastly we need to register the MF6 model to an IMS package in the Simulation
+    _ = sim.register_ims_package(ims, [gwf.name])
+    return ims
+
+
+def build_dis(gwf):
+    print('building dis package...')
+    nlay=1
+
+    Ly = Lx
+    delc= delr 
+
+    ncol = int(Lx / delr)
+    nrow = int(Ly / delc)
+
+    toparr = top * np.ones((nrow, ncol), dtype=float) 
+    botmarr = botm * np.ones((nlay, nrow, ncol), dtype=float)
+    idomain = np.ones((nlay, nrow, ncol), dtype=int)
+    dis = flopy.mf6.ModflowGwfdis(gwf,
+                                nlay=nlay,
+                                nrow=nrow,
+                                ncol=ncol,
+                                delr=delr,
+                                delc=delc,
+                                top=toparr,
+                                botm=botmarr,
+                                idomain=idomain,
+                                length_units='meters'
+                                )
+    dis.set_all_data_external()
+    return dis
+
+def build_npf(gwf,k=5.0):
+    print("building npf package...")
+    k = k* np.ones_like(gwf.dis.idomain.get_data(), dtype=float)
+    npf = flopy.mf6.ModflowGwfnpf(gwf, k=k, 
+                                #save_flows=True, 
+                                #save_specific_discharge=True,
+                                #save_saturation=True,
+                                icelltype=1,
+                                )
+    npf.set_all_data_external()
+    return npf
+
+
+def build_sto(gwf,sy=0.05,ss=1.e-6,steady_state={0:True, 1:False}):
+    print("building storage package...")
+    
+    ss = sy*np.ones_like(gwf.dis.idomain.get_data(), dtype=float)
+    sy = ss*np.ones_like(gwf.dis.idomain.get_data(), dtype=float)
+
+    # make transient dict the oposite of steady_state
+    transient = {}
+    for k,v in steady_state.items():
+        transient[k] = not v
+    sto = flopy.mf6.ModflowGwfsto(gwf, sy=sy, ss=ss,
+                                iconvert=1,
+                                steady_state={0:True, 1:False},
+                                transient={0:False,1:True},
+                                save_flows=True
+                                )
+    sto.set_all_data_external()
+    return sto
+
+
+def build_drn(sim,gwf):
+    cond=100
+    drn_spd_i = [((0,row,0),gde_stage,cond,'drn-gde') for row, elev in enumerate(gwf.dis.top.get_data(0)[0])]
+
+    drn_spd={}
+    nper = sim.tdis.nper.get_data()
+    for kper in range(nper):
+        drn_spd[kper] = drn_spd_i
+
+    drn = flopy.mf6.ModflowGwfdrn(gwf, stress_period_data=drn_spd, pname='drn-gde', boundnames=True)
+    drn.set_all_data_external()
+
+    drn_obs = {(f'{gwf.name}.obs.drn.csv'): [('drn-gde', 'DRN', 'drn-gde')]}
+    drn.obs.initialize(digits=10, print_input=False, continuous=drn_obs)
+
+    return drn
+
+def build_inflow(sim,gwf):
+    ncol = gwf.dis.ncol.get_data()
+    nrow = gwf.dis.nrow.get_data()
+    chd_j = ncol-1
+    cond = 100
+    spd_i = [((0,i,chd_j,chd_stage,cond)) for i, elev in enumerate(gwf.dis.top.get_data(0)[0])]
+
+    spd={}
+    nper = sim.tdis.nper.get_data()
+    for kper in range(nper):
+        spd[kper] = spd_i
+
+    pkg = flopy.mf6.ModflowGwfghb(gwf, stress_period_data=spd,
+                                  pname='ghb-inflow',
+                                  filename='inflow.ghb')
+    pkg.set_all_data_external()
+    return pkg
+
+
+
+def build_ic(gwf):
+    #---IC---#
+    print('building ic package...')
+    # initial head; not very relevant
+    strt = gwf.dis.nlay.get_data() * [gwf.dis.top.get_data()]
+    ic = flopy.mf6.ModflowGwfic(gwf, pname="ic", strt=strt)
+    return ic
+
+def build_oc(gwf):
+    print('building oc package...')
+    # output control
+    oc = flopy.mf6.ModflowGwfoc(gwf, pname='oc', 
+                                #budget_filerecord='{}.cbb'.format(gwf.name),
+                                head_filerecord='{}.hds'.format(gwf.name),
+                                #headprintrecord=[('COLUMNS', 10, 'WIDTH', 15,'DIGITS', 6, 'GENERAL')],
+                                saverecord=[('HEAD', 'ALL'), 
+                                            #('BUDGET', 'ALL'),
+                                            ],
+                                printrecord=[('BUDGET', 'ALL')]
+                                )
+    return oc
+
+def specify_pit_cells(gwf):
+    """A bit of overkill, but allows for flexible setup.
+    TODO: Using idomain to specify a zone; 
+    this is more for ease of postprocessing and setting up wells later on"""
+
+    mg = gwf.modelgrid
+
+    ix = GridIntersect(mg)
+    # find the center coordinate of the grid
+    xmin,xmax,ymin,ymax=mg.extent
+    xmid,ymid = 0.5*(xmin+xmax), 0.5*(ymin+ymax)
+
+    # make a polygon centered at xmid,ymid with side length pit_side_length
+    x0,y0 = xmid-0.5*pit_side_length, ymid-0.5*pit_side_length
+    x1,y1 = xmid-0.5*pit_side_length, ymid+0.5*pit_side_length
+    x2,y2 = xmid+0.5*pit_side_length, ymid+0.5*pit_side_length
+    x3,y3 = xmid+0.5*pit_side_length, ymid-0.5*pit_side_length
+
+    poly = Polygon([(x0,y0),(x1,y1),(x2,y2),(x3,y3)])
+    cells = ix.intersect(poly, 'polygon').cellids.tolist()
+    cells  = np.array(cells,dtype=int)
+
+    idomain = gwf.dis.idomain.array
+    for i in cells:
+        idomain[:,i[0],i[1]] = 2
+    gwf.dis.idomain.set_data(idomain.tolist())
+
+    return cells
+
+def build_wells_dewater(sim,pitcells,rate):
+    assert rate <= 0, "rate must be negative"
+    gwf = sim.get_model()
+    mg = gwf.modelgrid
+    nodes = mg.get_node([(0,*i) for i in pitcells]) 
+    neighbours = mg.neighbors()
+    neighbour_nodes=[]
+    for n in nodes:
+        neighbour_nodes.extend(neighbours[n])
+    neighbour_nodes = list(set(neighbour_nodes) - set(nodes))
+    neighbour_lrc = mg.get_lrc(neighbour_nodes)
+    
+    # tsdata = [(0.0, 0.0),
+    #           (1.0, rate),
+    #           (3650, 0.0),
+    #           (1e30, 0.0)]
+    # tsnames = ['dewater']
+    # tsmethods = ['stepwise']
+    #
+    # spd = {}
+    # nper = sim.tdis.nper.get_data()
+    # for kper in range(1,nper):
+    #     spd[kper] = [(i,"dewater",1.0/len(neighbour_lrc)) for i in neighbour_lrc]
+    # arr = gwf.dis.idomain.array[0, :, :].copy()
+    # for lrc in neighbour_lrc:
+    #     arr[lrc[1],lrc[2]] = 3
+    # plt.imshow(arr)
+    # plt.show()
+    # tsdata = [(0.0, *(0.0 for _ in range(len(neighbour_lrc))) ),
+    #           (1.0, *(rate for _ in range(len(neighbour_lrc))) ),
+    #           (3650, *(0.0 for _ in range(len(neighbour_lrc))) ),
+    #           (1e30, *(0.0 for _ in range(len(neighbour_lrc))) )]
+    tsdata = [[(0.0, (0.0) ),
+              (1.0, (rate)),
+              (3650, (0.0)),
+              (1e30, (0.0))] for _ in range(len(neighbour_lrc))]
+    tsnames = [f"dewater{i}" for i in range(len(neighbour_lrc))]
+    tsmethods = len(neighbour_lrc) * ['stepwise']
+
+    spd = {}
+    for kper in [1]:  # range(1,sim.tdis.nper.get_data()):
+        spdi=[]
+        for cell,nm in zip(neighbour_lrc,tsnames):
+            spdi.append((cell, nm, nm))
+        spd[kper] = spdi
+
+    # export i,j,k,x,y info for the wells
+    centx, centy = mg.xcellcenters, mg.ycellcenters
+    dfexport = pd.DataFrame(spd[1]).iloc[:,:-1]
+    dfexport.rename(columns={1:"name"},inplace=True)
+    dfexport[["k", "i", "j"]] = dfexport.iloc[:,0].apply(lambda x: pd.Series(x))
+    dfexport["x"] = [centx[i, j] for (i, j) in zip(dfexport.i, dfexport.j)]
+    dfexport["y"] = [centy[i, j] for (i, j) in zip(dfexport.i, dfexport.j)]
+    dfexport.iloc[:, 1:].to_csv(os.path.join(".", "location_dewater_wells.csv"), index=False)
+
+    wel = flopy.mf6.ModflowGwfwel(gwf,
+                                  stress_period_data=spd,
+                                  pname='wel-dewater',
+                                  filename='dewater.wel',
+                                  boundnames=True,auto_flow_reduce=0.1,
+                                  print_input=True,
+                                  # auxiliary='MULTIPLIER',
+                                  # auxmultname='MULTIPLIER',
+                                  )
+    tsdata = [(0.0, (0.0) ),
+              (1.0, (rate)),
+              (3650, (0.0)),
+              (1e30, (0.0))]
+    wel.ts.initialize(filename='dewater{0}.ts'.format(0), # the filename which MODFLOW will use to read the time series
+            timeseries=tsdata,
+            time_series_namerecord=[tsnames[0]],
+            interpolation_methodrecord=[tsmethods[0]])
+    
+    for i,lrc in enumerate(neighbour_lrc[1:]):
+        tsdata = [(0.0, (0.0) ),
+              (1.0, (rate)),
+              (3650, (0.0)),
+              (1e30, (0.0))]
+        wel.ts.append_package(filename='dewater{0}.ts'.format(i+1), # the filename which MODFLOW will use to read the time series
+                timeseries=tsdata,
+                time_series_namerecord=[tsnames[i+1]],
+                interpolation_methodrecord=[tsmethods[i+1]])
+       
+    wel.ts.set_all_data_external()
+    wel.set_all_data_external()
+    return wel
+
+
+def build_wells_mar(sim,pitcells,rate):
+    assert rate>=0, "rate must be positive"
+    #mar_col = int(np.min(pitcells.T[1])/2)
+    #mar_row = int(np.mean(pitcells.T[0]))
+
+    #mar_cells = [(0, int(np.max(pitcells.T[0] + 1)), mar_col),
+    #              (0, mar_row, mar_col),
+    #              (0, int(np.min(pitcells.T[0]) - 1), mar_col)]
+    mar_j = int(np.min(pitcells.T[1])/2)
+    mar_skip = 10
+    half_mar_skip = int(mar_skip/2)
+    mar_cells = [(0,i,mar_j) for i in range(half_mar_skip,sim.get_model().dis.nrow.data,mar_skip)]
+    # tsdata = [(0.0, 0.0),
+    #           (1.0, rate),
+    #           (3650, 0.0),
+    #           (1e30, 0.0)]
+    # tsnames = ['mar']
+    # tsmethods = ['stepwise']
+    #
+    # spd={}
+    # #nper = sim.tdis.nper.get_data()
+    # #for kper in range(1,nper):
+    # spd[1] = [((0, int(np.max(pitcells.T[0] + 1)), mar_col), 'mar', rate),
+    #           ((0, mar_row, mar_col), 'mar', rate),
+    #           ((0, int(np.min(pitcells.T[0]) - 1), mar_col), 'mar', rate)
+    #           ]
+
+    # tsdata = [(0.0, *(0.0 for i in range(len(mar_cells)))),
+    #           (1.0, *(rate for i in range(len(mar_cells)))),
+    #           (3650, *(0.0 for i in range(len(mar_cells)))),
+    #           (1e30, *(0.0 for i in range(len(mar_cells))))]
+    tsnames = [f"mar{i}" for i in range(len(mar_cells))]
+    tsmethods = len(mar_cells) * ['stepwise']
+
+    spd = {}
+    for kper in [1]:  # range(1,sim.tdis.nper.get_data()):
+        spdi = []
+        for cell, nm in zip(mar_cells, tsnames):
+            spdi.append((cell, nm, nm))
+        spd[kper] = spdi
+
+    # export i,j,k,x,y info for the wells
+    gwf = sim.get_model()
+    mg = gwf.modelgrid
+    centx, centy = mg.xcellcenters, mg.ycellcenters
+    dfexport = pd.DataFrame(spd[1]).iloc[:, :-1]
+    dfexport.rename(columns={1: "name"}, inplace=True)
+    dfexport[["k", "i", "j"]] = dfexport.iloc[:, 0].apply(lambda x: pd.Series(x))
+    dfexport["x"] = [centx[i, j] for (i, j) in zip(dfexport.i, dfexport.j)]
+    dfexport["y"] = [centy[i, j] for (i, j) in zip(dfexport.i, dfexport.j)]
+    dfexport.iloc[:, 1:].to_csv(os.path.join(".", "location_mar_wells.csv"), index=False)
+
+    wel = flopy.mf6.ModflowGwfwel(sim.get_model(),
+                                  stress_period_data=spd,
+                                  pname='wel-mar',
+                                  filename='mar.wel',
+                                  boundnames=True,
+                                  print_input=True,
+                                  # auxiliary='MULTIPLIER',
+                                  # auxmultname='MULTIPLIER',
+                                  )
+    # wel.ts.initialize(filename='mar.ts', # the filename which MODFLOW will use to read the time series
+    #         timeseries=tsdata,
+    #         time_series_namerecord=tsnames,
+    #         interpolation_methodrecord=tsmethods)
+    
+    tsdata = [(0.0, (0.0) ),
+              (1.0, (rate)),
+              (3650, (0.0)),
+              (1e30, (0.0))]
+    wel.ts.initialize(filename='mar{0}.ts'.format(0), # the filename which MODFLOW will use to read the time series
+            timeseries=tsdata,
+            time_series_namerecord=[tsnames[0]],
+            interpolation_methodrecord=[tsmethods[0]])
+    for i,lrc in enumerate(mar_cells[1:]):
+        tsdata = [(0.0, (0.0) ),
+              (1.0, (rate)),
+              (3650, (0.0)),
+              (1e30, (0.0))]
+        wel.ts.append_package(filename='mar{0}.ts'.format(i+1), # the filename which MODFLOW will use to read the time series
+                timeseries=tsdata,
+                time_series_namerecord=[tsnames[i+1]],
+                interpolation_methodrecord=[tsmethods[i+1]])
+    wel.ts.set_all_data_external()
+    wel.set_all_data_external()
+    
+    return wel
+
+def build_recharge(gwf,recharge):
+    rch = flopy.mf6.ModflowGwfrcha(gwf, pname='rch', recharge=recharge)
+    rch.set_all_data_external()
+    return rch
+
+
+def build_utlobs(gwf, pitcells):
+
+    # head observations at pitcells
+    obs_list_pit = []
+    obs_layer=0
+    for cell in pitcells:
+        obsname = f"hds_pit_i:{cell[0]}_j:{cell[1]}"
+        cellid = (cell[0], cell[1])
+        obs_list_pit.append((obsname, "HEAD", (obs_layer, *cellid)))
+
+    # head observations at mar
+    obs_list_mar = []
+    for cell in gwf.get_package("wel-mar").stress_period_data.data[1].cellid:
+        obsname = f"hds_mar_i:{cell[1]}_j:{cell[2]}"
+        cellid = (cell[1], cell[2])
+        obs_list_mar.append((obsname, "HEAD", (obs_layer, *cellid)))
+
+    obs_recarray = {f'{gwf.name}.obs.head.pit.csv': obs_list_pit,
+                    f'{gwf.name}.obs.head.wel-mar.csv': obs_list_mar}
+
+    # add obs package
+    utlobs = flopy.mf6.ModflowUtlobs(gwf,
+                                     digits=10,
+                                     filename=f"{gwf.name}.obs",
+                                     pname="obs-head",
+                                     continuous=obs_recarray)
+
+    return utlobs
+
+
+def get_hmax_pit(ws=".", f="model.obs.head.pit.csv", fout="model.obs.hmax_pit.csv"):
+    '''' get the maximum head at the pit at each timestep and save to csv '''
+    df = pd.read_csv(os.path.join(ws, f))
+    for col in df.columns:
+        df[col] = pd.to_numeric(df.loc[:,col],errors="coerce")
+    df["hmax_pit"] = df.iloc[:,1:].max(axis=1)
+    hmax_pit = df[["time", "hmax_pit"]]
+    hmax_pit.to_csv(os.path.join(ws, fout), index=False)
+    return hmax_pit
+
+def extract_hds_maps(ws="."):
+    import flopy
+    begin_mine = 1826.
+    end_mine = 3650.
+    hds = flopy.utils.HeadFile(os.path.join(ws,"model.hds"))
+    times = np.array(hds.get_times())
+    #print(times)
+    begin_mine_time = times[np.argmin(np.abs(times - begin_mine))]
+    end_mine_time = times[np.argmin(np.abs(times - end_mine))]
+    #print(begin_mine_time)
+    #assert begin_mine in times
+    #assert end_mine in times
+    ext_times = [times[0],begin_mine_time,end_mine_time,times[-1]]
+    labels = ["predev","beginmine","endmine","final"]
+    for et,lab in zip(ext_times,labels):
+        arr = hds.get_data(totim=et)
+        np.savetxt(os.path.join(ws,"hds_{0}.dat".format(lab)),arr[0,:,:],fmt="%15.6E")
+
+
+def get_drn_ratio(ws=".", f="model.obs.drn.csv", fout="model.obs.drn_ratio.csv"):
+    '''' get the ratio of transient drn rate to predev drn rate and save to csv '''
+
+    df = pd.read_csv(os.path.join(ws, f))
+
+    # calculate ratio: only used if drn_obj=False
+    predev = df.iloc[0, :]["DRN-GDE"]
+    df["ratio"] = df["DRN-GDE"] / predev
+
+    # calculate voldeltsum: only used if drn_obj=True
+    df["DRN-GDE"] *= -1.0
+    predev = df.iloc[0, :]["DRN-GDE"]
+
+    # df["timedelt"] = 0
+    # df.loc[df.index[1:], "timedelt"] = df.index[1:] - df.index[:-1]
+    df["timedelt"] = df.time.diff().fillna(0) # unit: days
+
+    df["fluxdelt"] = predev - df["DRN-GDE"]
+    df.loc[df.fluxdelt < 0, "fluxdelt"] = 0.0  # in case mar causes increases flux to gde
+
+    df["voldeltsum"] = np.cumsum((df["fluxdelt"].array * df["timedelt"])) # vol (m3) = flux (m3/d) * dt (d)
+
+    drn_ratio = df[["time", "ratio","fluxdelt","voldeltsum"]]
+    drn_ratio.to_csv(os.path.join(ws, fout), index=False)
+
+    return drn_ratio
+
+
+def map_lst_pnames(model_dir=".", modelname="model"):
+
+    with open(os.path.join(model_dir, f'{modelname}.nam'), 'r') as f:
+        lines = f.readlines()
+
+    lcnt = 0
+    for line in lines:
+        if ('BEGIN packages' in line):
+            lstart = lcnt + 1
+        elif ('END packages' in line):
+            lend = lcnt
+        lcnt += 1
+    flines = lines[lstart:lend]
+    data = [row.split() for row in flines]
+    df = pd.DataFrame(data=data, columns=['type','filename','pname'])
+    df['type2'] = df.type.str.replace("6","").str.lower()
+    df['name2'] = df.groupby('type2').cumcount() + 1
+    df['name2'] = df['type2'] + df['name2'].astype(str).replace('1', '')
+
+    return df
+
+
+def preprocess_cost_obj(ws=".", groupby="year", use_vol=True, zero_thresh=1.0, fout="cost_obj.csv"):
+    ''' function that calculates total present-value costs = sum of capital and operational costs using outputs of mf6 run
+    groupby = "year" or "month": calculate costs on a yearly or monthly basis
+    zero_thresh = flow rate under which we consider a well to be inactive (m3/d)
+    '''
+
+    data = pd.read_csv(os.path.join(".", "costs.csv"), index_col=0)
+    discount_rate = data.loc[f"discount_rate", "value"]
+    assert discount_rate < 1.
+    assert groupby in ["year", "month"]
+    if groupby == "month":
+        print('{0}\n\nWARNING groupby=month still has bugs to fix\n\n{1}'.format('*'*17,'*'*17))
+
+    # sim = flopy.mf6.MFSimulation.load(sim_ws=ws, verbosity_level=0, load_only=["tdis","wel-dewater","wel-mar"])
+    sim = flopy.mf6.MFSimulation.load(sim_ws=ws, verbosity_level=0, load_only=["tdis"])
+    start_datetime = sim.tdis.start_date_time.get_data()
+
+    # if not os.path.exists(os.path.join(ws, "cum.csv")):
+    #     get_lst_budget(ws=ws)
+    # if not os.path.exists(os.path.join(ws, "tseries.dvars.csv")):
+    #     # prepare_timeseries_preprocessor(ws)
+    #     timeseries_preprocessor(ws)
+
+    # --- get volume extracted/injected each year...
+
+    if use_vol: # ... using cumulative volumes
+        type = "vol"
+        df = pd.read_csv(os.path.join(ws, "cum.csv")) # /!\ WARNING these are in-out values (diff=True)
+        # df = df.iloc[1:,:].copy() # get rid the first line = predev
+
+    # else: # OR using incremental flow rates (cc: not implemented)
+    #     type = "flow"
+    #     df = pd.read_csv(os.path.join(ws, "inc.csv"))
+
+    # df = map_lst_pnames(ws) # we can see in nam file: wel-dewater=wel, wel-mar=wel2
+    df = df[["time", "wel", "wel2"]]
+    df.set_index("time", inplace=True, drop=True)
+    df["date"] = pd.to_datetime(start_datetime) + pd.to_timedelta(df.index, unit="d")
+
+    # set all values > 0
+    df.rename(columns={"wel": f"cum_vol_ext", "wel2": f"cum_vol_inj"}, inplace=True)
+    assert all(df[f"cum_vol_ext"] <= 0)  # in-out values = -out values because in=0
+    assert all(df[f"cum_vol_inj"] >= 0)  # in-out values = in values because out=0
+    assert all(df.iloc[0,:][[f"cum_vol_inj","cum_vol_inj"]].values == [0,0]) # predev: no ext/inj
+    df[f"cum_vol_ext"] = df[f"cum_vol_ext"].abs()
+
+    # calculate incremental volumes
+    if use_vol:
+        df[f"vol_ext"] = df.cum_vol_ext.diff().fillna(0)
+        df[f"vol_inj"] = df.cum_vol_inj.diff().fillna(0)
+    else:
+        raise NotImplementedError()
+
+    # calculate injected - extracted volume
+    df["inj_minus_ext_vol"] = df["vol_inj"] - df["vol_ext"]
+    df.loc[df.inj_minus_ext_vol < 0, "inj_minus_ext_vol"] = 0.0 # if injected vol < extracted vol, set inj vol = ext vol
+
+    # quick check
+    # fig, axes = plt.subplots(nrows=3, ncols=1, sharex=True)
+    # ax = axes[0]
+    # ax.plot(df.date.values, df[f"cum_vol_ext"], alpha=0.7, label=f"cumulative vol_ext")
+    # ax.plot(df.date.values, df[f"cum_vol_inj"], alpha=0.7, label=f"cumulative vol_inj")
+    # ax.legend()
+    # ax.grid()
+    # ax = axes[1]
+    # ax.plot(df.date.values, df[f"vol_ext"], alpha=0.7, label=f"incremental vol_ext")
+    # ax.plot(df.date.values, df[f"vol_inj"], alpha=0.7, label=f"incremental vol_inj")
+    # ax.legend()
+    # ax.grid()
+    # ax = axes[2]
+    # ax.plot(df.date.values, df["vol_inj"] - df["vol_ext"], alpha=0.7, label=f"vol_inj-vol_ext")
+    # ax.plot(df.date.values, df[f"inj_minus_ext_vol"], alpha=0.7, label=f"vol_inj-vol_ext\ncorrected")
+    # ax.legend()
+    # ax.grid()
+
+    # group by year/month
+
+    if groupby == "year":
+        dfcosts = df.groupby(df.date.dt.year)[[f"vol_ext", f"vol_inj", "inj_minus_ext_vol"]].sum()
+        dfcosts.index = pd.to_datetime(dfcosts.index, format="%Y")
+        dfcosts.index = dfcosts.index + pd.offsets.YearEnd(0)
+        freq = "YE"
+
+    elif groupby == "month":
+        # cc we're getting some weird spikes in Vinj + Vext with this line  maybe we should resample or something? todo fix.
+        dfcosts = df.groupby([(df.date.dt.year), (df.date.dt.month)])[[f"vol_ext", f"vol_inj", "inj_minus_ext_vol"]].sum()
+        dfcosts.index = pd.to_datetime(['{}-{:02d}-01'.format(year, month) for year, month in dfcosts.index])
+        dfcosts.index = dfcosts.index + pd.offsets.MonthEnd(0)
+        freq = "ME"
+
+    # quick check
+    # fig, ax = plt.subplots(1, 1)
+    # ax.plot(df.date.values, df[f"vol_ext"].cumsum(), lw=1, marker='.', ms=3, alpha=0.7, label=f"vol_ext original")
+    # ax.plot(df.date.values, df[f"vol_inj"].cumsum(), lw=1, marker='.', ms=3, alpha=0.7, label=f"vol_inj original")
+    # ax.plot(dfcosts.index, dfcosts[f"vol_ext"].cumsum(), lw=1, marker='+', ms=7, alpha=0.7, label=f"vol_ext groupby {groupby}")
+    # ax.plot(dfcosts.index, dfcosts[f"vol_inj"].cumsum(), lw=1, marker='+', ms=7, alpha=0.7, label=f"vol_inj groupby {groupby}")
+    # ax.legend()
+    # ax.xaxis.set_minor_locator(mdates.YearLocator())
+    # ax.grid()
+    # ax.set_xlim(left=pd.to_datetime("2000", format="%Y"), right=pd.to_datetime("2010", format="%Y"))
+
+    # --- calculate present-value factor
+
+    # number of periods (years/months) from start_datetime
+    dfcosts["no_periods"] = dfcosts.index.to_series().apply(
+        lambda x: len(pd.date_range(start=pd.to_datetime(start_datetime), end=x, freq=freq)))
+
+    if groupby == "year":
+        div_by = 1
+    elif groupby == "month":
+        div_by = 12
+
+    # present-value factor assuming the costs are summed at the *end* of each period
+    dfcosts["pv_factor"] = 1 / ((1 + discount_rate) ** (dfcosts.no_periods/div_by))
+
+    # quick check
+    # fig, axes = plt.subplots(2, 1, sharex=True)
+    # ax = axes[0]
+    # ax.plot(dfcosts.index, dfcosts[f"no_periods"], lw=1, marker='.', ms=3, alpha=0.7, label=f"no_periods ({groupby})")
+    # ax.scatter(pd.to_datetime(start_datetime), 0, marker='o', s=10, c='r', alpha=0.7, label=f"t=0 (start_datetime)")
+    # ax.legend()
+    # ax.grid()
+    # ax = axes[1]
+    # ax.plot(dfcosts.index, dfcosts[f"pv_factor"], lw=1, marker='.', ms=3, alpha=0.7, label=f"pv_factor")
+    # ax.scatter(pd.to_datetime(start_datetime), 1, marker='o', s=10, c='r', alpha=0.7, label=f"t=0")
+    # ax.legend()
+    # ax.grid()
+    # ax.xaxis.set_minor_locator(mdates.YearLocator())
+    # ax.set_xlim(left=pd.to_datetime("2000", format="%Y"), right=pd.to_datetime("2010", format="%Y"))
+
+    # --- calculate capital costs
+
+    # maximum number of wells that are installed
+    # gwf = sim.get_model()
+    # next_max = gwf.get_package("wel-dewater").maxbound.data  # number of extraction wells
+    # ninj_max = gwf.get_package("wel-mar").maxbound.data  # number of injection wells
+
+    # get number of extraction wells that are installed. if rate <= zero_thresh, consider it's inactive
+    #dfdewater = pd.read_csv(os.path.join(ws,"dewater.ts_timeseries.txt"),index_col=0,header=None,sep='\s+')
+    # vals = np.abs(dfdewater.values)
+    # vals[vals<=zero_thresh] = 0.0
+    # vals[vals>0.0] = 1.0
+    # next = vals[1,:].sum()
+
+    dewater_tsfiles = [f for f in os.listdir(ws) if f.endswith("ts_timeseries.txt") and f.startswith("dewater")]
+    assert len(dewater_tsfiles) > 0
+    next = 0
+    for tsfile in dewater_tsfiles:
+        df = pd.read_csv(os.path.join(ws,tsfile),index_col=0,header=None,sep='\s+')
+        if np.abs(df.values).sum() > 0:
+            next += 1    
+    
+    print("...",next," extraction wells active")
+
+    # get number of injection wells that are installed. if rate <= zero_thresh, consider it's inactive
+    # dfmar = pd.read_csv(os.path.join(ws, "mar.ts_timeseries.txt"), index_col=0, header=None,sep='\s+')
+    # vals = np.abs(dfmar.values)
+    # vals[vals <= zero_thresh] = 0.0
+    # vals[vals > 0.0] = 1.0
+    # ninj = vals[1, :].sum()
+    # assert ninj <= ninj_max
+    inj_tsfiles = [f for f in os.listdir(ws) if f.endswith("ts_timeseries.txt") and f.startswith("mar")]
+    assert len(inj_tsfiles) > 0
+    ninj = 0
+    for tsfile in inj_tsfiles:
+        df = pd.read_csv(os.path.join(ws,tsfile),index_col=0,header=None,sep='\s+')
+        if np.abs(df.values).sum() > 0:
+            ninj += 1    
+    print("...",ninj," injection wells active")
+    # get date in which the extraction + injection wells are installed
+    #dvars = pd.read_csv(os.path.join(ws, "tseries.dvars.csv"), index_col=0)
+    # find the date in df that is closest to the dvars.begin.dewater/dvars.begin.mar
+    #date_drill_ext = df.loc[df.index.to_series().sub(dvars.begin.dewater).abs().idxmin(),:].date
+    #date_drill_inj = df.loc[df.index.to_series().sub(dvars.begin.mar).abs().idxmin(),:].date
+    
+    #jwhite: for now, just hacking this in - assume any active well is drilled at the beginning
+    date_drill_ext = pd.to_datetime(start_datetime)
+    date_drill_inj = date_drill_ext
+
+    # fill dfcosts with the number of wells drilled/date
+    if groupby == "year":
+        dfcosts.loc[dfcosts.index.year == date_drill_ext.year, "nwells_ext"] = next
+        dfcosts.loc[dfcosts.index.year == date_drill_inj.year, "nwells_inj"] = ninj
+    elif groupby == "month":
+        dfcosts.loc[(dfcosts.index.year == date_drill_ext.year) &
+                    (dfcosts.index.month == date_drill_ext.month), "nwells_ext"] = next
+        dfcosts.loc[(dfcosts.index.year == date_drill_inj.year) &
+                    (dfcosts.index.month == date_drill_inj.month), "nwells_inj"] = ninj
+
+    dfcosts[["nwells_ext", "nwells_inj"]] = dfcosts[["nwells_ext", "nwells_inj"]].fillna(0).astype(int)
+    # assert dfcosts[["nwells_ext", "nwells_inj"]].sum().sum() <= next + ninj
+    # assert all(dfcosts[["nwells_ext", "nwells_inj"]].sum().values > [0,0])
+
+    # date where pipeline installed for the inj system
+    date_pipeline_inj = dfcosts.ne(0).nwells_inj.idxmax() # find the 1st occurrence of nwells_inj != 0
+    if groupby == "year":
+        dfcosts.loc[dfcosts.index.year == date_pipeline_inj.year, "inj_system"] = 1
+        assert date_pipeline_inj.year == date_drill_inj.year  # right now this will always be True (since all inj wells are drilled at once)
+    elif groupby == "month":
+        dfcosts.loc[(dfcosts.index.year == date_pipeline_inj.year) &
+                    (dfcosts.index.month == date_pipeline_inj.month), "inj_system"] = 1
+        assert (date_pipeline_inj.year == date_drill_inj.year) & (date_pipeline_inj.month == date_drill_inj.month) # right now this will always be True (since all inj wells are drilled at once)
+    dfcosts["inj_system"] = dfcosts.inj_system.fillna(0).astype(int)
+    # assert dfcosts.inj_system.sum() > 0
+
+    # capex (USD) = number of wells installed (-) * cost of well installation (USD)
+    dfcosts["cpx"] = dfcosts[f"nwells_ext"] * data.loc[f"cost_activation_ext", "value"] +\
+                     dfcosts[f"nwells_inj"] * data.loc[f"cost_activation_inj", "value"] +\
+                     dfcosts[f"inj_system"] * data.loc[f"cost_inj_system", "value"]
+
+    # --- calculate operating expenses
+
+    # opex (USD) = total pumped volume (m3) * cost of pumping per unit volume (USD/m3)
+    dfcosts["opx"] = dfcosts[f"vol_ext"] * data.loc[f"cost_pumping_per_unit_{type}_ext", "value"] +\
+                     dfcosts[f"vol_inj"] * data.loc[f"cost_pumping_per_unit_{type}_inj", "value"] + \
+                     dfcosts["inj_minus_ext_vol"] * data.loc["excess_inj_cost_per_unit_vol", "value"]
+    # there is an extra cost of having injected vol > extracted vol
+
+    # calculate the extra cost of having injected vol > extracted vol
+    # dfcosts["excess_inj_costs"] = dfcosts["inj_minus_ext_vol"] * data.loc["excess_inj_cost_per_unit_vol", "value"]
+    # dfcosts["opx"] += dfcosts["excess_inj_costs"]
+
+    # --- calculate total
+
+    dfcosts["total"] = dfcosts["opx"] + dfcosts["cpx"]
+    dfcosts["total_pv"] = dfcosts["total"] * dfcosts["pv_factor"] # net present value
+    dfcosts.loc["cumul"] = dfcosts.sum(numeric_only=True, axis=0)
+    dfcosts.to_csv(os.path.join(ws, fout), index=True)
+
+    return dfcosts
+
+def setup_mou(t_d, t_d_mou, m_d_post=None, num_reals=None, noptmax=20, num_indiv=100,
+              risk=0.51, risk_obj=True, recalc_every=1000, chance_points="single", pstname="pest",
+              drn_obj=False,noptmax_pt=None,use_truth=False,use_mar_hmax_constraints=True,
+              use_schedules=False):
+
+    if os.path.exists(t_d_mou):
+        shutil.rmtree(t_d_mou)
+    shutil.copytree(t_d, t_d_mou)
+
+    # sim = flopy.mf6.MFSimulation.load(sim_ws=t_d_mou, load_only=['DIS'])
+    # gwf = sim.get_model()
+
+    pst = pyemu.Pst(os.path.join(t_d_mou, f"{pstname}.pst"))
+    pst.try_parse_name_metadata()
+    par = pst.parameter_data
+    obs = pst.observation_data
+
+    if use_truth == "base" and m_d_post is None:
+        raise Exception()
+    # get parameter ensemble
+    #if m_d_post is None: # use prior pe
+    #    pe_file = "prior.jcb"
+    pe_file = None
+    if m_d_post is not None: # use posterior pe
+        if noptmax_pt is None:
+            phidf = pd.read_csv(os.path.join(m_d_post,"pest.phi.actual.csv"))
+            noptmax_pt = phidf.iteration.max()
+        pe_file = f"{pstname}.{noptmax_pt}.par.csv"
+        shutil.copy2(os.path.join(m_d_post,pe_file),os.path.join(t_d_mou,pe_file))
+        assert os.path.exists(os.path.join(t_d_mou, pe_file)), os.path.join(t_d_mou, pe_file)
+
+        pe = pyemu.ParameterEnsemble.from_csv(pst=pst, filename=os.path.join(t_d_mou, pe_file))
+        if "base" not in pe.index and use_truth == "base":
+            raise Exception()
+        base_real = pe.loc["base",:]
+        if num_reals is not None and num_reals < pe.shape[0]:
+
+            pe = pe.iloc[:num_reals,:]
+        pe.to_csv(os.path.join(t_d_mou,"par_stack.csv"))
+        pe_file = "par_stack.csv"
+    #print(pe.index)
+
+    # fill parvals using the parameter ensemble
+    #parvals = pe.loc["base", :]
+    #parval_dict = dict(zip(parvals.index, parvals.values))
+    #par['parval1'] = pe.loc["base",par.parnme]
+
+    # decision variables
+    dvar_gps = []
+
+    ugrps = par.pargp.unique()
+    ugrps.sort()
+
+    # spatial distribution of dewatering rates
+    grps = [g for g in ugrps if g.startswith("dewater")]
+    assert len(grps) > 0
+    dvar_gps.extend(grps)
+    dewat_list = par.loc[par.pargp.apply(lambda x: x in grps), :].index.tolist()
+    par.loc[dewat_list, "parlbnd"] = dewater_rate * 2
+    par.loc[dewat_list, "parubnd"] = 0
+    par.loc[dewat_list, "parval1"] = dewater_rate
+    par.loc[dewat_list, "partrans"] = "none"
+
+    # spatial distribution of mar rates
+    #dvar_gps.append("mar")
+    #mar_list = par.loc[par.pargp == "mar", :].index.tolist()
+    grps = [g for g in ugrps if g.startswith("mar")]
+    assert len(grps) > 0
+    dvar_gps.extend(grps)
+    mar_list = par.loc[par.pargp.apply(lambda x: x in grps), :].index.tolist()
+    par.loc[mar_list, "parlbnd"] = 0
+    par.loc[mar_list, "parubnd"] = mar_rate * 2
+    par.loc[mar_list, "parval1"] = mar_rate # to try to find some feasible solution at the start
+    par.loc[mar_list, "partrans"] = "none"
+
+    # beginning of dewater/mar period
+    #dvar_gps.append("begin")
+    #begin_list = par.loc[par.pargp == "begin", :].index.tolist()
+    grps = [g for g in ugrps if g.startswith("begin")]
+    assert len(grps) > 0
+    dvar_gps.extend(grps)
+    begin_list = par.loc[par.pargp.apply(lambda x: x in grps), :].index.tolist()
+    par.loc[begin_list, "parlbnd"] = 1.0
+    par.loc[begin_list, "parubnd"] = begin_mine
+    par.loc[begin_list, "parval1"] = 1.0
+    par.loc[begin_list, "partrans"] = "none"
+
+    # duration of dewater period
+    #dvar_gps.append("duration")
+    #duration_list = par.loc[par.pargp == "duration", :].index.tolist()
+    grps = [g for g in ugrps if g.startswith("duration")]
+    assert len(grps) > 0
+    dvar_gps.extend(grps)
+    duration_list = par.loc[par.pargp.apply(lambda x: x in grps), :].index.tolist()
+
+    dewat_duration_par = [d for d in duration_list if "dewat" in d]
+    assert len(dewat_duration_par) > 1
+    #dewat_duration_par = dewat_duration_par[0]
+    par.loc[dewat_duration_par, "parlbnd"] = 365
+    par.loc[dewat_duration_par, "parubnd"] = end_mine
+    #par.loc[dewat_duration_par, "parval1"] = end_mine
+    par.loc[dewat_duration_par, "partrans"] = "none"
+
+    # duration of mar period
+    mar_duration_par = [d for d in duration_list if "mar" in d]
+    assert len(mar_duration_par) > 1
+    #mar_duration_par = mar_duration_par[0]
+    par.loc[mar_duration_par, "parlbnd"] = 1
+    par.loc[mar_duration_par, "parubnd"] = (dewater_years + recovery_years) * 365.0
+    #par.loc[mar_duration_par, "parval1"] = _mine
+    par.loc[dewat_duration_par, "partrans"] = "none"
+
+    # these bounds should have already been set..should have...
+    jmar = par.loc[par.pargp=="j-mar",:]
+    dvar_gps.append("j-mar")
+    assert jmar.shape[0] > 1
+    par.loc[jmar.parnme, "partrans"] = "none"
+
+    # observations
+    obs.loc[:,'weight'] = 0. # all obs weights to 0 for optimization
+    assert len(obs.loc[obs.apply(lambda x: x.obgnme.startswith(tuple(["greater_", "g_", "less_", "l_"])), axis=1), :]) == 0
+    # objectives
+    objs = []
+    # constraints
+    #perioddata = pd.DataFrame(sim.tdis.perioddata.get_data())
+    #assert perioddata.shape[0] == 3 # this filter only works if there are 3 sps: predev, dewater_years, recovery_years
+    #dewater_tstps = [False] * perioddata.nstp[0] + [True] * perioddata.nstp[1] + [False] * perioddata.nstp[2]
+
+    #inc dewater minus mar
+    dobs = obs.loc[obs.usecol=="dewater-minus-mar",:]
+    dobs = dobs.loc[dobs.obsnme.str.contains('inc'),:]
+    assert dobs.shape[0] > 0
+    obs.loc[dobs.obsnme, "obsval"] = 0.0
+    obs.loc[dobs.obsnme, "weight"] = 0.0
+    obs.loc[dobs.obsnme, "obgnme"] = "greater_than"
+
+    # max simulated head in pit <= RHS during dewater years
+    hmax_pit_obs = obs.loc[obs.apply(lambda x: "hmax_pit" in x.obgnme, axis=1), :].copy()
+    hmax_pit_obs['time'] = hmax_pit_obs.time.astype(float)
+    hmax_pit_obs = hmax_pit_obs.loc[hmax_pit_obs.time >= begin_mine,:].copy()
+    hmax_pit_obs = hmax_pit_obs.loc[hmax_pit_obs.time < end_mine, :].copy()
+    assert len(hmax_pit_obs) > 0
+    hmax_pit_obs.sort_values(by="time", inplace=True)
+    hmax_pit_list = hmax_pit_obs.index.tolist()
+    obs.loc[hmax_pit_list, "obsval"] = hlim_pit
+    obs.loc[hmax_pit_list, "weight"] = 1.0
+    obs.loc[hmax_pit_list, "obgnme"] = "less_than"
+
+    # drn: transient flux/predev flux >=  predev flux to drn during dewater+recovery years.
+    if drn_obj:
+        drnvol_obs = obs.loc[obs.obgnme.str.contains("voldeltsum"),:].copy()
+        assert len(drnvol_obs) > 0
+        drnvol_obs["time"] = drnvol_obs.time.astype(float)
+        mxoname = drnvol_obs.loc[drnvol_obs.time==drnvol_obs.time.max(),"obsnme"].values
+        assert len(mxoname) == 1
+        mxoname = mxoname[0]
+        obs.loc[mxoname,"weight"] = 1.0
+        obs.loc[mxoname,"obgnme"] = "less_than"
+        objs.append(mxoname)
+
+        #add these to keep from adding too much extra water to the gde
+        # drn_ratio_obs = obs.loc[obs.obgnme.str.contains("usecol:ratio"), :].copy()
+        # assert len(drn_ratio_obs) > 0
+        # drn_ratio_obs.time = drn_ratio_obs.time.astype(float)
+        # drn_ratio_list = drn_ratio_obs.loc[drn_ratio_obs.apply(lambda x: x.time > end_mine, axis=1), :].index.tolist()
+        # obs.loc[drn_ratio_list, "obsval"] = 1.2
+        # obs.loc[drn_ratio_list, "weight"] = 1.0
+        # obs.loc[drn_ratio_list, "obgnme"] = "less_than"
+        #
+        # print(mxoname)
+    else:
+        drnvol_obs = obs.loc[obs.obgnme.str.contains("voldeltsum"),:].copy()
+        assert len(drnvol_obs) > 0
+        drnvol_obs["time"] = drnvol_obs.time.astype(float)
+        mxoname = drnvol_obs.loc[drnvol_obs.time==drnvol_obs.time.max(),"obsnme"].values
+        assert len(mxoname) == 1
+        mxoname = mxoname[0]
+        obs.loc[mxoname, "obsval"] = 300
+        obs.loc[mxoname,"weight"] = 1.0
+        obs.loc[mxoname,"obgnme"] = "less_than"
+
+        # drn_ratio_obs = obs.loc[obs.obgnme.str.contains("drn_ratio"), :].copy()
+        # assert len(drn_ratio_obs) > 0
+        # drn_ratio_obs.time = drn_ratio_obs.time.astype(float)
+        # drn_ratio_list = drn_ratio_obs.loc[drn_ratio_obs.apply(lambda x: x.time > end_mine, axis=1), :].index.tolist()
+        # # obs.loc[drn_ratio_list, "obsval"] = drn_ratio_lim
+        # obs.loc[drn_ratio_list, "obsval"] = 1.
+        # obs.loc[drn_ratio_list, "weight"] = 1.0
+        # obs.loc[drn_ratio_list, "obgnme"] = "greater_than"
+
+    # simulated head at mar locations <= land surface elevations during dewater years
+    hmar_obs = obs.loc[obs.apply(lambda x: "hds_mar" in x.obgnme, axis=1), :].copy()
+    hmar_obs.time = hmar_obs.time.astype(float)
+    hmar_obs.sort_values(by="time", inplace=True)
+    # hmar_obs = hmar_obs.loc[hmar_obs.time >= begin_mine,:]
+    #hmar_obs = hmar_obs.loc[hmar_obs.time < end_mine, :]
+    assert len(hmar_obs) > 0
+    hmar_obs["i"] = hmar_obs.i.astype(int)
+    hmar_obs["j"] = hmar_obs.j.astype(int)
+    mar_ij = hmar_obs.drop_duplicates(subset=['i', 'j'])[['i', 'j']].values.tolist()
+    hmar_list_all = []
+    for l in mar_ij:
+        hmar_list = hmar_obs[(hmar_obs.i == l[0]) & (hmar_obs.j == l[1])].index.tolist()
+
+        assert len(hmar_list) >= len(hmax_pit_list)
+        hmar_list_all.extend(hmar_list)
+
+        obs.loc[hmar_list, "obsval"] = hlim_mar
+        if use_mar_hmax_constraints:
+            obs.loc[hmar_list, "weight"] = 1.0
+        obs.loc[hmar_list, "obgnme"] = "less_than"
+    #assert len(hmar_list_all) == len(mar_ij) * len(hmax_pit_list)
+
+
+
+    # minimize costs
+    costs_obs = obs.loc[obs.apply(lambda x: "cost" in x.obgnme and "total_pv" in x.obgnme, axis=1), :].copy()
+    costs_obs_list = [s for s in costs_obs.index if "cumul" in s][0]
+    assert len(costs_obs_list) > 0
+    obs.loc[costs_obs_list, "obgnme"] = "less_than"  # minimize
+    obs.loc[costs_obs_list, "weight"] = 1.0
+    objs.append(costs_obs_list)
+
+    # maximize reliability
+    if risk_obj:
+
+        # create risk.dat and risk.dat.tpl files
+        with open(os.path.join(t_d_mou, "risk.dat.tpl"), 'w') as f:
+            f.write("ptf ~\n")
+            f.write("_risk_ ~   _risk_    ~\n")
+        pst.add_parameters(os.path.join(t_d_mou, "risk.dat.tpl"), pst_path=".")
+        par = pst.parameter_data
+
+        # add to dvars
+        par.loc["_risk_", "pname"] = "_risk_"
+        par.loc["_risk_", "pargp"] = "_risk_"
+        par.loc["_risk_", "partrans"] = "none"
+        par.loc["_risk_", "parlbnd"] = 0.5
+        par.loc["_risk_", "parubnd"] = 0.99
+        par.loc["_risk_", "parval1"] = risk
+        assert par.loc["_risk_", "partrans"] == "none"
+        dvar_gps.append("_risk_")
+
+        # add objective = maximize _risk_ (i.e. reliability)
+        pst.add_pi_equation(["_risk_"], obs_group="greater_than", pilbl="_risk_")
+        objs.append("_risk_")
+
+
+    # number of individuals should generally be >= number of dvars * 2
+    #no_dvars = par.loc[par.apply(lambda x: x.pargp in dvar_gps, axis=1), :].shape[0]
+    #num_reals = no_dvars * 2
+    #num_reals = math.ceil(num_reals / 10.0) * 10 # round up to upper 10
+    if pe_file is not None:
+        pst.pestpp_options["opt_par_stack"] = pe_file
+    #pst.pestpp_options["opt_stack_size"] = pe.shape[0]
+    #try:  # from closed-loop - bug in mou? [if ies par ensemble is passed, this dominates over the parstack...]
+    #    pst.pestpp_options.pop('ies_par_en')
+    #except:
+    #    pass
+
+    # mou options
+    pst.control_data.noptmax = noptmax
+    pst.pestpp_options["mou_objectives"] = objs
+    pst.pestpp_options["opt_dec_var_groups"] = dvar_gps
+    pst.pestpp_options["mou_population_size"] = num_indiv
+    pst.pestpp_options["mou_max_archive_size"] = 5000
+    pst.pestpp_options["mou_save_population_every"] = 20
+    pst.pestpp_options["panther_echo"] = True
+    pst.pestpp_options["mou_generator"] = "pso"
+    pst.pestpp_options["opt_recalc_chance_every"] = recalc_every
+    pst.pestpp_options["opt_chance_points"] = chance_points
+    pst.pestpp_options["opt_risk"] = risk
+    pst.pestpp_options["mou_risk_objective"] = risk_obj
+    if risk_obj:
+        assert risk != 0.5
+    if num_reals is not None:
+        pst.pestpp_options["opt_stack_size"] = num_reals
+
+    if use_schedules:
+        chance_sched = None
+        if noptmax >= 100:
+            chance_sched = [0,20,50,70,80]
+            if noptmax == 100:
+                chance_sched.extend(([90,92,93,94,95,96,97,98,99,100]))
+        if noptmax >= 200:
+            chance_sched.extend([90,110,130,150,160,170,180,185,190,195,196,197,198,199,200])
+        if chance_sched is not None:
+            sched_filename = "chance_schedule.dat"
+            with open(os.path.join(t_d_mou,sched_filename),'w') as f:
+                for gen in chance_sched:
+                    f.write("{0},true\n".format(gen))
+            pst.pestpp_options["opt_chance_schedule"] = sched_filename
+
+
+        pop_sched = "pop_schedule.dat"
+        with open(os.path.join(t_d_mou,pop_sched),'w') as f:
+            f.write("0,{0}\n".format(int(num_indiv*3)))
+            f.write("1,{0}\n".format(num_indiv))
+        pst.pestpp_options["mou_population_schedule"] = pop_sched
+
+    
+    # increase max dewater before draw - this predisposes us to get feasible solutions
+    # as long as drn_obj is true
+
+    if drn_obj:
+        par.loc[dewat_list, "parlbnd"] *= 5.
+    else:
+        par.loc[dewat_list, "parlbnd"] *= 5.
+        par.loc[mar_list, "parubnd"] *= 10.
+
+
+    # generate initial pop from smaller dv space
+    print("generate dvar pop")
+    np.random.seed(123456789)
+    par_org = par.copy()
+
+    # fix all pars, modify the dv bounds and draw initial dvpop
+    par.loc[par.apply(lambda x: x.pargp not in dvar_gps, axis=1), "partrans"] = "fixed"
+    assert par.loc[par.apply(lambda x: x.partrans != "fixed", axis=1), "pargp"].unique().tolist().sort() == dvar_gps.sort()
+
+    # todo modify the dv bounds with common sense...
+
+    dvpop = pyemu.ParameterEnsemble.from_uniform_draw(pst, num_reals=num_indiv, fill=True)
+
+    if risk_obj is True:
+        dvpop.loc[:,"_risk_"] = np.random.uniform(0.5,0.7,num_indiv)
+
+    # check
+    #dvpop_drop = dvpop._df[[i for i in dvpop._df if len(set(dvpop._df[i])) > 1]]  # drop columns which have same values in all rows
+    #assert dvpop_drop.shape[1] == no_dvars
+
+    # seed some end members
+    ppar = par.copy()
+    indiv_idx = 0
+    ppar.loc[dewat_list,"parval1"] = ppar.loc[dewat_list,"parubnd"]
+    ppar.loc[begin_list,"parval1"] = ppar.loc[begin_list,"parlbnd"]
+    ppar.loc[duration_list, "parval1"] = ppar.loc[duration_list, "parubnd"]
+    ppar.loc[mar_list,"parval1"] = ppar.loc[mar_list,"parubnd"]
+    dvpop.loc[dvpop.index[indiv_idx],par.parnme] = ppar["parval1"].values
+    
+
+    indiv_idx += 1
+    ppar.loc[mar_list,"parval1"] = ppar.loc[mar_list,"parlbnd"]
+    dvpop.loc[dvpop.index[indiv_idx], par.parnme] = ppar["parval1"].values
+    indiv_idx += 1
+    ppar.loc[dewat_list, "parval1"] = dewater_rate
+    ppar.loc[mar_list, "parval1"] = ppar.loc[mar_list, "parubnd"]
+    dvpop.loc[dvpop.index[indiv_idx], par.parnme] = ppar["parval1"].values
+    indiv_idx += 1
+    ppar.loc[mar_list, "parval1"] = ppar.loc[mar_list, "parlbnd"]
+    dvpop.loc[dvpop.index[indiv_idx], par.parnme] = ppar["parval1"].values
+    indiv_idx += 1
+
+    ppar.loc[mar_list,"parval1"] = 500.0
+    ppar.loc[dewat_list,"parval1"] = -250.0
+    dvpop.loc[dvpop.index[indiv_idx], par.parnme] = ppar["parval1"].values
+    indiv_idx += 1
+
+    if risk_obj is True:
+        dvpop.loc[dvpop.index[:indiv_idx],"_risk_"] = 0.5
+
+    dvpop.to_csv(os.path.join(t_d_mou, "initial_dvpop.csv"))
+    pst.pestpp_options["mou_dv_population_file"] = "initial_dvpop.csv"
+
+    #now increase the mar max so that mou can seek the tradeoff of drn vs cost
+    # but starting with more feasible solutions
+
+
+    # revert the changes to the parameter data
+    pst.parameter_data = par
+    par = pst.parameter_data
+    par.loc[:, :] = par_org.values
+    assert par.loc[par.apply(lambda x: x.pargp not in dvar_gps, axis=1), "partrans"].unique().tolist() != ['fixed']
+    if drn_obj:
+        par.loc[mar_list, "parubnd"] *= 10.
+
+
+    if use_truth == "base":
+        
+        nondv_par = par.loc[par.pargp.apply(lambda x: x not in dvar_gps),:]
+        par.loc[nondv_par.parnme,"parval1"] = base_real.loc[nondv_par.parnme].values
+
+    elif use_truth:
+        tpst = pyemu.Pst(os.path.join(t_d,"truth.pst"))
+        tpar = tpst.parameter_data
+        dvar_gps = set(dvar_gps)
+        nondv_tpar = tpar.loc[tpar.pargp.apply(lambda x: x not in dvar_gps),:]
+        par.loc[nondv_tpar.parnme,"parval1"] = nondv_tpar["parval1"].values
+
+    pst.control_data.noptmax = 0
+    pst.write(os.path.join(t_d_mou, f"{pstname}.pst"), version=2)
+    pyemu.os_utils.run("pestpp-mou {0}.pst".format(pstname),cwd=t_d_mou)
+
+    pst.control_data.noptmax = noptmax
+    pst.write(os.path.join(t_d_mou, f"{pstname}.pst"), version=2)
+
+    shutil.copy2(os.path.join(".", "workflow.py"), os.path.join(t_d_mou, "setupmou_workflow.py.txt"))
+
+    return t_d_mou
+
+
+def plot_setup(ws,gwf,pitcells,kper=1,show_hk=False,gw_level_locs=None):
+
+    # fs=10
+    # plt.rcParams.update({'font.size': fs})
+    fig = plt.figure(figsize=(width_max*.75,height_max/2),#(7,4),
+                     constrained_layout=True)
+    ax = fig.add_subplot()
+    ax.set_aspect("equal")
+    handles = []
+    mapview = flopy.plot.PlotMapView(model=gwf, layer=0)
+    linecollection = mapview.plot_grid(alpha=0.1)
+
+    # real hydraulic conductivity field
+    if show_hk:
+        a = gwf.npf.k.array[0,:,:]
+        quadmesh = mapview.plot_array(np.log10(a),alpha=0.4)
+        cb = plt.colorbar(quadmesh, shrink=0.45, orientation="horizontal",
+                          label="log Hydraulic conductivity (m/day)")#"HK ($log_{10} \\frac{m}{d}$)")
+        # cb.set_ticks(np.arange(cb.vmin, cb.vmax, 0.2))
+    # quadmesh = mapview.plot_ibound()
+    # gwf.dis.top.plot()
+
+    # boundary conditions
+    for pck,c,nme in zip(['drn-gde','ghb-inflow','wel-dewater','wel-mar'],
+                     ["cyan","b","r","k"],
+                     ['Groundwater-\ndependent\necosystem (DRN)', 'Inflow (GHB)',
+                      'Dewatering\nwells (WEL)', 'Reinjection\nwells (WEL)'],
+                     ):
+        try:
+            mapview.plot_bc(pck, kper=kper, color=c)
+            handles.append(plt.Line2D([0], [0], marker='s', color='w', markerfacecolor=c, markersize=10, label=nme))
+        except:
+            pass
+
+    # pit
+    mg = gwf.modelgrid
+    centx = mg.xcellcenters
+    centy = mg.ycellcenters
+    pitcells_x = [centx[i, j] for (i, j) in pitcells]
+    pitcells_y = [centy[i, j] for (i, j) in pitcells]
+    xmin, xmax, ymin, ymax = min(pitcells_x), max(pitcells_x), min(pitcells_y), max(pitcells_y)
+    rect = patches.Rectangle(xy=(xmin-delr/2, ymin-delr/2), width=xmax-xmin+delr, height=ymax-ymin+delr,
+                             lw=1, edgecolor='k', facecolor='none', label="Pit")
+    plt.gca().add_patch(rect)
+    handles.append(plt.Line2D([0], [0], marker='s',  color='w', markerfacecolor="w", markeredgecolor='k',markersize=15,
+                              label="Pit"))
+
+    # gw level observations
+    if gw_level_locs is not None:
+        ax.scatter(gw_level_locs.x.values,gw_level_locs.y.values,marker="^",facecolor='w',edgecolor='k',s=15,linewidths=0.4)
+        handles.append(plt.Line2D([0], [0], marker='^', color='w', markerfacecolor="w", markeredgecolor='k',markersize=10,
+                                  label="Groundwater level\nobservations"))
+
+    # scale bar
+    scale=250 # m
+    ax.set_xticks(np.arange(ax.get_xlim()[0], ax.get_xlim()[1], scale))
+    ax.set_xticks(np.arange(ax.get_ylim()[0], ax.get_ylim()[1], scale))
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.tick_params(axis='x', which='both', top=True, direction='out')
+    ax.tick_params(axis='y', which='both', right=True, direction='out')
+
+    from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+    scalebar = AnchoredSizeBar(ax.transData, scale, f"{scale} m", 'lower right',
+                               pad=0.1, color='white', frameon=False, size_vertical=1,
+                               )
+    plt.gca().add_artist(scalebar)
+
+    if not show_hk:
+        mapview.ax.legend(handles=handles, loc='center left', bbox_to_anchor=(1, 0.5))
+    else:
+        mapview.ax.legend(handles=handles, loc='center left', bbox_to_anchor=(1, 0.5))
+        # mapview.ax.legend(handles=handles, loc='lower left', bbox_to_anchor=(1, 0))
+
+    # ax.set_xlabel("meters")
+    # ax.set_ylabel("meters")
+    #ax.set_title("A) ")
+    #plt.tight_layout()
+    plt.savefig("model_setup.pdf")
+    plt.close(fig)
+
+def prepare_timeseries_preprocessor(ws):
+    fnames = [f for f in os.listdir(ws) if f.endswith('.ts_timeseries.txt') ]
+    df_dvars = pd.DataFrame(columns=['begin','duration'])
+    for fname in fnames:
+        df = pd.read_csv(os.path.join(ws,fname),delim_whitespace=True, header=None)
+        s = fname.split('.')[0]
+        df_dvars.loc[s,'begin'] = df.iloc[1,0]
+        df_dvars.loc[s,'duration'] = df.iloc[2,0] - df.iloc[1,0]
+    df_dvars.index.name = "ts"
+    fname = "tseries.dvars.csv"
+    df_dvars.to_csv(os.path.join(ws,fname),)
+
+    return fname
+
+def timeseries_preprocessor(ws='.'):
+    end_mine = 3650.
+    # using the dvar info in tseries.dvars.csv:
+    dvars = pd.read_csv(os.path.join(ws,"tseries.dvars.csv"),index_col=0)
+    # process the .ts_timeseries.txt files:
+    fnames = [f for f in os.listdir(ws) if f.endswith('.ts_timeseries.txt') ]
+    for fname in fnames:
+        print(f"updating {fname}")
+        df = pd.read_csv(os.path.join(ws,fname),delim_whitespace=True, header=None)
+        s = fname.split('.')[0]
+        df.iloc[1,0] = dvars.loc[s,'begin']
+        df.iloc[2,0] = dvars.loc[s,'begin'] + dvars.loc[s,'duration']
+        if df.iloc[2,0] > end_mine: # reset to end_mine
+            df.iloc[2, 0] = end_mine
+        df.to_csv(os.path.join(ws,fname),sep=' ',index=False, header=False)
+
+def build_model(ws):
+
+    print("building mf6 model...")
+    if os.path.exists(ws):
+        shutil.rmtree(ws)
+    os.mkdir(ws)
+
+    # copy the executables
+    prep_bins(ws, src_path=os.path.join('bin'))
+
+    # lez'go
+    sim = flopy.mf6.MFSimulation(sim_ws=ws,
+                                 continue_=True,
+                                 )
+    # time discretization
+    tdis = build_tdis(sim)
+
+    # build the flow model
+    gwf = flopy.mf6.ModflowGwf(sim,
+                               newtonoptions="UNDER_RELAXATION",
+                               save_flows=True,
+                               )
+    # ims
+    ims = build_ims(sim, gwf)
+
+    # dis
+    dis = build_dis(gwf)
+
+    # npf
+    npf = build_npf(gwf)
+    # sto
+    sto = build_sto(gwf)
+
+    # ic
+    ic = build_ic(gwf)
+
+    # oc
+    oc = build_oc(gwf)
+
+    # drn gde
+    drn = build_drn(sim, gwf)
+
+    # rcharge
+    rch = build_recharge(gwf, 1e-5)
+
+    # inflow
+    inflow = build_inflow(sim, gwf)
+
+    # define pit cells
+    pitcells = specify_pit_cells(gwf)
+
+    # dewater wells
+
+    wel_dewater = build_wells_dewater(sim,pitcells,rate=dewater_rate)
+
+    #MAR wells
+    
+    wel_mar = build_wells_mar(sim,pitcells,rate=mar_rate)
+
+    # head obs package
+    utlobs = build_utlobs(gwf, pitcells)
+    sim.set_all_data_external()
+    sim.write_simulation()
+    # plot model setup
+    plot_setup(ws, gwf, pitcells)
+    shutil.copy2(os.path.join(".", "workflow.py"), os.path.join(ws, "buildmodel_workflow.py.txt"))
+    return sim, gwf
+
+
+def run_mf6(ws):
+    cwd = os.getcwd()
+    try:
+        pyemu.os_utils.run("mf6",cwd=ws)
+    except:
+        print('mf6 failed')
+        os.chdir(cwd)
+        pass
+    return
+
+
+def plot_budget(ws):
+
+    ft = 10
+    plt.rcParams.update({'font.size': ft})
+    sim = flopy.mf6.MFSimulation.load(sim_ws=ws, verbosity_level=0)
+    start_datetime = sim.tdis.start_date_time.get_data()
+    gwf = sim.get_model()
+    time_units = sim.tdis.time_units.data[0]
+    length_units = gwf.dis.length_units.data[0]
+
+    # --- plot water budget
+
+    inc, cum = get_lst_budget(ws=ws)
+    pcks = [s for s in inc.columns if s not in ['time','in-out','percent-discrepancy','total']]
+    dts = pd.to_datetime(start_datetime) + pd.to_timedelta(inc.index, unit="d")
+
+    # plot all water budget components
+    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(8, 11), sharex=True)
+    ax=axes[0]
+    ax.plot(dts, inc[pcks], label=pcks)
+    ax.legend()
+    ax.grid(lw=0.5)
+    ax.set_ylabel(f"Flux in-out ({length_units}"r"$^{3}$"f"/{time_units})")
+    ax.set_title("Incremental water budget", fontsize=ft)
+    ax.text(0.5, 0.97, 'in > out', color='0.5', ha='center',va='center', transform=ax.transAxes)
+    ax.text(0.5, 0.03, 'out > in', color='0.5', ha='center',va='center', transform=ax.transAxes)
+    ax = axes[1]
+    ax.plot(dts, cum[pcks], label=pcks)
+    ax.legend()
+    ax.grid(lw=0.5)
+    ax.xaxis.set_minor_locator(mdates.YearLocator())
+    ax.set_xlabel("Date")
+    ax.set_ylabel(f"Volume in-out ({length_units}"r"$^{3}$)")
+    ax.set_title("Cumulative water budget", fontsize=ft)
+    ax.text(0.5, 0.97, 'in > out', color='0.5', ha='center',va='center', transform=ax.transAxes)
+    ax.text(0.5, 0.03, 'out > in', color='0.5', ha='center',va='center', transform=ax.transAxes)
+    plt.tight_layout()
+    plt.savefig(os.path.join(ws, "budget.png"), dpi=300)
+    plt.close(fig)
+
+    # plot total ('in-out' and 'total' columns are identical when (diff=True) in lst.get_dataframes())
+    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(8, 11), sharex=True)
+    ax = axes[0]
+    ax.plot(dts, inc['total'], label='total', color='k')
+    ax.legend()
+    ax.grid(lw=0.5)
+    ax.set_ylabel(f"Flux in-out ({length_units}"r"$^{3}$"f"/{time_units})")
+    ax.set_title("Incremental water budget", fontsize=ft)
+    ax.text(0.5, 0.97, 'in > out', color='0.5', ha='center',va='center', transform=ax.transAxes)
+    ax.text(0.5, 0.03, 'out > in', color='0.5', ha='center',va='center', transform=ax.transAxes)
+    ax = axes[1]
+    ax.plot(dts, cum['total'], label='total', color='k')
+    ax.legend()
+    ax.grid(lw=0.5)
+    ax.xaxis.set_minor_locator(mdates.YearLocator())
+    ax.set_xlabel("Date")
+    ax.set_ylabel(f"Volume in-out ({length_units}"r"$^{3}$)")
+    ax.set_title("Cumulative water budget", fontsize=ft)
+    ax.text(0.5, 0.97, 'in > out', color='0.5', ha='center',va='center', transform=ax.transAxes)
+    ax.text(0.5, 0.03, 'out > in', color='0.5', ha='center',va='center', transform=ax.transAxes)
+    plt.tight_layout()
+    plt.savefig(os.path.join(ws, "budget_total.png"), dpi=300)
+    plt.close(fig)
+
+    # plot percent discrepancy
+    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(8, 11), sharex=True)
+    ax = axes[0]
+    ax.plot(dts, inc['percent-discrepancy'], label='total', color='k')
+    ax.legend()
+    ax.grid(lw=0.5)
+    ax.set_ylabel(f"Flux in-out (%)")
+    ax.set_title("Incremental water budget", fontsize=ft)
+    ax.text(0.5, 0.97, 'in > out', color='0.5', ha='center',va='center', transform=ax.transAxes)
+    ax.text(0.5, 0.03, 'out > in', color='0.5', ha='center',va='center', transform=ax.transAxes)
+    ax = axes[1]
+    ax.plot(dts, cum['percent-discrepancy'], label='total', color='k')
+    ax.legend()
+    ax.grid(lw=0.5)
+    ax.xaxis.set_minor_locator(mdates.YearLocator())
+    ax.set_xlabel("Date")
+    ax.set_ylabel(f"Volume in-out (%)")
+    ax.set_title("Cumulative water budget", fontsize=ft)
+    ax.text(0.5, 0.97, 'in > out', color='0.5', ha='center',va='center', transform=ax.transAxes)
+    ax.text(0.5, 0.03, 'out > in', color='0.5', ha='center',va='center', transform=ax.transAxes)
+    plt.tight_layout()
+    plt.savefig(os.path.join(ws, "budget_percent-discrepancy.png"), dpi=300)
+    plt.close(fig)
+
+def plot_constraints(ws):
+
+    ft = 10
+    plt.rcParams.update({'font.size': ft})
+    sim = flopy.mf6.MFSimulation.load(sim_ws=ws, verbosity_level=0)
+    start_datetime = sim.tdis.start_date_time.get_data()
+    
+    gwf = sim.get_model()
+    
+    time_units = sim.tdis.time_units.data[0]
+    length_units = gwf.dis.length_units.data[0]
+
+    # -- plot max head in the pit
+    hmax_pit = get_hmax_pit(ws)
+    dts = pd.to_datetime(start_datetime) + pd.to_timedelta(hmax_pit.time, unit="d")
+    htop_pit = np.unique(gwf.dis.top.get_data())[0]
+    # htop_pit = np.unique([gwf.dis.top.get_data()[i, j] for i, j in pitcells])[0]
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(8, 5), sharex=True)
+    ax.plot(dts, hmax_pit.hmax_pit, label='hmax_pit', color='k')
+    plt.axhline(htop_pit, alpha=0.5, color="b", ls="--", label="htop_pit")
+    plt.axhline(hlim_pit, alpha=0.5, color="r", label="hlim_pit")
+    ax.legend()
+    ax.grid(lw=0.5)
+    ax.xaxis.set_minor_locator(mdates.YearLocator())
+    ax.set_xlabel("Date")
+    ax.set_ylabel(f"Elevation ({length_units})")
+    ax.set_title("Maximum head in the pit", fontsize=ft)
+    plt.tight_layout()
+    plt.savefig(os.path.join(ws, "hmax_pit.png"), dpi=300)
+    plt.close(fig)
+
+    # -- plot ratio of drn flux to initial drn flux
+    drn_ratio = get_drn_ratio(ws)
+    dts = pd.to_datetime(start_datetime) + pd.to_timedelta(drn_ratio.time, unit="d")
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(8, 5), sharex=True)
+    ax.plot(dts, drn_ratio.ratio, label='drn_ratio', color='k')
+    plt.axhline(drn_ratio_lim, alpha=0.5, color="r", label="drn_ratio_lim")
+    ax.legend()
+    ax.grid(lw=0.5)
+    ax.xaxis.set_minor_locator(mdates.YearLocator())
+    ax.set_xlabel("Date")
+    ax.set_ylabel(f"Drn flux/initial drn flux (-)")
+    ax.set_title("Ratio of drn flux to initial drn flux", fontsize=ft)
+    plt.tight_layout()
+    plt.savefig(os.path.join(ws, "drn_ratio.png"), dpi=300)
+    plt.close(fig)
+
+    # -- plot h at mar locations
+    dfmar = pd.read_csv(os.path.join(ws, f"model.obs.head.wel-mar.csv"), index_col=0)
+    dfmar.columns = [s.lower() for s in dfmar.columns]
+    dts = pd.to_datetime(start_datetime) + pd.to_timedelta(dfmar.index, unit="d")
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(8, 5), sharex=True)
+    for col in dfmar.columns:
+        ax.plot(dts, dfmar[col], label=col.replace("hds_mar_",""))
+        ij = [int(col.split("_")[2].replace("i:","")), int(col.split("_")[3].replace("j:",""))]
+        plt.axhline(gwf.dis.top.get_data()[ij[0], ij[1]], alpha=0.5, color="r", label=f"topo {col.replace('hds_mar_','')}")
+    ax.legend()
+    ax.grid(lw=0.5)
+    ax.xaxis.set_minor_locator(mdates.YearLocator())
+    ax.set_xlabel("Date")
+    ax.set_ylabel(f"Elevation ({length_units})")
+    ax.set_title("Head at the mar locations", fontsize=ft)
+    plt.tight_layout()
+    plt.savefig(os.path.join(ws, "hmar.png"), dpi=300)
+    plt.close(fig)
+
+    # -- plot costs
+    # discount_rate=0.01
+    # for discount_rate in [0.0, 0.01, 0.025, 0.05, 0.075, 0.1]:
+    groupby="year"#"month"
+    dfcosts = preprocess_cost_obj(ws, groupby=groupby)
+    dfcosts_cumul = dfcosts.iloc[-1,:].copy()
+    dfcosts = dfcosts.iloc[:-1,:].copy() # skip the last line for the plot
+    dfcosts.index = pd.to_datetime(dfcosts.index)
+    dts = dfcosts.index
+    fig, axes = plt.subplots(nrows=5, ncols=1, sharex=True, figsize=(8, 10))
+    ax = axes[0]
+    ax.plot(dts, dfcosts[f"vol_ext"], lw=1, marker='+', ms=3, color='b', label=f"Volume extracted per year")
+    ax.plot(dts, dfcosts[f"vol_inj"], lw=1, marker='+', ms=3, color='c', label=f"Volume injected per year")
+    ax.plot(dts, dfcosts[f"inj_minus_ext_vol"], lw=1, marker='+', ms=3, color='0.5', label=f"Vinj-Vext")
+    ax.set_ylabel(f"{length_units}"r"$^{3}$")
+    ax = axes[1]
+    ax.plot(dts, dfcosts[f"nwells_ext"], lw=1, marker='+', ms=3, color='r', label=f"Extraction wells installed")
+    ax.plot(dts, dfcosts[f"nwells_inj"], lw=1, marker='+', ms=3, color='orange', label=f"Injection wells installed")
+    ax.plot(dts, dfcosts[f"inj_system"], lw=1, marker='+', ms=3, color='0.5', label=f"Injection pipeline installed")
+    ax.set_ylabel("Number")
+    ax = axes[2]
+    ax.plot(dts, dfcosts.opx, label="OPEX", alpha=0.8, lw=1, marker='+', ms=3, color='darkblue')
+    ax.plot(dts, dfcosts.cpx, label="CAPEX", alpha=0.8, lw=1, marker='+', ms=3, color='m')
+    ax.set_ylabel("USD")
+    ax = axes[3]
+    ax.plot(dts, dfcosts.pv_factor, lw=1, marker='+', ms=3, c="0.5", label="PV factor")
+    ax.set_ylabel("USD")
+    ax = axes[4]
+    ax.plot(dts, dfcosts.total, alpha=0.8, lw=1, marker="+", ms=3, color='k', label="Total (sum:\n{:.1e} USD)".format(dfcosts_cumul.total))
+    ax.plot(dts, dfcosts.total_pv, alpha=0.8, lw=1, marker="+", ms=3, color='g', label="Total PV (sum:\n{:.1e} USD)".format(dfcosts_cumul.total_pv))
+    ax.set_ylabel("USD")
+    for ax in axes:
+        ax.legend()
+        ax.grid()
+    # ax.xaxis.set_minor_locator(mdates.YearLocator())
+    ax.set_xlabel("Date")
+    plt.tight_layout()
+    plt.savefig(os.path.join(ws, f"dfcosts_{groupby}.png"), dpi=300)
+    plt.close(fig)
+
+
+def plot_hds(ws):
+
+    fs=10
+    plt.rcParams.update({'font.size': fs})
+    sim = flopy.mf6.MFSimulation.load(sim_ws=ws, verbosity_level=0)
+    start_datetime = sim.tdis.start_date_time.get_data()
+    gwf = sim.get_model()
+    length_units = gwf.dis.length_units.data[0]
+
+    headobj = flopy.utils.HeadFile(os.path.join(ws, "model.hds"))
+    hds = headobj.get_alldata()
+    times = headobj.get_times()
+    headobj.close()
+
+    hds[hds == 1e30] = 'NaN'
+    mns = np.nanmin(hds)
+    mxs = np.nanmax(hds)
+    lay=0
+    dts = pd.to_datetime(start_datetime) + pd.to_timedelta(times, unit="d")
+
+    for i in range(hds.shape[0]): # make a gif instead or plot only certain times
+
+        fig = plt.figure(figsize=(6,6), constrained_layout=True)
+        ax = fig.add_subplot()
+        ax.set_aspect("equal")
+        mapview = flopy.plot.PlotMapView(model=gwf, layer=0)
+        linecollection = mapview.plot_grid(alpha=0.1)
+        quadmesh = mapview.plot_array(hds[i, lay, :, :])
+        contour_set = mapview.contour_array(hds[i, lay, :, :], #levels=np.array([]),
+                                            linewidths=0.75, colors='k')
+        plt.clabel(contour_set, colors='k')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        quadmesh.set_clim(vmin=mns, vmax=mxs)
+        cb = plt.colorbar(quadmesh, shrink=0.5, label=f"Head ({length_units})")
+        ax.set_title(f"Head distribution {dts[i].strftime('%b %Y')}", fontsize=fs)
+        plt.savefig(os.path.join(ws, f"hds_{round(times[i])}.png"), dpi=300)
+        plt.close()
+
+def plot_mou_dvars_map(m_d_mou, member="", gen=None, pstname="pest", share_cb=True):
+    ''' plot map of dewater+mar rates
+    for a given member/individual in the population at a given generation
+    share_cb=True: share the same colobar for dewater+mar rates '''
+
+    # arc = pd.read_csv(os.path.join(m_d, "pest.pareto.archive.summary.csv"))
+    # knee_idx = ...
+    # member = arc.loc[knee_idx,"member"]
+
+    # fs = 9
+    # plt.rcParams.update({'font.size': fs})
+
+    if gen == None:  # use max gen
+        gens = get_list_gens(m_d_mou)
+        gen = gens[-1]
+
+    pst = pyemu.Pst(os.path.join(m_d_mou, f"{pstname}.pst"))
+    par = pst.parameter_data
+
+    # get all decision variable groups + names
+    dvars_gps = [s for s in pst.pestpp_options["opt_dec_var_groups"].split(',') if "_risk_" not in s]
+    dvars = par.loc[par.pargp.isin(dvars_gps), "parnme"].tolist()
+
+    dvpop = get_pop(m_d_mou, gen=gen, type="dv_pop")
+    dvpop = dvpop[dvars]
+    dvpop = pd.DataFrame(dvpop.loc[member,:]).T
+
+    # preprocess dewater/mar pars
+    rates_ext = par.loc[par.pargp == "dewater", "parnme"].tolist()
+    rates_ext_nmes = [int(s) for s in par.loc[rates_ext, "usecol"].tolist()]
+    rates_inj = par.loc[par.pargp == "mar", "parnme"].tolist()
+    rates_inj_nmes = [int(s) for s in par.loc[rates_inj, "usecol"].tolist()]
+    dvpop[rates_ext] *= -1  # positive pumping rates for plotting
+
+    # read in model
+    sim = flopy.mf6.MFSimulation.load(sim_ws=m_d_mou, verbosity_level=0)
+    gwf = sim.get_model()
+    dfdewat = pd.read_csv(os.path.join(".", "location_dewater_wells.csv"))
+    dfmar = pd.read_csv(os.path.join(".", "location_mar_wells.csv"))
+
+    # ------ plot individual extraction/injection rates on map
+
+    fig, ax = plt.subplots(1, 1, figsize=(9, 9))
+    ax.set_aspect("equal")
+    mapview = flopy.plot.PlotMapView(model=gwf, layer=0, ax=ax)
+    linecollection = mapview.plot_grid(alpha=0.1)
+
+    # use same colorbar for dewater+mar wells
+    cmap1 = plt.get_cmap("Reds")
+    cmap2 = cmap1 if share_cb else plt.get_cmap("Blues")
+
+    vmin = 0
+    vmax = np.max(dvpop[rates_ext+rates_inj]) if share_cb else None
+
+    sc = ax.scatter(dfdewat.x.values, dfdewat.y.values,
+                    vmin=vmin,vmax=vmax,
+                     c=dvpop[rates_ext].values, cmap=cmap1,
+                    s=30, marker="o", edgecolors="k", linewidths=0.5,
+                    label="Extraction")
+    if not share_cb:
+        plt.colorbar(sc, shrink=0.5, label="Extraction (m$^{3}$/day)", ax=ax)
+    sc = ax.scatter(dfmar.x.values, dfmar.y.values,
+                    vmin=vmin, vmax=vmax,
+                     c=dvpop[rates_inj].values, cmap=cmap2,
+                    s=30, marker="^", edgecolors='k', linewidths=0.5,
+                    label="Injection")
+    if not share_cb:
+        plt.colorbar(sc, shrink=0.5, label="Injection (m$^{3}$/day)", ax=ax)
+    if share_cb:
+        plt.colorbar(sc, shrink=0.5, label="Pumping rate (m$^{3}$/day)", ax=ax)
+    ax.legend()
+    ax.set_xticks([])
+    ax.set_yticks([])
+    plt.savefig(os.path.join(m_d_mou,f"dvar_map_{member}.png"),dpi=300)
+    plt.close(fig)
+
+def plot_mou_dvars_member(m_d_mou, member="", gen=None, pstname="pest", share_cb=True):
+    ''' plot top panel: map of dewater+mar rates, bottom panel: begin/end of dewater+mar period
+    for a given member/individual in the population at a given generation
+    share_cb=True: share the same colobar for dewater+mar rates '''
+
+    # arc = pd.read_csv(os.path.join(m_d, "pest.pareto.archive.summary.csv"))
+    # knee_idx = ...
+    # member = arc.loc[knee_idx,"member"]
+
+    fs = 9
+
+    if gen == None:  # use max gen
+        gens = get_list_gens(m_d_mou)
+        gen = gens[-1]
+
+    pst = pyemu.Pst(os.path.join(m_d_mou, f"{pstname}.pst"))
+    par = pst.parameter_data
+
+    # get all decision variable groups + names
+    dvars_gps = [s for s in pst.pestpp_options["opt_dec_var_groups"].split(',') if "_risk_" not in s]
+    dvars = par.loc[par.pargp.isin(dvars_gps), "parnme"].tolist()
+
+    dvpop = get_pop(m_d_mou, gen=gen, type="dv_pop")
+    dvpop = dvpop[dvars]
+    dvpop = pd.DataFrame(dvpop.loc[member,:]).T
+
+    # preprocess dewater/mar pars
+    rates_ext = par.loc[par.pargp == "dewater", "parnme"].tolist()
+    rates_ext_nmes = [int(s) for s in par.loc[rates_ext, "usecol"].tolist()]
+    rates_inj = par.loc[par.pargp == "mar", "parnme"].tolist()
+    rates_inj_nmes = [int(s) for s in par.loc[rates_inj, "usecol"].tolist()]
+    dvpop[rates_ext] *= -1  # positive pumping rates for plotting
+
+    # preprocess begin,duration,end pars
+    dvpop_end = dvpop.copy()
+    begin = [s for s in dvars if "begin" in s]
+    duration = [s for s in dvars if "duration" in s]
+    end = [s.replace("begin", "end") for s in begin]
+    for b in begin:
+        d = b.replace("begin", "duration")
+        e = b.replace("begin", "end")
+        dvpop_end[e] = dvpop_end[b] + dvpop_end[d]
+    dvpop_end[begin + duration + end] /= 365  # days to years
+
+    dbegin = [s for s in begin if "dewater" in s]
+    ddur = [s for s in duration if "dewater" in s]
+    dend = [s for s in end if "dewater" in s]
+    assert len(dbegin) + len(ddur) + len(dend) == 3
+    mbegin = [s for s in begin if "mar" in s]
+    mdur = [s for s in duration if "mar" in s]
+    mend = [s for s in end if "mar" in s]
+    assert len(mbegin) + len(mdur) + len(mend) == 3
+
+    # read in model
+    sim = flopy.mf6.MFSimulation.load(sim_ws=m_d_mou, verbosity_level=0)
+    start_datetime = sim.tdis.start_date_time.get_data()
+    gwf = sim.get_model()
+    dfdewat = pd.read_csv(os.path.join(".", "location_dewater_wells.csv"))
+    dfmar = pd.read_csv(os.path.join(".", "location_mar_wells.csv"))
+
+    # ------ plot
+
+    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(height_max/3, width_max), gridspec_kw={'height_ratios': [3, 1]})
+    axes = axes.ravel()
+
+    # ------ individual extraction/injection rates on map
+    ax = axes[0]
+    ax.set_title("a) Distribution of pumping rates", loc="left", fontsize=fs)
+
+    cmap1 = plt.get_cmap("Reds")
+    cmap2 = cmap1 if share_cb else plt.get_cmap("Blues")
+    vmin = 0
+    vmax = np.max(dvpop[rates_ext+rates_inj]) if share_cb else None
+
+    # dewater wells
+    sc1 = ax.scatter(dfdewat.x.values, dfdewat.y.values,
+                    vmin=vmin,vmax=vmax,
+                     c=dvpop[rates_ext].values, cmap=cmap1,
+                    s=40, marker="o", edgecolors="k", linewidths=0.5,
+                    label="Extraction")
+    if not share_cb:
+        cb = plt.colorbar(sc1, shrink=0.5, ax=ax, orientation="horizontal", pad=0.01,
+                          # ticks=[round(x) for x in np.linspace(vmin,np.max(dvpop[rates_ext]),3)],
+                          )
+        cb.set_label("Extraction\n(m$^{3}$/day)", x=-0.4, labelpad=-20)
+    # mar wells
+    ax2 = ax.twinx()
+    sc2 = ax2.scatter([min(dfdewat.x.values)-50]*len(dfmar.y.values), dfmar.y.values,
+                    vmin=vmin, vmax=vmax,
+                     c=dvpop[rates_inj].values, cmap=cmap2,
+                    s=50, marker="^", edgecolors='k', linewidths=0.5,
+                    label="Injection")
+    if not share_cb:
+        cb = plt.colorbar(sc2, shrink=0.5, ax=ax2, orientation="horizontal", pad=0.08,
+                          # ticks=[round(x) for x in np.linspace(vmin,np.max(dvpop[rates_inj]),3)],
+                          )
+        cb.set_label("Injection\n(m$^{3}$/day)", x=-0.4, labelpad=-20)
+
+    if share_cb:
+        cb = plt.colorbar(sc2, shrink=0.5, ax=ax2, orientation="horizontal",pad=0.05)
+        cb.set_label("Pumping rate\n(m$^{3}$/day)", x=-0.4, labelpad=-20)
+        lgd = [sc2, sc1]
+        ax.legend(lgd, [p_.get_label() for p_ in lgd])#, loc='upper center')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax2.set_yticks([])
+
+    # ------ begin/duration/end
+    ax = axes[1]
+    ax.set_title("b) Duration of pumping", loc="left", fontsize=fs)
+    # mar wells
+    ax.plot([dvpop_end[mbegin[0]].values[0], dvpop_end[mend[0]].values[0]], [1.1, 1.1],
+            alpha=0.5, ls="-", lw=5, color="steelblue", label=f"Injection")
+            # label=f"Injection ({round(dvpop_end[mdur[0]].values[0])} years")
+    # dewater wells
+    ax.plot([dvpop_end[dbegin[0]].values[0], dvpop_end[dend[0]].values[0]], [1.05, 1.05],
+            alpha=0.5, ls="-", lw=5, color="r", label=f"Extraction")
+            # label=f"Extraction ({round(dvpop_end[ddur[0]].values[0])} years")
+    # begin & end mine
+    ax.axvline(x=begin_mine / 365, alpha=0.8, ls="--", lw=1, color="0.5")
+    ax.axvline(x=end_mine / 365, alpha=0.8, ls="--", lw=1, color="0.5")
+    ax.legend(loc="lower right")
+    ax.set_xlabel("Years")
+    ax.set_ylim(1, 1.15)
+    ax.set_xlim(0, 20)
+    ax.set_yticks([])
+    plt.savefig(os.path.join(m_d_mou,f"dvar_map2_{member}.png"),dpi=300)
+    plt.close(fig)
+
+
+def add_spatial_pars(pf, files,tag,ub,lb,grgs,ppgs,pp_space,ult_ubound=1e30,ult_lbound=-1e30):
+    for arr_file in files:
+        # add grid scale parameters
+        pf.add_parameters(filenames=arr_file,
+                          par_type="grid",
+                          par_name_base=tag+"gr",
+                          pargp=tag+"gr",
+                          #zone_array=ib,
+                          upper_bound=ub,
+                          lower_bound=lb,
+                          ult_ubound=ult_ubound,
+                          ult_lbound=ult_lbound,
+                          geostruct=grgs
+                          )
+        pf.add_parameters(filenames=arr_file,
+                          par_type="pilotpoints",
+                          par_name_base=tag+"pp",
+                          pargp=tag+"pp",
+                          #zone_array=ib,
+                          upper_bound=ub,
+                          lower_bound=lb,
+                          ult_ubound=ult_ubound,
+                          ult_lbound=ult_lbound,
+                          pp_space=pp_space,
+                          geostruct=ppgs
+                          )
+        # add coarse scale parameters
+        pf.add_parameters(filenames=arr_file,
+                          par_type="constant",
+                          par_name_base=tag+"cn",
+                          pargp=tag+"cn",
+                          #zone_array=ib,
+                          upper_bound=ub,
+                          lower_bound=lb,
+                          ult_ubound=ult_ubound,
+                          ult_lbound=ult_lbound)
+    return
+
+def clean_array_files(ws,files,gwf):
+    nrows,ncols = gwf.dis.nrow.get_data(), gwf.dis.ncol.get_data()
+    for file in files:
+        with open(os.path.join(ws,file),'r') as f:
+            lines = []
+            for l in f.readlines():
+                lines.extend([float(i) for i in l.split()])
+        array = np.array(lines).reshape(nrows,ncols)
+        np.savetxt(os.path.join(ws,file),array,fmt='%.6f')
+    return
+
+def pstfrom(org_d,template_ws,num_reals=100):
+
+    # copy original model folder
+    tmp_d=os.path.join("tmp_d")
+    if os.path.exists(tmp_d):
+        shutil.rmtree(tmp_d)
+    shutil.copytree(org_d,tmp_d)
+    for f in [s for s in os.listdir(tmp_d) if ".png" in s]:
+        os.remove(os.path.join(tmp_d,f)) # rm figures
+    shutil.copy2(os.path.join(".", "costs.csv"), os.path.join(tmp_d, "costs.csv"))
+
+    # load and check model
+    # load simulation
+    sim = flopy.mf6.MFSimulation.load(sim_ws=tmp_d, load_only=['tdis','dis'], verbosity_level=0)
+    # load flow model
+    gwf = sim.get_model()
+    delc = gwf.dis.delc.array
+    # get spatial reference
+    modelgrid = gwf.modelgrid
+    # get zone array
+    idomain = gwf.dis.idomain.get_data()
+
+    # start pstfrom
+    start_datetime= sim.tdis.start_date_time.get_data()
+    # instantiate PstFrom
+    pf = pyemu.utils.PstFrom(original_d=tmp_d, 
+                                new_d=template_ws,
+                                remove_existing=True, 
+                                longnames=True, 
+                                spatial_reference=modelgrid, 
+                                zero_based=False, 
+                                start_datetime=start_datetime, 
+                                echo=True )
+
+    grv = pyemu.geostats.ExpVario(contribution=1.0, a=delc.max()*4)
+    grgs = pyemu.geostats.GeoStruct(variograms=grv,transform="log")
+
+    ppv = pyemu.geostats.ExpVario(contribution=1.0, a=delc.max()*4*5)
+    ppgs = pyemu.geostats.GeoStruct(variograms=ppv,transform="log")
+
+    pp_space = 5
+
+    # k
+    files = [f for f in os.listdir(pf.new_d) if f.endswith('.txt') 
+             and f.startswith('model.npf_k')]
+    clean_array_files(pf.new_d,files,gwf)
+    add_spatial_pars(pf,files,tag='k',ub=10,lb=.1,grgs=grgs,ppgs=ppgs,pp_space=pp_space)
+    
+    # sy
+    files = [f for f in os.listdir(pf.new_d) if f.endswith('.txt') 
+             and f.startswith('model.sto_sy')]
+    clean_array_files(pf.new_d,files,gwf)
+    add_spatial_pars(pf,files,tag='sy',ub=1.2,lb=0.8,ult_ubound=.4,ult_lbound=0.01,grgs=grgs,ppgs=ppgs,
+                     pp_space=pp_space)
+
+    # rcha
+    files = [f for f in os.listdir(pf.new_d) if f.endswith('.txt')
+             and f.startswith('model.rcha_recharge_')]
+    clean_array_files(pf.new_d,files,gwf)
+    add_spatial_pars(pf,files,tag='rch',ub=1.2,lb=0.8,ult_ubound=5e-3,ult_lbound=5e-6,grgs=grgs,ppgs=ppgs,
+                     pp_space=pp_space)
+
+
+    # drn conductance
+    files = [f for f in os.listdir(pf.new_d) if f.endswith('.txt')
+             and f.startswith('model.drn_stress_period_data_')]
+    # sort files by the number contained in the filename string; pedant...
+    files = sorted(files, key=lambda x: int(x.split("_")[-1].split(".")[0]))
+    pf.add_parameters(filenames=files,
+                        par_style='m',
+                        index_cols=[0,1,2],
+                        use_cols=[4],
+                        par_type="grid",
+                        par_name_base=["grdrncond"],
+                        pargp=["grdrncond"],
+                        upper_bound = [5], lower_bound=[0.2],
+                        transform='log',
+                        geostruct=grgs,
+                        )
+
+    pf.add_parameters(filenames=files,
+                        par_style='m',
+                        index_cols=[0,1,2],
+                        use_cols=[4],
+                        par_type="constant",
+                        par_name_base=["cndrncond"],
+                        pargp=["grdrncond"],
+                        upper_bound = [2], lower_bound=[0.5],
+                        transform='log')
+
+    # inflow head
+    files = [f for f in os.listdir(pf.new_d) if f.endswith('.txt')
+             and f.startswith('inflow.ghb_stress_period_data_')]
+    # sort files by the number contained in the filename string; pedant...
+    files = sorted(files, key=lambda x: int(x.split("_")[-1].split(".")[0]))
+    pf.add_parameters(filenames=files,
+                        par_style='a',
+                        index_cols=[0,1,2],
+                        use_cols=[3],
+                        par_type="grid",
+                        par_name_base=["grheadinflow"],
+                        pargp=["grheadinflow"],
+                        upper_bound = [2], lower_bound=[-2],
+                        transform='none',
+                        geostruct=grgs,
+                        )
+    pf.add_parameters(filenames=files,
+                        par_style='a',
+                        index_cols=[0,1,2],
+                        use_cols=[3],
+                        par_type="constant",
+                        par_name_base=["cnheadinflow"],
+                        pargp=["cnheadinflow"],
+                        upper_bound = [2], lower_bound=[-2],
+                        transform='none'
+                        )
+
+    pf.add_parameters(filenames=files,
+                      index_cols=[0, 1, 2],
+                      use_cols=[4],
+                      par_type="constant",
+                      par_name_base=["cncondinflow"],
+                      pargp=["cncondinflow"],
+                      upper_bound=[2], lower_bound=[0.5],
+                      transform='none'
+                      )
+
+    # dewater/mar parameters: start, duration, rates assigned in the dewater/mar.ts_timeseries.txt files
+    fname = prepare_timeseries_preprocessor(pf.new_d)
+    timeseries_preprocessor(pf.new_d)
+    pf.add_py_function("workflow.py", "timeseries_preprocessor()", is_pre_cmd=True)
+    # start and duration: direct parameters
+    pf.add_parameters(filenames=fname,
+                      par_style="d",
+                      index_cols=['ts'],
+                      use_cols=['begin', 'duration'],
+                      par_type="grid",
+                      par_name_base=['begin', 'duration'],
+                      pargp=['begin', 'duration'],
+                      upper_bound=[end_mine],
+                      lower_bound=[1.],
+                      transform='none',
+                      )
+    # dewater rates
+    fname = "dewater.ts_timeseries.txt"
+    fnames = [f for f in os.listdir(pf.new_d) if f.startswith("dewater") and f.endswith(".ts_timeseries.txt")]
+    assert len(fnames) > 0
+    for fname in fnames:
+        df = pd.read_csv(os.path.join(pf.new_d, fname), delim_whitespace=True, header=None)
+        usecols = df.columns[1:].tolist()
+        name = fname.split(".")[0]
+        pf.add_parameters(filenames=fname,
+                          par_style="d",
+                          index_cols=[0],
+                          par_type="grid",
+                          use_cols=usecols,
+                          use_rows=[1],
+                          upper_bound=[0],
+                          lower_bound=[dewater_rate*2], #the rate bounds get messed with in setup_mou
+                          par_name_base=[name for i in usecols],
+                          pargp=[name for i in usecols],
+                          transform='none',
+                          )
+    # mar rates
+    #fname = "mar.ts_timeseries.txt"
+    fnames = [f for f in os.listdir(pf.new_d) if f.startswith("mar") and f.endswith(".ts_timeseries.txt")]
+    assert len(fnames) > 0
+    for fname in fnames:
+        df = pd.read_csv(os.path.join(pf.new_d, fname), delim_whitespace=True, header=None)
+        usecols = df.columns[1:].tolist()
+        name = fname.split(".")[0]
+        pf.add_parameters(filenames=fname,
+                          par_style="d",
+                          index_cols=[0],
+                          par_type="grid",
+                          use_cols=usecols,
+                          use_rows=[1],
+                          upper_bound=[mar_rate*2],#the rate bounds get messed with in setup_mou
+                          lower_bound=[0],
+                          par_name_base=[name for i in usecols],
+                          pargp=[name for i in usecols],
+                          transform='none',
+                          )
+
+    # 2 - multipliers for each well in the dewater/mar.wel_stress_period_data_[i].txt files, = the fraction of the rate
+    # in the dewater/mar.ts_timeseries.txt files assigned to each individual well, between 0-1. will allow pest to
+    # spatially distribute.
+    #
+    # # dewater rate multipliers
+    # files = [f for f in os.listdir(pf.new_d) if f.endswith('.txt')
+    #          and f.startswith('dewater.wel_stress_period_data_')]
+    # # sort files by the number contained in the filename string; pedant...
+    # files = sorted(files, key=lambda x: int(x.split("_")[-1].split(".")[0]))
+    # pf.add_parameters(filenames=files,
+    #                     par_style='m',
+    #                     index_cols=[0,1,2],
+    #                     use_cols=[4],
+    #                     par_type="grid",
+    #                     par_name_base=["welmlt"],
+    #                     pargp=["welmlt"],
+    #                     # upper_bound = [1], lower_bound=[0],
+    #                   upper_bound=[2], lower_bound=[0],
+    #                     transform='none',
+    #                     )
+    # # mar rate multipliers
+    # files = [f for f in os.listdir(pf.new_d) if f.endswith('.txt')
+    #          and f.startswith('mar.wel_stress_period_data_')]
+    # # sort files by the number contained in the filename string; pedant...
+    # files = sorted(files, key=lambda x: int(x.split("_")[-1].split(".")[0]))
+    # pf.add_parameters(filenames=files,
+    #                     par_style='m',
+    #                     index_cols=[0,1,2],
+    #                     use_cols=[4],
+    #                     par_type="grid",
+    #                     par_name_base=["marmlt"],
+    #                     pargp=["marmlt"],
+    #                     upper_bound = [1], lower_bound=[0.],
+    #                     transform='none',
+    #                     )
+
+    # lst obs
+    inc,cum = get_lst_budget(pf.new_d)
+    pf.add_py_function("workflow.py","get_lst_budget()",is_pre_cmd=False)
+    fname = f'inc.csv'
+    df = pd.read_csv(os.path.join(pf.new_d,fname))#
+    df.set_index("time",inplace=True)
+    obs_df = pf.add_observations(fname,
+                            insfile=fname+".ins",
+                            index_cols="time",
+                            use_cols=list(df.columns.values),
+                            prefix="inc")
+    fname = f'cum.csv'
+    df = pd.read_csv(os.path.join(pf.new_d, fname))  # ,index_col=0)
+    df.set_index("time", inplace=True)
+    obs_df = pf.add_observations(fname,
+                            insfile=fname+".ins",
+                            index_cols="time",
+                            use_cols=list(df.columns.values),
+                            prefix="cum")
+
+    #head snapshots
+    pf.add_py_function("workflow.py","extract_hds_maps(ws='.')",is_pre_cmd=False)
+    extract_hds_maps(pf.new_d)
+    hds_files = [f for f in os.listdir(pf.new_d) if f.startswith("hds_") and f.endswith(".dat")]
+    assert len(hds_files) > 0
+    labels = [f.split(".")[0].split("_")[1] for f in hds_files]
+    for f,lab in zip(hds_files,labels):
+        pf.add_observations(f,prefix="hds_tag:{0}".format(lab))
+
+    # head obs pit
+    fname = "model.obs.head.pit.csv"
+    df = pd.read_csv(os.path.join(pf.new_d, fname), index_col=0)
+    obs_df = pf.add_observations(fname,
+                                 insfile=fname + ".ins",
+                                 index_cols="time",
+                                 use_cols=list(df.columns.values),
+                                 prefix="hds_pit")
+
+    # max head obs pit
+    hmax_pit = get_hmax_pit(pf.new_d)
+    pf.add_py_function("workflow.py", "get_hmax_pit()", is_pre_cmd=False)
+    fname = "model.obs.hmax_pit.csv"
+    df = pd.read_csv(os.path.join(pf.new_d, fname), index_col=0)
+    obs_df = pf.add_observations(fname,
+                                 insfile=fname + ".ins",
+                                 index_cols="time",
+                                 use_cols=list(df.columns.values),
+                                 prefix="hmax_pit")
+
+    # head obs mar
+    fname = f"model.obs.head.wel-mar.csv"
+    df = pd.read_csv(os.path.join(pf.new_d, fname), index_col=0)
+    obs_df = pf.add_observations(fname,
+                                 insfile=fname + ".ins",
+                                 index_cols="time",
+                                 use_cols=list(df.columns.values),
+                                 prefix="hds_mar")
+
+    # drn obs
+    fname = "model.obs.drn.csv"
+    df = pd.read_csv(os.path.join(pf.new_d, fname), index_col=0)
+    obs_df = pf.add_observations(fname,
+                                 insfile=fname + ".ins",
+                                 index_cols="time",
+                                 use_cols=list(df.columns.values),
+                                 prefix="drn")
+
+    # drn ratio obs
+    drn_ratio = get_drn_ratio(pf.new_d)
+    pf.add_py_function("workflow.py", "get_drn_ratio()", is_pre_cmd=False)
+    fname = "model.obs.drn_ratio.csv"
+    df = pd.read_csv(os.path.join(pf.new_d, fname), index_col=0)
+    obs_df = pf.add_observations(fname,
+                                 insfile=fname + ".ins",
+                                 index_cols="time",
+                                 use_cols=list(df.columns.values),
+                                 prefix="drn_ratio")
+
+    # add cost obj function value
+    dfcosts = preprocess_cost_obj(pf.new_d)
+    pf.add_py_function("workflow.py", "preprocess_cost_obj()", is_pre_cmd=False)
+    fname = "cost_obj.csv"
+    df = pd.read_csv(os.path.join(pf.new_d, fname), index_col=0)
+    obs_df = pf.add_observations(fname,
+                                 insfile=fname + ".ins",
+                                 index_cols="date",
+                                 use_cols=list(df.columns.values),
+                                 prefix="costs")
+
+    pf.extra_py_imports.append("flopy")
+    pf.tmp_files.append("model.hds")
+    pf.mod_sys_cmds.append("mf6")
+
+    pf.add_py_function("workflow.py","apply_mar_well_mover()",is_pre_cmd=True)
+
+    #---build pst---#
+    pst = pf.build_pst(filename="pest", version=2)
+
+
+    init,lb,ub = prep_mar_well_mover(pf.new_d)
+    df = pst.add_parameters(os.path.join(pf.new_d,"marj.txt.tpl"),os.path.join(pf.new_d,"marj.txt"),pst_path=".")
+    par = pst.parameter_data
+    par.loc[df.parnme,"parval1"] = init
+    par.loc[df.parnme,"parubnd"] = ub
+    par.loc[df.parnme,"parlbnd"] = lb
+    par.loc[df.parnme,"partrans"] = "none"
+    par.loc[df.parnme,"pargp"] = "j-mar"
+    
+    
+    
+
+    # test run
+    pst.control_data.noptmax = 0
+    pst.write(os.path.join(pf.new_d, "pest.pst"), version=2)
+    pyemu.os_utils.run("{0} pest.pst".format(os.path.join("pestpp-ies")), cwd=pf.new_d)
+    pst = pyemu.Pst(os.path.join(pf.new_d, "pest.pst"))
+    plot_budget(pf.new_d)
+    plot_constraints(pf.new_d)
+    plot_hds(pf.new_d)
+    assert pst.phi < 0.001 #doesn't work -todo fix?
+
+    # draw prior
+    pe = pf.draw(num_reals=num_reals, use_specsim=True, 
+                sigma_range=4) 
+    print(pe.shape,pst.npar_adj)
+    assert pe.shape[1] == pst.npar_adj
+    # enforce parameter bounds
+    pe.enforce()
+    assert pe.shape == (num_reals, pst.npar_adj)
+    pe.to_binary(os.path.join(pf.new_d,"prior.jcb")) 
+    pst.pestpp_options["ies_parameter_ensemble"] = "prior.jcb"
+    #pst.pestpp_options["ies_save_binary"] = False
+
+    # write and test run
+    pst.control_data.noptmax = -2
+    pst.write(os.path.join(pf.new_d, "pest.pst"), version=2)
+    pyemu.os_utils.run("{0} pest.pst".format(os.path.join("pestpp-ies")), cwd=pf.new_d)
+    # # write and test run
+    # pst.control_data.noptmax = -1
+    # pst.write(os.path.join(pf.new_d, "pest.pst"), version=2)
+    # pyemu.os_utils.run("{0} pest.pst".format(os.path.join("pestpp-ies")), cwd=pf.new_d)
+    #run_mf6(pf.new_d)
+    # plot_budget(pf.new_d)
+    # plot_constraints(pf.new_d, drn_ratio_lim=drn_ratio_lim, discount_rate=0.0)
+    # plot_hds(pf.new_d)
+    shutil.copy2(os.path.join(".","workflow.py"),os.path.join(pf.new_d,"pstfrom_workflow.py.txt"))
+    return pf
+
+
+def deploy_pestpp(m_d, noptmax, casename="pest", pestpp="ies", template_ws="pst_template", num_workers=12,num_reals=None,
+                  overdue_giveup_fac=1e30,overdue_giveup_minutes=1e30,  save_binary=True,
+                  freeze_on_fail=False,cleanup=True,local=True,condor=False):
+
+    pst = pyemu.Pst(os.path.join(template_ws, f"{casename}.pst"))
+    pst.control_data.noptmax = noptmax
+    pst.pestpp_options["save_binary"] = save_binary
+    pst.pestpp_options["panther_agent_freeze_on_fail"] = freeze_on_fail
+    # pst.pestpp_options["ies_drop_conflicts"] = ies_drop_conflicts
+    pst.pestpp_options["overdue_giveup_fac"] = overdue_giveup_fac
+    pst.pestpp_options["overdue_giveup_minutes"] = overdue_giveup_minutes
+    # pst.pestpp_options["save_binary"] = save_binary
+    if num_reals is not None:
+        pst.pestpp_options["ies_num_reals"] = num_reals
+    pst.write(os.path.join(template_ws, f'{casename}.pst'), version=2)
+
+    if local != True:
+        m_d = None
+
+    if condor:
+        sock = socket.socket()
+        sock.bind(('', 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        jobid = condor_submit(template_ws=template_ws, pstfile=f'{casename}.pst', conda_zip='sdd.tar.gz',
+                              subfile=f'{casename}.sub',
+                              workerfile='worker.sh',
+                              executables=['mf6','pestpp-mou','pestpp-ies'],
+                              request_memory=4000,
+                              request_disk='10g', port=port,
+                              num_workers=num_workers,pestpp=pestpp)
+
+        pyemu.os_utils.start_workers(template_ws, f'pestpp-{pestpp}', f'{casename}.pst', num_workers=0, worker_root=".",
+                                     port=port, local=local, master_dir=m_d)
+
+        if jobid is not None:
+            # after run master is finished clean up condor by using condor_rm
+            print(f'killing condor job {jobid}')
+            os.system(f'condor_rm {jobid}')
+
+    else:# run local
+        pyemu.os_utils.start_workers(template_ws,  # the folder which contains the "template" PEST dataset
+                                 f'pestpp-{pestpp}',  # the PEST software version we want to run
+                                 f'{casename}.pst',  # the control file to use with PEST
+                                 num_workers=num_workers,  # how many agents to deploy
+                                 worker_root='.',
+                                 # where to deploy the agent directories; relative to where python is running
+                                 master_dir=m_d,  # the manager directory
+                                 reuse_master=False,
+                                 cleanup=cleanup,local=local
+                                 )
+    return
+
+
+def setup_ies(org_t_d,new_t_d):
+    if os.path.exists(new_t_d):
+        shutil.rmtree(new_t_d)
+    shutil.copytree(org_t_d,new_t_d)
+    pst = pyemu.Pst(os.path.join(new_t_d,"pest.pst"))
+    pe = pyemu.ParameterEnsemble.from_binary(pst=pst,filename=os.path.join(new_t_d,"prior.jcb"))
+
+    dvgroups = ["dewater","mar","begin","duration","j-mar"]
+
+    #naive_parval1_dict = {"dewater":-250,"mar":500,"begin":1.0,"duration":3650.0}
+    fix_val = ["parlbnd","parubnd","parlbnd","parubnd","parval1"]
+
+    par = pst.parameter_data
+    dvpars = []
+    for tag,bnd in zip(dvgroups,fix_val):
+        gpar = par.loc[par.pargp.str.startswith(tag),:]
+        assert len(gpar) > 0
+        #par.loc[gpar.parnme,"parval1"] = gpar.loc[:,bnd].values
+        par.loc[gpar.parnme,"partrans"] = "fixed"
+        dvpars.extend(gpar.parnme.tolist())
+    dvpars = set(dvpars)
+    pe = pe.loc[:,pe.columns.map(lambda x: x not in dvpars)]
+    pe.to_binary(os.path.join(new_t_d,"prior_ies.jcb"))
+    pst.pestpp_options["ies_parameter_ensemble"] = "prior_ies.jcb"
+    pst.control_data.noptmax = -2
+    pst.write(os.path.join(new_t_d,"pest.pst"),version=2)
+    pyemu.os_utils.run("pestpp-ies pest.pst",cwd=new_t_d)
+    plot_budget(new_t_d)
+    plot_constraints(new_t_d)
+    plot_hds(new_t_d)
+    shutil.copy2(os.path.join(".", "workflow.py"), os.path.join(new_t_d, "setupies_workflow.py.txt"))
+
+
+def get_feasible_oe(pst,oe):
+    obs = pst.observation_data
+    
+    hobs = obs.loc[obs.obgnme.str.contains("hmax_pit"),:]
+    assert hobs.shape[0] > 0
+    hobs["time"] = hobs.time.astype(float)
+    hobs.sort_values(by="time",inplace=True)
+    
+    mobs = obs.loc[obs.obsnme.str.contains("hds_mar"),:]
+    assert mobs.shape[0] > 0
+    moe = oe.loc[:,mobs.obsnme].values.copy()
+    moe[moe<=top] = 0.0
+    tot = moe.sum(axis=1)
+    feas = np.array([True for _ in range(tot.shape[0])])
+    feas[tot>0] = False
+    hdsmar_feas_idx = oe.loc[feas,:].index
+    
+    bobs = hobs.loc[hobs.time==begin_mine,:]
+    assert bobs.shape[0] == 1
+    
+    boe = oe.loc[:,bobs.obsnme]
+    
+    boe_feas = boe.loc[boe.values<=hlim_pit,:]
+    print("...num pit feasible solutions",boe_feas.shape[0])
+    boe_feas = boe_feas.loc[boe_feas.index.map(lambda x: x in hdsmar_feas_idx),:]
+    print("...num pit + mar feasible solutions",boe_feas.shape[0])
+    
+    return oe.loc[boe_feas.index,:] 
+    
+
+
+def pick_truth(org_t_d,new_t_d,m_d_prior,base_t_d):
+
+    if os.path.exists(new_t_d):
+        shutil.rmtree(new_t_d)
+    shutil.copytree(org_t_d,new_t_d)
+    pst = pyemu.Pst(os.path.join(m_d_prior,"pest.pst"))
+    oe = pd.read_csv(os.path.join(m_d_prior,"pest.0.obs.csv"))
+    pe = pd.read_csv(os.path.join(m_d_prior,"pest.0.par.csv"))
+    oe.index = oe.pop("real_name").apply(str)
+    pe.index = pe.pop("real_name").apply(str)
+    if pe.shape[0] != oe.shape[0]:
+        pe = pe.loc[oe.index.values,:]
+    par = pst.parameter_data
+    #dpar = pr.loc[par.pargp=="dewater",:]
+    #bpar = par.loc[par.pname=="begin",:]
+    #bpar = bpar.loc[bpar.ts=="dewater",:]
+    #assert bpar.shape[0] == 1
+    #dpar = par.loc[par.pname=="duration",:]
+    #dpar = dpar.loc[dpar.ts=="dewater",:]
+    
+    #assert dpar.shape[0] == 1
+    #print(pe.loc[:,bpar.parnme])
+    #print(pe.loc[:,dpar.parnme]) 
+    
+    obs = pst.observation_data
+    wobs = obs.loc[obs.usecol=="wel",:]
+    wobs = wobs.loc[wobs.oname=="inc",:]
+    wobs["time"] = wobs.time.astype(float)
+    wobs.sort_values(by="time",inplace=True)
+    #print(oe.loc[:,wobs.obsnme].describe())
+    
+    hobs = obs.loc[obs.obgnme.str.contains("hmax_pit"),:]
+    hobs["time"] = hobs.time.astype(float)
+    hobs.sort_values(by="time",inplace=True)
+    
+    mobs = obs.loc[obs.obsnme.str.contains("hds_mar"),:]
+    assert mobs.shape[0] > 0
+
+    bobs = hobs.loc[hobs.time==begin_mine,:]
+    assert bobs.shape[0] == 1
+    
+    hoe = oe.loc[:,hobs.obsnme]
+    
+    cobs = obs.loc[obs.obsnme.str.contains("usecol:total_date:cumul"), "obsnme"].values
+    assert len(cobs) == 1
+    cobs = cobs[0]
+    boe = oe.loc[:,bobs.obsnme]
+   
+    boe_feas = get_feasible_oe(pst,oe).loc[:,bobs.obsnme]
+
+    #dist = boe_feas - hlim_pit
+    #idx_opt = boe_feas.index.values[0]#dist.idxmax().values[0]
+    oe_feas = oe.loc[boe_feas.index,:]
+    coe = oe_feas.loc[:,cobs]
+    # truth is the feasible solution nearest the mean cost
+    dist = (coe - coe.mean()).apply(np.abs)
+    idx_opt = dist.idxmin()
+    
+    
+    obs.loc[:,"obsval"] = oe.loc[idx_opt,obs.obsnme]
+    truth_parval1 = pe.loc[idx_opt,par.parnme].copy()
+    pe.drop(idx_opt,inplace=True)
+    pe.to_csv(os.path.join(new_t_d,"prior.csv"))
+    pst.pestpp_options["ies_parameter_ensemble"] = "prior.csv"
+    pst.write(os.path.join(new_t_d,"pest.pst"),version=2)
+    pst.control_data.noptmax = 0
+    if os.path.exists(os.path.join(base_t_d,"truth.pst")):
+        print("WARNING: truth.pst already in {0} 'base_t_d' directory,replacing...".format(base_t_d))
+
+    pst.parameter_data.loc[:,"parval1"] = truth_parval1
+    pst.write(os.path.join(m_d_prior,"truth.pst"),version=2)
+    pst.write(os.path.join(base_t_d,"truth.pst"),version=2)
+    
+    pyemu.os_utils.run("pestpp-ies truth.pst",cwd=m_d_prior)
+    plot_budget(m_d_prior)
+    plot_constraints(m_d_prior)
+    plot_hds(m_d_prior)
+    
+    fig,axes = plt.subplots(5,1,figsize=(8,8))
+    ax = axes[0]
+    tvals = wobs.time.values
+    vals = oe.loc[:,wobs.obsnme].values
+    [ax.plot(tvals,vals[i,:],"0.5",lw=0.5,alpha=0.5) for i in range(vals.shape[0])]
+    ax.set_title("inc dewater rate",loc="left")
+    ax.set_xlabel("time")
+    ax.set_ylabel("flux")
+    
+    ax = axes[1]
+    tvals = hobs.time.values
+    vals = oe.loc[:,hobs.obsnme].values
+    [ax.plot(tvals,vals[i,:],"0.5",lw=0.5,alpha=0.5) for i in range(vals.shape[0])]
+    ax.plot(tvals,oe.loc[idx_opt,hobs.obsnme].values.T,"b-",label="truth")
+    
+    ylim = ax.get_ylim()
+
+    ax.plot([begin_mine,begin_mine],ylim,"k--",label="active mining window")
+    ax.plot([end_mine,end_mine],ylim,"k--")
+
+    xlim = ax.get_xlim()
+    ax.plot(xlim,[hlim_pit,hlim_pit],"r--",label="required gw level (hlim_pit)")
+    ax.legend()
+
+    ax.set_title("hmax_pit, begin mining at {0}, end mining at {1}".format(begin_mine,end_mine),loc="left")
+    ax.set_xlabel("time")
+    ax.set_ylabel("max gw level in pit")
+    ax.set_ylim(ylim)
+    ax.set_xlim(xlim)
+
+
+    ax = axes[2]
+    ax.hist(boe.values,bins=20,facecolor="0.5",alpha=0.5,edgecolor="none",label="all realizations")
+    
+    ax.hist(boe_feas.values,bins=20,facecolor="b",alpha=0.5,edgecolor="none",label="feasible realizations")
+    truth_val = boe_feas.loc[idx_opt,bobs.obsnme].values[0]
+    #print(truth_val)
+    ylim = ax.get_ylim()
+    ax.plot([truth_val,truth_val],ylim,"b",lw=2.0,label="truth")
+    ax.plot([hlim_pit,hlim_pit],ylim,"r--",lw=2.0,label="required")
+    ax.legend()
+    
+    ax.set_ylim(ylim)
+    
+
+    ax.set_title("hmax pit at begin mining (time = {0})".format(begin_mine),loc="left")
+    ax.set_xlabel("hmax_pit at time={0}".format(begin_mine))
+    ax.set_yticks([])
+
+    ax = axes[3]
+    vobs = obs.loc[obs.obsnme.str.contains("voldeltsum"),:].copy()
+    vobs["time"] = vobs.time.astype(float)
+    vobs.sort_values(by="time",inplace=True)
+    vals = oe.loc[:,vobs.obsnme].values
+    tvals = vobs.time.values
+    [ax.plot(tvals,vals[i,:],"0.5",lw=0.5,alpha=0.5) for i in range(vals.shape[0])]
+    ax.plot(tvals,oe.loc[idx_opt,vobs.obsnme].values.T,"b-",label="truth")
+    ax.set_title("cumulative drn volume difference",loc="left")
+    ax.set_ylim(oe.loc[idx_opt, vobs.obsnme].values.min() * .9,
+                oe.loc[idx_opt, vobs.obsnme].values.max() * 1.1)
+
+
+    ax = axes[4]
+    ax.hist(oe.loc[:,cobs].values,bins=20,facecolor="0.5",alpha=0.5)
+    ylim = ax.get_ylim()
+    tval = obs.loc[cobs,"obsval"]
+    ax.plot([tval,tval],ylim,"b",lw=2)
+    ax.set_title("total cumulative cost",loc="left")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_prior,"prior_mc_summary.pdf"))
+    plt.close(fig)
+
+def set_weights(t_d_post):
+    pst = pyemu.Pst(os.path.join(t_d_post,"pest.pst"))
+    obs = pst.observation_data
+    obs["weight"] = 0.0
+    pobs = obs.loc[obs.obsnme.apply(lambda x: "hds_pit" in x),:].copy()
+    assert pobs.shape[0] > 0
+    pobs["i"] = pobs.i.astype(int)
+    pobs["j"] = pobs.j.astype(int)
+    pit_ijs = set(pobs.apply(lambda x: (x.i,x.j),axis=1).tolist())
+
+
+    hobs = obs.loc[obs.otype=="arr",:]
+    hobs = hobs.loc[hobs.tag=="predev",:]
+    hobs['i'] = hobs.i.astype(int)
+    hobs['j'] = hobs.j.astype(int)
+    hobs_pit = hobs.loc[hobs.apply(lambda x: (x.i,x.j) in pit_ijs,axis=1),:]
+    print(pit_ijs)
+    assert hobs_pit.shape[0] > 0
+    step = 25
+    keep_index = set(list(np.arange(int(step/2),hobs.i.max(),step,dtype=int)))
+    hobs = hobs.loc[hobs.i.apply(lambda x: x in keep_index),:]
+    hobs = hobs.loc[hobs.j.apply(lambda x: x in keep_index), :]
+
+    print(hobs)
+    assert hobs.shape[0] >=4
+    
+
+    obs.loc[hobs.obsnme,"weight"] = 2.5
+    obs.loc[hobs_pit.obsnme,"weight"] = 5.0
+    
+
+    dobs = obs.loc[obs.usecol=="drn-gde",:].copy()
+    dobs["time"] = dobs.time.astype(float)
+    dobs = dobs.loc[dobs.time==dobs.time.min(),:]
+    print(dobs)
+    assert dobs.shape[0] == 1
+    obs.loc[dobs.obsnme[0],"weight"] = 0.025
+    obs.loc[dobs.obsnme,"upper_bound"] = 0.0 #for noise reals
+
+    with open(os.path.join(t_d_post,"phi.csv"),'w') as f:
+        f.write("drn,0.5\n")
+        f.write("hds,0.5\n")
+    pst.pestpp_options["ies_phi_factor_file"] = "phi.csv"
+
+    pst.control_data.noptmax = -2
+    pst.write(os.path.join(t_d_post,"pest.pst"),version=2)
+
+    pyemu.os_utils.run("pestpp-ies pest.pst",cwd=t_d_post)
+
+
+def plot_ies_results(m_d):
+    pst = pyemu.Pst(os.path.join(m_d,"pest.pst"))
+    obs = pst.observation_data
+    hobs = obs.loc[obs.obgnme.str.contains("hmax_pit"),:]
+    assert len(hobs)> 0
+    hobs["time"] = hobs.time.astype(float)
+    hobs.sort_values(by="time",inplace=True)
+
+    #oname:drn_ratio_otype:lst_usecol:voldeltsum_time:40151.0
+    dobs = obs.loc[obs.obsnme.apply(lambda x: "voldeltsum" in x),:]
+    assert len(dobs) > 0
+    dobs["time"] = dobs.time.astype(float)
+    dobs.sort_values(by="time",inplace=True)
+
+    cobs = obs.loc[obs.obsnme=="oname:costs_otype:lst_usecol:total_pv_date:cumul",:]
+    assert cobs.shape[0] == 1
+
+
+    phidf = pd.read_csv(os.path.join(m_d,"pest.phi.actual.csv"))
+    mxiter = phidf.iteration.max()
+    oepr = pd.read_csv(os.path.join(m_d,"pest.0.obs.csv"))
+    oepr.index = oepr.pop("real_name").apply(str)
+    oept = pd.read_csv(os.path.join(m_d,"pest.{0}.obs.csv".format(mxiter)))
+    oept.index = oept.pop("real_name").apply(str)
+
+    feas_oept = get_feasible_oe(pst,oept)
+    print(feas_oept.shape[0]," of ",oept.shape[0]," feasible")
+
+    fig,axes = plt.subplots(3,1,figsize=(10,10))
+    
+    ax = axes[0]
+    tvals = hobs.time.values
+    vals = oepr.loc[:,hobs.obsnme].values
+    [ax.plot(tvals,vals[i,:],"0.5",lw=0.5,alpha=0.25) for i in range(vals.shape[0])]
+
+    vals = oept.loc[:,hobs.obsnme].values
+    [ax.plot(tvals,vals[i,:],"b",lw=0.5,alpha=0.35) for i in range(vals.shape[0])]
+    vals = feas_oept.loc[:,hobs.obsnme].values
+    [ax.plot(tvals,vals[i,:],"m",lw=0.5,alpha=0.5) for i in range(vals.shape[0])]
+    ax.plot(tvals,hobs.obsval,"r-",label="truth")
+    
+    ylim = ax.get_ylim()
+
+    ax.plot([begin_mine,begin_mine],ylim,"k--",label="active mining window")
+    ax.plot([end_mine,end_mine],ylim,"k--")
+
+    xlim = ax.get_xlim()
+    ax.plot(xlim,[hlim_pit,hlim_pit],"r--",label="required gw level (hlim_pit)")
+    ax.legend()
+
+    ax.set_title("hmax_pit, begin mining at {0}, end mining at {1}".format(begin_mine,end_mine),loc="left")
+    ax.set_xlabel("time")
+    ax.set_ylabel("max gw level in pit")
+    ax.set_ylim(ylim)
+    ax.set_xlim(xlim)
+    
+    ax = axes[1]
+    tvals = dobs.time.values
+    vals = oepr.loc[:,dobs.obsnme].values
+    [ax.plot(tvals,vals[i,:],"0.5",lw=0.5,alpha=0.25) for i in range(vals.shape[0])]
+
+    vals = oept.loc[:,dobs.obsnme].values
+    [ax.plot(tvals,vals[i,:],"b",lw=0.5,alpha=0.35) for i in range(vals.shape[0])]
+    
+    vals = feas_oept.loc[:,dobs.obsnme].values
+    [ax.plot(tvals,vals[i,:],"m",lw=0.5,alpha=0.5) for i in range(vals.shape[0])]
+    
+
+    ax.plot(tvals,dobs.obsval,"r-",label="truth")
+    ax.set_ylabel("voldeltsum")
+
+    ax = axes[2]
+    ax.hist(np.log10(oepr.loc[:,cobs.obsnme].values),bins=20,facecolor="0.5",alpha=0.25,density=True)
+    ax.hist(np.log10(oept.loc[:,cobs.obsnme].values),bins=20,facecolor="b",alpha=0.35,density=True)
+    ax.hist(np.log10(feas_oept.loc[:,cobs.obsnme].values),bins=20,facecolor="m",alpha=0.5,density=True)
+    
+    ylim = ax.get_ylim()
+    tval = np.log10(cobs.obsval.values[0])
+    ax.plot([tval,tval],ylim,"r--")
+    ax.set_ylim(ylim)
+    ax.set_xlabel("cost")
+    
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d,"ies_constraints.pdf"))
+    plt.close(fig)
+
+
+def plot_mou_phi(m_d,fs=10):
+    pst = pyemu.Pst(os.path.join(m_d,"pest.pst"))
+    arc = pd.read_csv(os.path.join(m_d,"pest.pareto.archive.summary.csv"))
+    objs = [o.strip().lower() for o in pst.pestpp_options["mou_objectives"].split(',')]
+    print(objs)
+
+    labels = ["GDE volume deficit","Cost","Reliability"]
+    gens = arc.generation.unique()
+    gens.sort()
+    ext = [[arc[o].min(),arc[o].max()] for o in objs]
+
+    garc = arc.loc[arc.generation==arc.generation.max(),:]
+    fig, axes = plt.subplots(len(objs), len(objs), figsize=(8, 8))
+    for i,o1 in enumerate(objs):
+        axes[i,i].hist(garc[o1].values,bins=20,facecolor="0.5",alpha=0.5)
+        axes[i,i].set_xlabel(labels[i])
+        if labels[i] == "cost":
+            axes[i,i].xaxis.set_major_formatter(FormatStrFormatter('$%.2e'))
+            axes[i,i].tick_params(axis='x', labelrotation=90)
+        axes[i,i].set_yticks([])
+        for j in range(i+1,len(objs)):
+            o2 = objs[j]
+            ax = axes[j,i]
+            c = "b"
+            if "_risk_" in objs:
+                c = garc["_risk_"].values
+            ax.scatter(garc[o1].values,garc[o2].values,s=20,marker=".",c=c)
+            ax.set_xlabel(labels[i])
+            ax.set_ylabel(labels[j])
+            if labels[j] == "cost":
+                ax.yaxis.set_major_formatter(FormatStrFormatter('$%.2e'))
+            if labels[i] == "cost":
+                ax.xaxis.set_major_formatter(FormatStrFormatter('$%.2e'))
+                ax.tick_params(axis='x', labelrotation=90)
+
+            ax = axes[i,j]
+            ax.scatter(garc[o2].values, garc[o1].values, s=20, marker=".", c=c)
+            ax.set_xlabel(labels[j])
+            ax.set_ylabel(labels[i])
+            if labels[i] == "cost":
+                ax.yaxis.set_major_formatter(FormatStrFormatter('$%.2e'))
+            if labels[j] == "cost":
+                ax.xaxis.set_major_formatter(FormatStrFormatter('$%.2e'))
+                ax.tick_params(axis='x', labelrotation=90)
+
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d,"objectives.pdf"))
+    plt.close(fig)
+
+
+
+
+
+    figcount = 0
+    for gen in gens:
+        garc = arc.loc[arc.generation==gen,:]
+        print(gen,garc.shape)
+        fig,ax = plt.subplots(1,1,figsize=(5,5))
+        c = "b"
+        if "_risk_" in objs:
+            c = garc["_risk_"].values
+        ax.scatter(garc[objs[0]],garc[objs[1]],marker=".",c=c,s=20)
+        ax.set_xlim(ext[0])
+        ax.set_ylim(ext[1])
+        ax.set_xlabel(labels[0],fontsize=fs)
+        ax.set_ylabel(labels[1],fontsize=fs)
+        ax.tick_params(axis='both', labelsize=fs)
+        ax.yaxis.set_major_formatter(FormatStrFormatter('$%.2e'))
+        ax.grid()
+        ax.set_title("generation {0}".format(gen),loc="left",fontsize=fs)
+        plt.tight_layout()
+        plt.savefig(os.path.join(m_d,"igen{0:04d}.png".format(figcount)))
+        figcount += 1
+    fps = 15
+    pyemu.os_utils.run("ffmpeg -y -i igen{0:04d}.png -vf palettegen=256 palette.png".format(figcount-1), cwd=m_d)
+    pyemu.os_utils.run(
+        "ffmpeg -r {0} -y -s 1920X1080 -i igen%04d.png -i palette.png -filter_complex \"scale=720:-1:flags=lanczos[x];[x][1:v]paletteuse\" logo.gif".format(
+            fps),
+        cwd=m_d)
+
+
+def get_subset_pareto_summary(m_d_mou, gen=None, archive=True, front=1, feasible=True, pstname="pest"):
+    ''' Function that reads the pareto summary file located in directory m_d_mou, gets the subset of solutions
+    corresponding to a specified generation (gen), front (front), and feasibility (feasible), and saves it to a dataframe
+    gen: generation for which to extract solutions (None: use last generation)
+    archive: if True: read archive pareto summary file
+    front: if 1: get solutions on the 1st nondominated front (=the pareto-optimal solutions)
+    feasible: if True: extract feasible solutions only (False: extract feasible and non-feasible solutions) '''
+
+    add_arc = ".archive" if archive else ""  # if archive=True, read the archive file
+    fname = f"{pstname}.pareto{add_arc}.summary.csv"
+    print(f"reading {fname}")
+    assert os.path.exists(os.path.join(m_d_mou, fname))
+
+    df_arc = pd.read_csv(os.path.join(m_d_mou, fname))
+    gens = get_list_gens(m_d_mou, pstname=pstname)
+    max_gen = gens[-1]
+
+    # extract subset corresponding to the specified front
+    df_arc = df_arc[df_arc.nsga2_front == front]
+
+    if gen == "max": # extract subset corresponding to the last generation
+        df_arc = df_arc[(df_arc.generation == max_gen)].copy()
+    elif gen != None: # extract subset corresponding to the specified gen
+        df_arc = df_arc[df_arc.generation == gen].copy()
+
+    # extract subset corresponding to feasible solutions only, if "feasible"=True
+    if feasible:
+        df_arc = df_arc[df_arc.is_feasible == 1]
+
+    # df_arc.sort_values(by="member", inplace=True)
+    df_arc.reset_index(drop=True, inplace=True)
+
+    return df_arc
+
+
+def get_pop(m_d_mou, gen=None, type="dv_pop", archive=True, pstname="pest", ext="csv"):
+    ''' Function that reads a decision variable population (dv_pop) or observation population (obs_pop) file
+     located in directory m_d_mou, for a specified generation (gen), and saves it to a dataframe
+     gen: generation for which to read the population file (None: use last generation)
+     archive: if True: read archive population file '''
+
+    add_gen = f".{gen}" if gen is not None else ""
+    add_arc = ".archive" if archive else ""
+   
+    pst = pyemu.Pst(os.path.join(m_d_mou, f"{pstname}.pst"))
+    if "save_binary" in pst.pestpp_options and bool(pst.pestpp_options["save_binary"]) is True:
+        ext = "jcb"
+    fname = f"{pstname}{add_gen}{add_arc}.{type}.{ext}"
+    print(f"reading {fname}")
+    assert os.path.exists(os.path.join(m_d_mou, fname)), os.path.join(m_d_mou, fname)
+
+    if ext == "jcb":
+        
+        if type == "dv_pop":
+            pop = pyemu.ParameterEnsemble.from_binary(pst=pst, filename=os.path.join(m_d_mou, fname))
+        elif type == "obs_pop":
+            pop = pyemu.ObservationEnsemble.from_binary(pst=pst, filename=os.path.join(m_d_mou, fname))
+        pop = pd.DataFrame(pop.values, columns=pop.columns, index=pop.index)
+        pop.loc[:, "member"] = pop.index
+    elif ext == "csv":
+        pop = pd.read_csv(os.path.join(m_d_mou, fname))
+        pop.rename(columns={"real_name": "member"}, inplace=True)
+    # pop.sort_values(by="member", inplace=True)
+    pop.set_index("member", inplace=True)
+
+    return pop
+
+
+def get_list_gens(m_d_mou, pstname="pest"):
+    df_arc = pd.read_csv(os.path.join(m_d_mou, f"{pstname}.pareto.archive.summary.csv"))
+    gens = df_arc.generation.unique()
+    gens.sort()
+    gens = list(gens)
+    return gens
+
+
+def interactive_3dplot(m_d_mou):
+    gens = get_list_gens(m_d_mou)
+    gen = gens[-1]
+    phi = get_subset_pareto_summary(m_d_mou, gen=gen)
+    # dvpop = get_pop(m_d_mou, gen=gen, type="dv_pop")
+    # obspop = get_pop(m_d_mou, gen=gen, type="obs_pop")
+    # bigdf = pd.merge(pd.merge(phi, dvpop, on="member"), obspop, on="member")
+
+    # create interactive 3D scatter plot
+    # conda install plotly
+    import plotly.express as px
+
+    ### uncomment these 2 lines for the interactive figures to show up on pycharm
+    import plotly.io as pio
+    pio.renderers.default = "browser"
+
+    # interactive plot for 2-3 objectives (2 axes+color)
+    # fig = px.scatter(data_frame=phi, x='oname:costs_otype:lst_usecol:total_pv_date:cumul', y='oname:drn_ratio_otype:lst_usecol:voldeltsum_time:40151.0', color='_risk_', hover_name='member')
+    # fig.show()
+
+    # interactive plot for 3-4 objectives (3 axes+color)
+    fig = px.scatter_3d(data_frame=phi, x='oname:costs_otype:lst_usecol:total_pv_date:cumul', y='oname:drn_ratio_otype:lst_usecol:voldeltsum_time:40151.0', z='_risk_', color='_risk_',
+                        hover_name='member')
+    fig.show()
+
+
+def mou_summary_plots(m_ds,m_d_labels,risk_thresh=[0.8,1.0],base_res=None,result_specific_tweaks=False,pt_oe=None):
+
+    fs = 9
+    pst = pyemu.Pst(os.path.join(m_ds[0],"pest.pst"))
+    obs = pst.observation_data
+    # pt = None
+    # if m_d_post is not None:
+    #     phidf = pd.read_csv(os.path.join(m_d_post,"pest.phi.actual.csv"))
+    #     mxiter = phidf.iteration.max()
+    #     pt = pd.read_csv(os.path.join(m_d_post,"pest.{0}.obs.csv".format(mxiter)),index_col=0)
+
+
+    objs = [o.strip() for o in pst.pestpp_options["mou_objectives"].split(",")]
+    labels = ["GDE volume deficit (1e6 m$^3$)","Cost (millions USD)","Reliability (%)"]
+    colors = ["k","b","g","m","c"]
+
+    def get_knee(arc):
+        mxs = np.array([arc[obj].max() for obj in objs])
+        arc["knee_dist"] = arc.apply(lambda x: ((x[objs].values/mxs)**2).sum(),axis=1)
+        return arc.knee_dist.idxmin()
+        
+    arcs = [pd.read_csv(os.path.join(m_d,"pest.pareto.archive.summary.csv")) for m_d in m_ds]
+    
+    for i,arc in enumerate(arcs):
+        arcs[i] = arc.loc[arc.generation==arc.generation.max(),:]
+        arcs[i][objs[1]] /= 1e6
+        arcs[i][objs[0]] /= 1e6
+        if "_risk_" in arc.columns:
+            arcs[i]["_risk_"] *= 100
+
+    # ---- pareto frontiers for all reliabilities
+
+    # check for pr and pt riskobj arcs
+    pr_m_d = [m_d for m_d in m_ds if "riskobj" in m_d and "pr" in m_d]
+    pt_m_d = [m_d for m_d in m_ds if "riskobj" in m_d and "pt" in m_d]
+    
+    # if they exist, make a plot
+    if len(pr_m_d) == 1 and len(pt_m_d) == 1:
+        prarc = arcs[m_ds.index(pr_m_d[0])]
+        ptarc = arcs[m_ds.index(pt_m_d[0])]
+
+        fig,axes = plt.subplots(2,1,figsize=(height_max/2,height_max*.75))#(4,8))
+        ax = axes[0]
+        c_vals_pr = prarc["_risk_"].values
+        c_vals_pt = ptarc["_risk_"].values
+        mn = min(c_vals_pr.min(),c_vals_pt.min())
+        mx = max(c_vals_pr.max(),c_vals_pt.max())
+        cb = ax.scatter(prarc[objs[0]].values,prarc[objs[1]],marker='.',c=c_vals_pr,vmin=mn,vmax=mx)
+        plt.colorbar(cb,ax=ax,label="Reliability (%)")
+        ax.set_title("A) uncalibrated pareto fronts",loc="left",fontsize=fs)
+
+        ax = axes[1]
+        
+        cb = ax.scatter(ptarc[objs[0]].values,ptarc[objs[1]],marker='.',c=c_vals_pt,vmin=mn,vmax=mx)
+        plt.colorbar(cb,ax=ax,label="Reliability (%)")
+        ax.set_title("B) calibration-constrained pareto fronts",loc="left",fontsize=fs)
+
+        mn = min([ax.get_xlim()[0] for ax in axes])
+        mx = max([ax.get_xlim()[1] for ax in axes])
+        [ax.set_xlim(mn,mx) for ax in axes]
+        mn = min([ax.get_ylim()[0] for ax in axes])
+        mx = max([ax.get_ylim()[1] for ax in axes])
+        [ax.set_ylim(mn,mx) for ax in axes]
+        
+        for ax in axes:
+            # for c,arc,m_d in zip(colors,arcs,m_ds):
+            #     if "base" in m_d:
+            #         ax.scatter(arc[objs[0]],arc[objs[1]],marker='.',color=c,s=10,alpha=0.5,label=m_d_labels[m_d])
+            if result_specific_tweaks:
+                xlim = ax.get_xlim()
+                ax.set_xlim(0,xlim[1])    
+            ax.set_ylabel(labels[1])
+            ax.set_xlabel(labels[0])
+            ax.grid()
+
+        plt.tight_layout()
+        plt.savefig("reliability_summary.pdf")
+        plt.close(fig)
+
+
+    # now threshold the arcs
+    knee_idxs = []
+
+    for i,arc in enumerate(arcs):
+        
+        if "_risk_" in arcs[i].columns:
+           #print(m_ds[i])
+           arcs[i] = arcs[i].loc[arcs[i]._risk_.apply(lambda x: x >= risk_thresh[0]*100 and x < risk_thresh[1]*100),:]
+           arcs[i] = arcs[i].loc[arcs[i]._risk_.apply(lambda x: x >= risk_thresh[0]*100 and x < risk_thresh[1]*100),:]
+        print(m_ds[i],arcs[i].shape)
+        knee = get_knee(arcs[i])
+        knee_idxs.append(knee)   
+
+
+
+    # ---- deterministic pareto frontiers
+
+    fig,ax = plt.subplots(1,1,figsize=(4,4))
+
+
+    for c,arc,m_d,knee_idx in zip(colors,arcs,m_ds,knee_idxs):
+        if result_specific_tweaks and "truth" in m_d:
+            continue
+        if "_risk_" not in arc.columns:
+            ax.scatter(arc[objs[0]],arc[objs[1]],marker='.',color=c,s=10,alpha=0.5,label=m_d_labels[m_d])
+            knee = arc.loc[knee_idx,objs].values
+            ax.scatter(knee[0],knee[1],marker="*",s=100,color=c)
+    ylim = ax.get_ylim()
+    xlim = ax.get_xlim()
+    if base_res is not None:
+        ovals = base_res.loc[objs[:2],"modelled"].values / 1e6
+        ax.scatter(ovals[0],ovals[1],marker=".",s=150,color='r',label="standard solution")
+
+        
+        # in case the base_res values are out of the current plot range
+        if result_specific_tweaks:
+            xlim = (xlim[0],max(xlim[1],ovals[0]*1.05))
+        ax.plot([ovals[0],ovals[0]],[ylim[0],ovals[1]],lw=.5,color='r',dashes=(2,1))
+        ax.plot([ovals[0],ovals[0]],[ylim[0],ovals[1]],lw=.5,color='r',dashes=(2,1))
+        ax.plot([xlim[0],ovals[0]],[ovals[1],ovals[1]],lw=.5,color='r',dashes=(2,1))
+        ax.plot([xlim[0],ovals[0]],[ovals[1],ovals[1]],lw=.5,color='r',dashes=(2,1))
+    
+    for c,arc,m_d,knee_idx in zip(colors,arcs,m_ds,knee_idxs):
+        if "_risk_" not in arc.columns:
+            knee = arc.loc[knee_idx,objs].values
+            ax.scatter(knee[0],knee[1],marker="*",s=100,color=c)#,label=m_d_labels[m_d]+" knee")
+            ax.plot([knee[0],knee[0]],[ylim[0],knee[1]],lw=.5,color=c,dashes=(2,1))
+            ax.plot([knee[0],knee[0]],[ylim[0],knee[1]],lw=.5,color=c,dashes=(2,1))
+            ax.plot([xlim[0],knee[0]],[knee[1],knee[1]],lw=.5,color=c,dashes=(2,1))
+            ax.plot([xlim[0],knee[0]],[knee[1],knee[1]],lw=.5,color=c,dashes=(2,1))
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    ax.legend(loc="upper right")
+    ylim = ax.get_ylim()
+    ax.plot([0,0],ylim,"k--",lw=0.1)
+    ax.set_ylim(ylim)
+    ax.set_xlabel(labels[0])
+    ax.set_ylabel(labels[1])
+    #ax.set_title("A) deterministic pareto frontiers",loc="left")
+    plt.tight_layout()
+    plt.savefig(os.path.join("summary1.pdf"))
+    plt.close(fig)
+
+    # ---- deterministic and highly reliable pareto frontiers
+    risk_norm = matplotlib.colors.Normalize(vmin=0,vmax=100)
+    risk_cmap = plt.get_cmap("jet")
+    m_d_labels = {m_d_mou_truth: "Perfect knowledge",
+                  m_d_mou_neutral: "uncalibrated model",
+                  m_d_mou_base: "calibrated model",
+                  m_d_mou_risk_pt: "calibration-constrained reliability-based",
+                  m_d_mou_risk_pr: "uncalibrated reliability-based"}
+
+    fig,ax = plt.subplots(1,1,figsize=(8,4))
+    #ax = axes[1]
+    for c,arc,m_d,knee_idx in zip(colors,arcs,m_ds,knee_idxs):
+        s = 10
+        marker = "."
+        c = risk_cmap(0.5)   
+        if "_risk_" in arc.columns:
+
+            risk_sizes = (arc._risk_.values - arc._risk_.min()) / 100
+            print(risk_sizes)
+            #s += risk_sizes * 1000
+            s = 20
+            c = [risk_cmap(r/100.) for r in arc._risk_.values]
+            if "pr_" in  m_d:
+                marker="^"
+            elif "pt_" in  m_d:
+                marker="x"
+            else:
+                raise Exception()
+            #print(arc._risk_)
+            print(m_d,marker) 
+        if result_specific_tweaks and "truth" in m_d:
+            continue   
+        ax.scatter(arc[objs[0]],arc[objs[1]],marker=marker,facecolor=c,alpha=0.5,s=s,label=m_d_labels[m_d])
+    ylim = ax.get_ylim()
+    xlim = ax.get_xlim()
+
+    if base_res is not None:
+        c = risk_cmap(0.5)
+        if pt_oe is not None:
+            feas_pt_oe = pt_oe.copy()
+            hmax_pit_obs = obs.loc[obs.apply(lambda x: "hmax_pit" in x.obsnme and x.weight > 0, axis=1), :].copy()
+            hmar_obs = obs.loc[obs.apply(lambda x: "hds_mar" in x.obsnme, axis=1), :].copy()
+            #print(hmax_pit_obs)
+            for o in hmax_pit_obs.obsnme:
+                feas_pt_oe = feas_pt_oe.loc[feas_pt_oe[o]<=hlim_pit,:]
+            for o in hmar_obs.obsnme:
+                feas_pt_oe = feas_pt_oe.loc[feas_pt_oe[o]<=top,:]
+
+            print(feas_pt_oe.shape[0]," of ",pt_oe.shape[0]," solutions feasible")
+            naive_reliability =   float(feas_pt_oe.shape[0]) / float(pt_oe.shape[0])  
+            c = risk_cmap(naive_reliability)
+            # pt_oe = pt_oe.loc[pt_oe.index.map(lambda x: x not in feas_pt_oe.index),:]
+            # obj_vals = pt_oe.loc[:,objs[:2]].values / 1e6
+            # #print(obj_vals)  
+            # ax.scatter(obj_vals[:,0],obj_vals[:,1],marker=".",s=8,color='k',alpha=0.35,label="posterior ensemble (infeasible)")
+            # obj_vals = feas_pt_oe.loc[:,objs[:2]].values / 1e6
+            # ax.scatter(obj_vals[:,0],obj_vals[:,1],marker=".",s=20,color='r',alpha=0.75,label="posterior ensemble (feasible)")
+        
+        naive_ovals = base_res.loc[objs[:2],"modelled"].values / 1e6
+        ax.scatter(naive_ovals[0],naive_ovals[1],marker=".",s=150,color=c,label="standard solution")
+        ax.plot([naive_ovals[0],naive_ovals[0]],[ylim[0],naive_ovals[1]],lw=.5,color=c,dashes=(2,1))
+        ax.plot([naive_ovals[0],naive_ovals[0]],[ylim[0],naive_ovals[1]],lw=.5,color=c,dashes=(2,1))
+        ax.plot([xlim[0],naive_ovals[0]],[naive_ovals[1],naive_ovals[1]],lw=.5,color=c,dashes=(2,1))
+        ax.plot([xlim[0],naive_ovals[0]],[naive_ovals[1],naive_ovals[1]],lw=.5,color=c,dashes=(2,1))
+    for c,arc,m_d,knee_idx in zip(colors,arcs,m_ds,knee_idxs):
+        if result_specific_tweaks and "truth" in m_d:
+            continue 
+        if result_specific_tweaks and m_d.endswith("pr"):
+            continue 
+            
+        knee = arc.loc[knee_idx,objs].values
+
+        c = risk_cmap(0.5)
+        if "_risk_" in arc.columns:
+            r = arc.loc[knee_idx,"_risk_"]
+            c = risk_cmap(r/100)
+        if ("pt" in m_d or "base" in m_d) and result_specific_tweaks:
+            ax.scatter(knee[0],knee[1],marker="*",s=100,color=c,label=m_d_labels[m_d]+" knee")
+        
+        else:
+            ax.scatter(knee[0],knee[1],marker="*",s=100,color=c)#,label=m_d_labels[m_d]+" knee")
+        ax.plot([knee[0],knee[0]],[ylim[0],knee[1]],lw=.5,color=c,dashes=(2,1))
+        ax.plot([knee[0],knee[0]],[ylim[0],knee[1]],lw=.5,color=c,dashes=(2,1))
+        ax.plot([xlim[0],knee[0]],[knee[1],knee[1]],lw=.5,color=c,dashes=(2,1))
+        ax.plot([xlim[0],knee[0]],[knee[1],knee[1]],lw=.5,color=c,dashes=(2,1))
+    
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    #ax.scatter(pt_arc_thresh[objs[0]], pt_arc_thresh[objs[1]], marker="o", facecolor="b", s=20, alpha=0.25,label="posterior stack")
+    #ax.scatter(tr_arc[objs[0]], tr_arc[objs[1]], marker='.', color="k", s=20,label="perfect knowledge")
+    ax.set_xlabel(labels[0])
+    ax.set_ylabel(labels[1])
+    ylim = ax.get_ylim()
+    ax.plot([0, 0], ylim, "k--",lw=0.1)
+    if result_specific_tweaks:
+        ylim = (ylim[0],min(ylim[1],110))
+    ax.set_ylim(ylim)
+    plt.colorbar(matplotlib.cm.ScalarMappable(cmap=risk_cmap,norm=risk_norm),ax=ax,label="reliability")
+    #ax.set_title("B) all pareto frontiers ({0} <= reliability < {1} shown)".format(risk_thresh[0],risk_thresh[1]),loc="left")
+    ax.legend(loc="upper right")
+    #ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)#loc='center left', bbox_to_anchor=(1, 0.5)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join("summary2.pdf"))
+    plt.close(fig)
+
+    if pt_oe is not None:
+        fig, ax = plt.subplots(1,1,figsize=(4,4))
+        ax.hist(pt_oe[objs[0]].values/1e6,density=False,facecolor="0.5",alpha=0.5,label="calibration-constrained ({0})".format(pt_oe.shape[0]))
+        naive_color = risk_cmap(naive_reliability)
+        ax.hist(feas_pt_oe[objs[0]].values/1e6,density=False,facecolor=naive_color,alpha=0.5,
+            label="feasible calibration-constrained({0})".format(feas_pt_oe.shape[0]))
+        ylim = ax.get_ylim()
+        ylim = [ylim[0],ylim[1]*1.5]
+        ax.plot([naive_ovals[0],naive_ovals[0]],ylim,ls="--",color=naive_color,lw=2.0,label="standard solution")
+        #ax.set_yticks([])
+        ax.set_ylabel("count")
+        ax.set_xlabel(labels[0])
+        ax.legend(loc="upper right",framealpha=1.0)
+        plt.tight_layout()
+        plt.savefig("postunc_summary.pdf")
+        plt.close(fig)
+
+
+def plot_mou_dvars(m_d_mou,gen=None,pstname="pest"):
+    ''' make violin plots of decision variables + plots of decision variables vs phi for a given generation
+    if gen == None use max gen
+    '''
+
+    fs = 9
+    plt.rcParams.update({'font.size': fs})
+
+    if gen == None: #use max gen
+        gens = get_list_gens(m_d_mou)
+        gen = gens[-1]
+
+    phi = get_subset_pareto_summary(m_d_mou, gen=gen)
+    dvpop = get_pop(m_d_mou, gen=gen, type="dv_pop")
+    # obspop = get_pop(m_d_mou, gen=gen, type="obs_pop")
+    # bigdf = pd.merge(pd.merge(phi, dvpop, on="member"), obspop, on="member")
+
+    pst = pyemu.Pst(os.path.join(m_d_mou, f"{pstname}.pst"))
+    par = pst.parameter_data
+    # obs = pst.observation_data
+
+    objs = pst.pestpp_options["mou_objectives"].split(',')
+    objs.sort()
+
+    if "_risk_" in objs:
+        phi._risk_ *= 100  # plot reliability (%)
+
+    objs_dict = {"_risk_": "Reliability",
+                 "oname:costs_otype:lst_usecol:total_pv_date:cumul": "Costs",
+                 "oname:drn_ratio_otype:lst_usecol:voldeltsum_time:40151.0": "GDE volume deficit"}
+
+    # get all decision variable groups + names
+    dvars_gps = [s for s in pst.pestpp_options["opt_dec_var_groups"].split(',') if "_risk_" not in s]
+    dvars = par.loc[par.pargp.isin(dvars_gps), "parnme"].tolist()
+    dvpop = dvpop[dvars]
+    phi = pd.merge(phi, dvpop, on="member")
+
+    # ------ plot individual extraction/injection rates violin plots
+
+    rates_ext = par.loc[par.pargp == "dewater", "parnme"].tolist()
+    rates_ext_nmes = [int(s) for s in par.loc[rates_ext, "usecol"].tolist()]
+    rates_inj = par.loc[par.pargp == "mar", "parnme"].tolist()
+    rates_inj_nmes = [int(s) for s in par.loc[rates_inj, "usecol"].tolist()]
+
+    dvpop[rates_ext] *= -1 # positive pumping rates for plotting
+
+    dvar_dict = {"Extraction well": rates_ext,
+                 "Injection well": rates_inj}
+
+    for k,v in dvar_dict.items():
+        fig, ax = plt.subplots(1, 1)#, figsize=(7.5, 3))
+        parts = ax.violinplot(dvpop[v], showmeans=False, showextrema=True, showmedians=True)
+        for pc in parts['bodies']:
+            pc.set_facecolor('b')
+            pc.set_edgecolor('black')
+            pc.set_alpha(0.4)
+        for partname in ('cbars', 'cmeans', 'cmins', 'cmaxes', 'cmedians'):
+            try:
+                vp = parts[partname]
+                vp.set_edgecolor("k")
+                vp.set_linewidth(0.2)
+            except:
+                pass
+        ax.set_xticks(ticks=list(range(1, dvpop[v].shape[1] + 1)))
+        labels = rates_ext_nmes if "Ext" in k else rates_inj_nmes
+        ax.set_xticklabels(labels=labels, fontsize=fs - 2, rotation=90)
+        ax.set_xlabel(f"{k}", fontsize=fs)
+        ax.set_ylabel("Rate (m$^{3}$/d)", fontsize=fs)
+        ax.set_title(f"Generation {gen}", loc="left", fontsize=fs)
+        ax.grid(lw=0.2)
+        plt.tight_layout()
+        plt.savefig(os.path.join(m_d_mou, f"gen{gen}_{k.replace(' ','_').lower()[:3]}_vp.png"), dpi=300)
+        plt.close(fig)
+
+    # ------ plot individual extraction/injection rates vs phi
+
+    fig, axes = plt.subplots(1, len(objs), sharey=True)
+    for iax, obj in enumerate(objs):
+        ax = axes[iax]
+        for s in rates_ext:
+            ax.scatter(phi[obj], phi[s], s=10, alpha=0.5)
+        ax.set_xlabel(f"{objs_dict[obj]}", fontsize=fs)
+        ax.set_ylabel("Extraction rate (m$^{3}$/d)", fontsize=fs)
+        ax.grid(lw=0.2)
+    # ax.legend(bbox_to_anchor=(0.5, 1))
+    axes[0].set_title(f"Generation {gen}", loc="left", fontsize=fs)
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_mou, f"gen{gen}_ext_v_phi.png"), dpi=300)
+    plt.close(fig)
+
+    fig, axes = plt.subplots(1, len(objs), sharey=True)
+    for iax, obj in enumerate(objs):
+        ax = axes[iax]
+        for s in rates_inj:
+            ax.scatter(phi[obj], phi[s], s=10, alpha=0.5)
+        ax.set_xlabel(f"{objs_dict[obj]}", fontsize=fs)
+        ax.set_ylabel("Injection rate (m$^{3}$/d)", fontsize=fs)
+        ax.grid(lw=0.2)
+    # ax.legend(bbox_to_anchor=(0.5, 1))
+    axes[0].set_title(f"Generation {gen}", loc="left", fontsize=fs)
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_mou, f"gen{gen}_inj_v_phi.png"), dpi=300)
+    plt.close(fig)
+
+    # ------ plot total extraction/injection violin plots
+
+    df = pd.DataFrame({"Total extraction": dvpop[rates_ext].sum(axis=1),
+                       "Total injection": dvpop[rates_inj].sum(axis=1)})
+    phi = pd.merge(phi, df, on="member")
+
+    fig, ax = plt.subplots(1, 1)
+    parts = ax.violinplot(df[df.columns], showmeans=False, showextrema=True, showmedians=True)
+    for pc in parts['bodies']:
+        pc.set_facecolor('b')
+        pc.set_edgecolor('black')
+        pc.set_alpha(0.4)
+    for partname in ('cbars', 'cmeans', 'cmins', 'cmaxes', 'cmedians'):
+        try:
+            vp = parts[partname]
+            vp.set_edgecolor("k")
+            vp.set_linewidth(0.2)
+        except:
+            pass
+    ax.set_xticks(ticks=list(range(1, df.shape[1] + 1)))
+    ax.set_xticklabels(labels=df.columns, fontsize=fs)
+    ax.set_xlabel(f"{k}", fontsize=fs)
+    ax.set_ylabel("Rate (m$^{3}$/d)", fontsize=fs)
+    ax.set_title(f"Generation {gen}", loc="left", fontsize=fs)
+    ax.grid(lw=0.2)
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_mou, f"gen{gen}_totalpumping_vp.png"), dpi=300)
+    plt.close(fig)
+
+    # ------ plot total extraction/injection vs phi
+
+    fig, axes = plt.subplots(1, len(objs), sharey=True)
+    for iax, obj in enumerate(objs):
+        ax = axes[iax]
+        ax.scatter(phi[obj], phi["Total extraction"], alpha=0.5, s=10, label="Total extraction")
+        ax.scatter(phi[obj], phi["Total injection"], alpha=0.5, s=10, label="Total injection")
+        ax.set_xlabel(f"{objs_dict[obj]}", fontsize=fs)
+        ax.set_ylabel("Rate (m$^{3}$/d)", fontsize=fs)
+        ax.grid(lw=0.2)
+    ax.legend(bbox_to_anchor=(0.5, 1))
+    axes[0].set_title(f"Generation {gen}", loc="left", fontsize=fs)
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_mou, f"gen{gen}_totalpumping_v_phi.png"), dpi=300)
+    plt.close(fig)
+
+    # ------ plot begin/duration/end violin plots
+
+    dvpop_end = dvpop.copy()
+
+    # begin_ext = [s for s in dvars if "begin" in s and "dewater" in s][0]
+    # begin_inj = [s for s in dvars if "begin" in s and "mar" in s][0]
+    # duration_ext = [s for s in dvars if "duration" in s and "dewater" in s][0]
+    # duration_inj = [s for s in dvars if "duration" in s and "mar" in s][0]
+
+    begin = [s for s in dvars if "begin" in s]
+    duration = [s for s in dvars if "duration" in s]
+    end = [s.replace("begin", "end") for s in begin]
+
+    for b in begin:
+        d = b.replace("begin","duration")
+        e = b.replace("begin","end")
+        dvpop_end[e] = dvpop_end[b] + dvpop_end[d]
+
+    dvpop_end[begin+duration+end] /= 365  # days to years
+    phi = pd.merge(phi, dvpop_end[begin+duration+end], on="member")
+
+    dvar_dict = {"Begin": begin,
+                 "End": end,
+                 "Duration": duration}
+
+    for k,v in dvar_dict.items():
+        fig, ax = plt.subplots(1, 1)#, figsize=(7.5, 3))
+        parts = ax.violinplot(dvpop_end[v], showmeans=False, showextrema=True, showmedians=True)
+        for pc in parts['bodies']:
+            pc.set_facecolor('b')
+            pc.set_edgecolor('black')
+            pc.set_alpha(0.4)
+        for partname in ('cbars', 'cmeans', 'cmins', 'cmaxes', 'cmedians'):
+            try:
+                vp = parts[partname]
+                vp.set_edgecolor("k")
+                vp.set_linewidth(0.2)
+            except:
+                pass
+        ax.set_xticks(ticks=list(range(1, dvpop_end[v].shape[1] + 1)))
+        labels = [s.split(":")[-1] for s in v]
+        ax.set_xticklabels(labels=labels, fontsize=fs - 2)
+        if k != "Duration":
+            ax.axhline(y = begin_mine / 365, alpha=0.5, ls="--", color="k", label="begin mine")
+            ax.axhline(y = end_mine / 365, alpha=0.5, ls="--", color="k", label="end mine")
+            ax.legend()
+        ax.set_xlabel(f"{k}", fontsize=fs)
+        ylabel = "Year" if k != "Duration" else "Years"
+        ax.set_ylabel(ylabel, fontsize=fs)
+        ax.set_title(f"Generation {gen}", loc="left", fontsize=fs)
+        ax.grid(lw=0.2)
+        plt.tight_layout()
+        plt.savefig(os.path.join(m_d_mou, f"gen{gen}_{k.lower()}_vp.png"), dpi=300)
+        plt.close(fig)
+
+    # ------ plot begin/duration/end vs phi
+
+    fig, axes = plt.subplots(1, len(objs), sharey=True)
+    for iax, obj in enumerate(objs):
+        ax = axes[iax]
+        for s in begin:
+            ax.scatter(phi[obj], phi[f"{s}_y"], s=10, alpha=0.5, label=s.split(":")[-1])
+        ax.axhline(y=begin_mine / 365, alpha=0.5, ls="--", color="k", label="begin mine")
+        ax.axhline(y=end_mine / 365, alpha=0.5, ls="--", color="k", label="end mine")
+        ax.set_xlabel(f"{objs_dict[obj]}", fontsize=fs)
+        ax.set_ylabel("Begin (year)", fontsize=fs)
+        ax.grid(lw=0.2)
+    ax.legend(bbox_to_anchor=(0.5, 1))
+    axes[0].set_title(f"Generation {gen}", loc="left", fontsize=fs)
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_mou, f"gen{gen}_begin_v_phi.png"), dpi=300)
+    plt.close(fig)
+
+    fig, axes = plt.subplots(1, len(objs), sharey=True)
+    for iax, obj in enumerate(objs):
+        ax = axes[iax]
+        for s in end:
+            ax.scatter(phi[obj], phi[s], s=10, alpha=0.5, label=s.split(":")[-1])
+        ax.axhline(y=begin_mine / 365, alpha=0.5, ls="--", color="k", label="begin mine")
+        ax.axhline(y=end_mine / 365, alpha=0.5, ls="--", color="k", label="end mine")
+        ax.set_xlabel(f"{objs_dict[obj]}", fontsize=fs)
+        ax.set_ylabel("End (year)", fontsize=fs)
+        ax.grid(lw=0.2)
+    ax.legend(bbox_to_anchor=(0.5, 1))
+    axes[0].set_title(f"Generation {gen}", loc="left", fontsize=fs)
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_mou, f"gen{gen}_end_v_phi.png"), dpi=300)
+    plt.close(fig)
+
+    fig, axes = plt.subplots(1, len(objs), sharey=True)
+    for iax, obj in enumerate(objs):
+        ax = axes[iax]
+        for s in duration:
+            ax.scatter(phi[obj], phi[f"{s}_y"], s=10, alpha=0.5, label=s.split(":")[-1])
+        ax.set_xlabel(f"{objs_dict[obj]}", fontsize=fs)
+        ax.set_ylabel("Duration (years)", fontsize=fs)
+        ax.grid(lw=0.2)
+    ax.legend(bbox_to_anchor=(0.5, 1))
+    axes[0].set_title(f"Generation {gen}", loc="left", fontsize=fs)
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_mou, f"gen{gen}_duration_v_phi.png"), dpi=300)
+    plt.close(fig)
+
+
+def plot_mou_cons(m_d_mou,gen=None,pstname="pest"):
+
+    fs = 9
+    plt.rcParams.update({'font.size': fs})
+
+    if gen == None:  # use max gen
+        gens = get_list_gens(m_d_mou)
+        gen = gens[-1]
+    obspop = get_pop(m_d_mou, gen=gen, type="obs_pop")
+
+    pst = pyemu.Pst(os.path.join(m_d_mou, f"{pstname}.pst"))
+    obs = pst.observation_data
+
+    sim = flopy.mf6.MFSimulation.load(sim_ws=t_d_mou, verbosity_level=0)
+    gwf = sim.get_model()
+    start_datetime = sim.tdis.start_date_time.get_data()
+
+    # ------ dewater minus mar
+
+    dewat_minus_mar_obs = obs.loc[obs.apply(lambda x: x.usecol == "dewater-minus-mar", axis=1), :].copy()
+    dewat_minus_mar_obs["time"] = dewat_minus_mar_obs.time.astype(float)
+    dewat_minus_mar_obs.sort_values(by="time", inplace=True)
+    dts = pd.to_datetime(start_datetime) + pd.to_timedelta(dewat_minus_mar_obs.time, unit="d")
+    fig, ax = plt.subplots(1, 1)
+    for idx in obspop[dewat_minus_mar_obs.obsnme.tolist()].index:
+        plt.plot(dts, obspop[dewat_minus_mar_obs.obsnme.tolist()].loc[idx,:].values,
+                 marker=".", ms=1, ls="None", alpha=0.5)#, label=idx)
+    ax.set_xlabel("Date", fontsize=fs)
+    ax.set_ylabel("Vext-Vinj (dewater-minus-mar) (m3)", fontsize=fs)
+    ax.grid(lw=0.2)
+    # ax.legend(bbox_to_anchor=(0.5, 1))
+    ax.set_title(f"Generation {gen}", loc="left", fontsize=fs)
+    ax.xaxis.set_minor_locator(mdates.YearLocator())
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_mou, f"gen{gen}_dewater-minus-mar.png"), dpi=300)
+    plt.close(fig)
+
+    # ------ max simulated head in pit
+
+    htop_pit = np.unique(gwf.dis.top.get_data())[0]
+    hmax_pit_obs = obs.loc[obs.apply(lambda x: "hmax_pit" in x.obsnme, axis=1), :].copy()
+    hmax_pit_obs["time"] = hmax_pit_obs.time.astype(float)
+    hmax_pit_obs.sort_values(by="time", inplace=True)
+    dts = pd.to_datetime(start_datetime) + pd.to_timedelta(hmax_pit_obs.time, unit="d")
+    fig, ax = plt.subplots(1, 1)
+    for idx in obspop[hmax_pit_obs.obsnme.tolist()].index:
+        plt.plot(dts, obspop[hmax_pit_obs.obsnme.tolist()].loc[idx, :].values,
+                 marker=".", ms=1, ls="None", alpha=0.5)  # , label=idx)
+    plt.axhline(htop_pit, alpha=0.5, color="b", ls="--", label="htop_pit")
+    plt.axhline(hlim_pit, alpha=0.5, color="r", label="hlim_pit")
+    ax.set_xlabel("Date", fontsize=fs)
+    ax.set_ylabel("Maximum head in the pit (hmax_pit) (m)", fontsize=fs)
+    ax.grid(lw=0.2)
+    ax.legend()
+    ax.set_title(f"Generation {gen}", loc="left", fontsize=fs)
+    ax.xaxis.set_minor_locator(mdates.YearLocator())
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_mou, f"gen{gen}_hmax_pit.png"), dpi=300)
+    plt.close(fig)
+
+    # ------ simulated head at mar locations
+
+    hmar_obs = obs.loc[obs.apply(lambda x: "hds_mar" in x.obsnme, axis=1), :].copy()
+    hmar_obs.time = hmar_obs.time.astype(float)
+    hmar_obs["i"] = hmar_obs.i.astype(int)
+    hmar_obs["j"] = hmar_obs.j.astype(int)
+    mar_ij = hmar_obs.drop_duplicates(subset=['i', 'j'])[['i', 'j']].values.tolist()
+    for l in mar_ij: # cc: could group all in 1 figure with subplots but lazy..
+        hmar_obs_sub = hmar_obs[(hmar_obs.i == l[0]) & (hmar_obs.j == l[1])].copy()
+        hmar_obs_sub.sort_values(by="time", inplace=True)
+        dts = pd.to_datetime(start_datetime) + pd.to_timedelta(hmar_obs_sub.time, unit="d")
+        fig, ax = plt.subplots(1, 1)
+        for idx in obspop[hmar_obs_sub.obsnme.tolist()].index:
+            plt.plot(dts, obspop[hmar_obs_sub.obsnme.tolist()].loc[idx, :].values,
+                     marker=".", ls="None", alpha=0.5)  # , label=idx)
+        plt.axhline(htop_pit, alpha=0.5, color="r", ls="--", label="hlim_mar")
+        ax.set_xlabel("Date", fontsize=fs)
+        ax.set_ylabel(f"Head at mar location {l} (hds_mar) (m)", fontsize=fs)
+        ax.grid(lw=0.2)
+        ax.legend()
+        ax.set_title(f"Generation {gen}", loc="left", fontsize=fs)
+        ax.xaxis.set_minor_locator(mdates.YearLocator())
+        plt.tight_layout()
+        plt.savefig(os.path.join(m_d_mou, f"gen{gen}_hds_mar_i{l[0]}_j{l[1]}.png"), dpi=300)
+        plt.close(fig)
+
+    # ------ GDE volume deficit
+
+    drnvol_obs = obs.loc[obs.apply(lambda x: x.usecol == "voldeltsum", axis=1), :].copy()
+    drnvol_obs["time"] = drnvol_obs.time.astype(float)
+    drnvol_obs.sort_values(by="time", inplace=True)
+    dts = pd.to_datetime(start_datetime) + pd.to_timedelta(drnvol_obs.time, unit="d")
+    fig, ax = plt.subplots(1, 1)
+    for idx in obspop[drnvol_obs.obsnme.tolist()].index:
+        plt.plot(dts, obspop[drnvol_obs.obsnme.tolist()].loc[idx, :].values,
+                 marker=".", ls="None", alpha=0.5)  # , label=idx)
+    ax.set_xlabel("Date", fontsize=fs)
+    ax.set_ylabel("Volume deficit to the GDE (voldeltsum) (m3)", fontsize=fs)
+    ax.grid(lw=0.2)
+    # ax.legend(bbox_to_anchor=(0.5, 1))
+    ax.set_title(f"Generation {gen}", loc="left", fontsize=fs)
+    ax.xaxis.set_minor_locator(mdates.YearLocator())
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_mou, f"gen{gen}_voldeltsum.png"), dpi=300)
+    plt.close(fig)
+
+    # ------ CAPEX costs (/!\ NOT PV)
+
+    # costs_obs = obs.loc[obs.apply(lambda x: "cost" in x.obsnme, axis=1), :].copy()
+    cpx_obs = obs.loc[obs.apply(lambda x: "cpx_date" in x.obsnme, axis=1), :].copy()
+    cpx_obs["time"] = cpx_obs.time.astype(float)
+    cpx_obs.sort_values(by="time", inplace=True)
+    cpx_obs = cpx_obs.iloc[:-1]
+    dts = pd.to_datetime(start_datetime) + pd.to_timedelta(cpx_obs.time, unit="d")
+    fig, ax = plt.subplots(1, 1)
+    for idx in obspop[cpx_obs.obsnme.tolist()].index:
+        plt.plot(dts, obspop[cpx_obs.obsnme.tolist()].loc[idx, :].values,
+                 marker=".", ls="None", alpha=0.5)  # , label=idx)
+    ax.set_xlabel("Date", fontsize=fs)
+    ax.set_ylabel("Capex (USD)", fontsize=fs)
+    ax.grid(lw=0.2)
+    # ax.legend(bbox_to_anchor=(0.5, 1))
+    ax.set_title(f"Generation {gen}", loc="left", fontsize=fs)
+    ax.xaxis.set_minor_locator(mdates.YearLocator())
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_mou, f"gen{gen}_capex.png"), dpi=300)
+    plt.close(fig)
+
+    # ------ OPEX costs (/!\ NOT PV)
+
+    opx_obs = obs.loc[obs.apply(lambda x: "opx_date" in x.obsnme, axis=1), :].copy()
+    opx_obs["time"] = opx_obs.time.astype(float)
+    opx_obs.sort_values(by="time", inplace=True)
+    opx_obs = opx_obs.iloc[:-1]
+    dts = pd.to_datetime(start_datetime) + pd.to_timedelta(opx_obs.time, unit="d")
+    fig, ax = plt.subplots(1, 1)
+    for idx in obspop[opx_obs.obsnme.tolist()].index:
+        plt.plot(dts, obspop[opx_obs.obsnme.tolist()].loc[idx, :].values,
+                 marker=".", ls="None", alpha=0.5)  # , label=idx)
+    ax.set_xlabel("Date", fontsize=fs)
+    ax.set_ylabel("Opex (USD)", fontsize=fs)
+    ax.grid(lw=0.2)
+    # ax.legend(bbox_to_anchor=(0.5, 1))
+    ax.set_title(f"Generation {gen}", loc="left", fontsize=fs)
+    ax.xaxis.set_minor_locator(mdates.YearLocator())
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_mou, f"gen{gen}_opex.png"), dpi=300)
+    plt.close(fig)
+
+    # ------ total PV costs
+
+    # costs_obs = obs.loc[obs.apply(lambda x: "total_date" in x.obsnme, axis=1), :].copy()
+    pvcosts_obs = obs.loc[obs.apply(lambda x: "total_pv_date" in x.obsnme, axis=1), :].copy()
+    pvcosts_obs["time"] = pvcosts_obs.time.astype(float)
+    pvcosts_obs.sort_values(by="time", inplace=True)
+    pvcosts_obs = pvcosts_obs.iloc[:-1]
+    dts = pd.to_datetime(start_datetime) + pd.to_timedelta(pvcosts_obs.time, unit="d")
+    fig, ax = plt.subplots(1, 1)
+    for idx in obspop[pvcosts_obs.obsnme.tolist()].index:
+        plt.plot(dts, obspop[pvcosts_obs.obsnme.tolist()].loc[idx, :].values,
+                 marker=".", ls="None", alpha=0.5)  # , label=idx)
+    ax.set_xlabel("Date", fontsize=fs)
+    ax.set_ylabel("Total present value costs (USD)", fontsize=fs)
+    ax.grid(lw=0.2)
+    # ax.legend(bbox_to_anchor=(0.5, 1))
+    ax.set_title(f"Generation {gen}", loc="left", fontsize=fs)
+    ax.xaxis.set_minor_locator(mdates.YearLocator())
+    plt.tight_layout()
+    plt.savefig(os.path.join(m_d_mou, f"gen{gen}_total_pv.png"), dpi=300)
+    plt.close(fig)
+
+def condor_submit(template_ws,pstfile,conda_zip='geopy38.tar.gz',subfile='condor.sub',workerfile='worker.sh',
+                  executables=[],request_memory=4000,request_disk='10g',port=4200,num_workers=71, pestpp='ies'):
+    """
+    :param template_ws: path to template_ws
+    :param pstfile: name of pest control file
+    :param conda_zip: conda-pack zip file
+    :param subfile: condor submit file name
+    :param workerfile: condor worker file name
+    :param executables: any executables in the template_ws that might need permissions changed
+    :param request_memory: memory to request for each job
+    :param request_disk: disk space
+    :param port: port number, should be same as the one used when running the master
+    :param num_workers: number of workers to start
+    :return:
+    """
+    # template_ws = os.path.join('model_ws', 'template')
+
+
+    if not os.path.join(conda_zip):
+        str = f'conda-pack dir {conda_zip} does not exist\n ' + f'consider running conda-pack while in your conda env\n'
+        AssertionError(str)
+    conda_base = conda_zip.replace(".tar.gz","")
+
+    # should probably remove to remove tmp files to make copying faster...
+
+    cwd = os.getcwd()
+    if os.path.exists(os.path.join(cwd,'temp')):
+        shutil.rmtree(os.path.join(cwd,'temp'))
+    shutil.copytree(os.path.join(cwd,template_ws),'temp')
+
+    # zip template_ws
+    os.system(f'tar cfvz temp.tar.gz temp')
+
+    if not os.path.exists('log'):
+        os.makedirs('log')
+
+
+    # write worker file
+    worker_f = open(os.path.join(cwd,workerfile),'w')
+    worker_lines = ['#!/bin/sh\n',
+                    '\n',
+                    '# make conda-pack dir\n',
+                    f'mkdir {conda_base}\n',
+                    f'tar -xf {conda_zip} -C {conda_base}\n',
+                    '\n',
+                    '# unzip temp\n',
+                    'tar xzf temp.tar.gz\n',
+                    'cd temp\n',
+                    '\n',
+                    '# add python to path (relative)\n',
+                    f'export PATH=../{conda_base}/bin:$PATH\n',
+                    f'source ../{conda_base}/bin/activate\n'
+                    'python -c "print(\'python is working\')"\n',
+                    'which python',
+                    '\n']
+
+    if len(executables) > 0:
+        worker_lines += ['# make sure executables have permissions\n'] + [f'chmod +x {exe}\n' for exe in executables]
+
+    worker_lines += ['\n',
+                     f'./pestpp-{pestpp} {pstfile} /h $1:$2\n']
+
+    worker_f.writelines(worker_lines)
+    worker_f.close()
+
+    sub_f = open(os.path.join(cwd,subfile),'w')
+    sublines = ['# never ever change this!\n',
+                'notification = Never\n',
+                '\n',
+                "# just plain'ole vanilla for us!\n",
+                'universe = vanilla\n',
+                '\n',
+                '# this will log all the worker stdout and stderr - make sure to mkdir a "./log" dir where ever\n',
+                '# the condor_submit command is issued\n',
+                'log = log/worker_$(Cluster).log\n',
+                'output = log/worker_$(Cluster)_$(Process).out\n',
+                'error = log/worker_$(Cluster)_$(Process).err\n',
+                '\n', '# define what system is required\n',
+                'requirements = ( (OpSys == "LINUX") && (Arch == "X86_64"))\n',
+                '# how much mem each worker needs in mb\n',
+                f'request_memory = {request_memory}\n',
+                '\n',
+                '# how many cpus per worker\n',
+                'request_cpus = 1\n',
+                '\n',
+                '# how much disk space each worker needs in gb (append a "g")\n',
+                f'request_disk = {request_disk}\n',
+                '\n',
+                '# the command to execute remotely on the worker hosts to start the condor "job"\n',
+                f'executable = {workerfile}\n',
+                '\n',
+                '# the command line args to pass to worker.sh.  These are the 0) IP address/UNC name of the master host\n',
+                '# and 1) the port number for pest comms.  These must in that order as they are used in worker.sh\n',
+                '# ausdata-head1.cluster or 10.99.10.30 \n',
+                f'arguments = ausdata-head1.cluster {port}\n',
+                '\n',
+                '# stream the info back to the log files\n',
+                'stream_output = True\n',
+                'stream_error = True\n',
+                '\n',
+                '# transfer the files to start the job\n',
+                'should_transfer_files = YES\n',
+                'when_to_transfer_output = ON_EXIT\n',
+                '\n',
+                '# the files to transfer before starting the job (in addition to the executable command file)\n',
+                f'transfer_input_files = temp.tar.gz, {conda_zip}\n',
+                '\n',
+                '# number of workers to start\n',
+                f'queue {num_workers}']
+    sub_f.writelines(sublines)
+    sub_f.close()
+
+    os.system(f'condor_submit {subfile} > condor_jobID.txt')
+
+    jobfn = open('condor_jobID.txt')
+    lines = jobfn.readlines()
+    jobfn.close()
+    jobid = lines[1].split()[-1].replace('.','')
+    print(f'{num_workers} job(s) submitted to cluster {jobid}.')
+
+    return int(jobid)
+
+def make_naive_run(org_t_d,new_t_d,m_d_post=None):
+    if os.path.exists(new_t_d):
+        shutil.rmtree(new_t_d)
+    shutil.copytree(org_t_d,new_t_d)
+
+    pst = pyemu.Pst(os.path.join(new_t_d,"pest.pst"))
+    par = pst.parameter_data
+    par["pname"] = par.pname.astype(str)
+    dpar = par.loc[par.pname.str.startswith("dewater"),:]
+    assert dpar.shape[0] > 0
+    par.loc[dpar.parnme,"parval1"] = dewater_rate
+    mpar = par.loc[par.pname.str.startswith("mar"),:]
+    assert mpar.shape[0] > 0
+    par.loc[mpar.parnme,"parval1"] = mar_rate
+    pt_oe = None
+    if m_d_post is not None:
+        phidf = pd.read_csv(os.path.join(m_d_post,"pest.phi.actual.csv"))
+        mxiter = phidf.iteration.max()
+        pe_file = os.path.join(m_d_post,"pest.{0}.par.csv".format(mxiter))
+        assert os.path.exists(pe_file)
+        shutil.copy2(pe_file,os.path.join(new_t_d,"post.csv"))
+        pe = pd.read_csv(os.path.join(new_t_d,"post.csv"),index_col=0)
+        pe.loc[:,dpar.parnme] = dewater_rate
+        pe.loc[:,mpar.parnme] = mar_rate
+        pe.to_csv(os.path.join(new_t_d,"post.csv"))
+        pst.pestpp_options["ies_parameter_ensemble"] = "post.csv"
+        pst.control_data.noptmax = -1
+        pst.write(os.path.join(new_t_d,"pest.pst"),version=2)
+        m_d_niave = new_t_d.replace("template","master")
+
+        pyemu.os_utils.start_workers(new_t_d,"pestpp-ies","pest.pst",master_dir=m_d_niave,num_workers=10,worker_root=".")
+
+        pt_oe = pyemu.ObservationEnsemble.from_binary(pst=pst,filename=os.path.join(m_d_niave,"pest.0.obs.jcb"))._df
+        
+    pst.control_data.noptmax = 0
+    pst.write(os.path.join(new_t_d,"pest.pst"))
+    pyemu.os_utils.run("pestpp-ies pest.pst",cwd=new_t_d)
+    #plot_budget(new_t_d)
+    #plot_constraints(new_t_d)
+    #plot_hds(new_t_d)
+    pst.set_res(os.path.join(new_t_d,"pest.base.rei"))
+    return pst.res,pt_oe
+
+def make_model_domain_with_truth(m_d_prior,t_d_post):
+    pst = pyemu.Pst(os.path.join(m_d_prior,"truth.pst"))
+    pst.control_data.noptmax = 0
+    pst.write(os.path.join(m_d_prior,"truth.pst"))
+    pyemu.os_utils.run("pestpp-ies truth.pst",cwd=m_d_prior)
+    pst = pyemu.Pst(os.path.join(t_d_post,"pest.pst"))
+
+    obs = pst.observation_data
+    nzobs = obs.loc[obs.weight>0,:].copy()
+    nzobs = nzobs.loc[nzobs.otype=="arr",:]
+    assert nzobs.shape[0] > 0
+    nzobs["i"] = nzobs.i.astype(int)
+    nzobs["j"] = nzobs.j.astype(int)
+
+    
+    print(nzobs)
+    sim = flopy.mf6.MFSimulation.load(sim_ws=m_d_prior)
+    gwf = sim.get_model()
+    mg = gwf.modelgrid
+    nzobs["x"] = nzobs.apply(lambda x: mg.xcellcenters[x.i,x.j],axis=1)
+    nzobs["y"] = nzobs.apply(lambda x: mg.ycellcenters[x.i,x.j],axis=1)
+    
+    pitcells = specify_pit_cells(gwf)
+    plot_setup(m_d_prior,gwf,pitcells,show_hk=True,gw_level_locs=nzobs)
+
+
+def prep_mar_well_mover(ws):
+    mardf = pd.read_csv(os.path.join(ws,"mar.wel_stress_period_data_2.txt"),header=None,names=["l","r","c","name","bname"],sep='\\s+')
+    dewaterdf = pd.read_csv(os.path.join(ws,"dewater.wel_stress_period_data_2.txt"),header=None,names=["l","r","c","name","bname"],sep='\\s+')
+    mardf.to_csv(os.path.join(ws,"marj_org_data.csv"))
+    print(mardf)
+    assert mardf.c.std() == 0
+    
+    
+    curjs = mardf.c.values - 1
+    assert curjs[0] > 0
+    names = mardf.name.values
+
+    with open(os.path.join(ws,"marj.txt.tpl"),'w') as f:
+        f.write("ptf ~\n")
+        for name,curj in zip(names,curjs):
+            f.write(" ~ marj-{0}  ~\n".format(name))
+    with open(os.path.join(ws,"marj.txt"),'w') as f:
+        #f.write("{0}\n".format(float(curj)))
+        for name,curj in zip(names,curjs):
+            f.write(" {0}\n".format(float(curj)))
+    apply_mar_well_mover(ws)
+    return curj, 0, dewaterdf.c.min() - 1
+
+def apply_mar_well_mover(ws="."):
+    marj = int(float(open(os.path.join(ws,"marj.txt"),'r').readlines()[0].strip()))
+    marj = max(marj,0)
+    #mardf = pd.read_csv(os.path.join(ws,"mar.wel_stress_period_data_2.txt"),header=None,names=["l","r","c","name","bname"],sep='\\s+')
+    mardf = pd.read_csv(os.path.join(ws,"marj_org_data.csv"),index_col=0)
+    mardf["c"] = marj + 1
+    mardf.to_csv(os.path.join(ws,"mar.wel_stress_period_data_2.txt"),sep=" ",header=False,index=False,quotechar=" ")
+    
+
+if __name__ == "__main__":
+
+
+    build_mf6 = True
+    build_pst = True
+    prior_and_truth = False
+    history_matching = False
+    optimization = False
+    plots_sme = False # makes final plots for the SME paper
+    local = False
+
+
+    num_workers = 70
+    num_reals_pr = 500
+    num_reals_ies = 200
+    stack_size = 100
+    num_indiv = 350
+    noptmax_ies = 4
+    noptmax_mou = 200
+    recalc_every = 1000
+
+    drn_obj = True #treat GDE flux as an obj or a constraint
+    use_mar_hmax_constraints = True # include mar water table rise constraints
+    chance_points = "all"
+    use_schedules = False
+    use_condor=False
+
+    
+    model_ws = "model"
+    exp_tag = "_mdv7"
+
+    t_d = "pst_template"+exp_tag
+    t_d_prior = "pst_template_prior"+exp_tag
+    t_d_post = "pst_template_post"+exp_tag
+    t_d_mou = "pst_template_mou"+exp_tag
+
+    m_d_post = "master_ies"+exp_tag
+    m_d_prior = "master_priormc"+exp_tag
+
+    m_d_mou_neutral = None#"master_mou_prbase"+exp_tag
+    m_d_mou_truth = "master_mou_truth"+exp_tag
+    m_d_mou_base = "master_mou_ptbase"+exp_tag
+
+    # which iteration par ensemble to use as the stack - if None, noptmax_ies is used 
+    noptmax_pt = None
+
+    m_d_mou_risk_pt = "master_mou_riskobjpt{0}".format(exp_tag)
+    m_d_mou_risk_pr = "master_mou_riskobjpr{0}".format(exp_tag)
+
+    #if not use_condor:
+    #    matplotlib.use('Qt5Agg') # cc need this for pycharm
+
+    if build_mf6:
+        sim,gwf = build_model(model_ws)
+        prepare_timeseries_preprocessor(model_ws)
+        timeseries_preprocessor(model_ws)
+        run_mf6(model_ws)
+        plot_budget(model_ws)
+        plot_constraints(model_ws)
+        plot_hds(model_ws)
+
+    if build_pst:
+        pf = pstfrom(model_ws,t_d,num_reals=num_reals_pr)
+
+    if local is not False:
+        deploy_pestpp(None, noptmax=-1, num_workers=num_workers, template_ws=t_d,local=local)
+
+    if prior_and_truth:
+        setup_ies(t_d, t_d_prior)
+        deploy_pestpp(m_d_prior, noptmax=-1, num_workers=num_workers, template_ws=t_d_prior, freeze_on_fail=False,
+                      condor=use_condor,save_binary=False,num_reals=num_reals_pr)
+        pick_truth(t_d_prior, t_d_post, m_d_prior, t_d)
+        set_weights(t_d_post)
+        make_model_domain_with_truth(m_d_prior,t_d_post)
+
+    if history_matching:
+        # todo: check that truth exists and that obsvals have been set
+        deploy_pestpp(m_d_post,template_ws=t_d_post,noptmax=noptmax_ies,num_workers=num_workers,
+                      condor=use_condor,save_binary=False,num_reals=num_reals_ies)
+        plot_ies_results(m_d_post)
+
+    if optimization:
+        
+        # deterministic opt on prior base par vals = maximum prior estimate
+        if m_d_mou_neutral is not None:
+            
+            t_d_mou = setup_mou(t_d,t_d_mou,m_d_post=None, num_reals=None,num_indiv=num_indiv,risk_obj=False,
+                           risk=0.5,noptmax=noptmax_mou,drn_obj=drn_obj,chance_points=chance_points,
+                                use_mar_hmax_constraints=use_mar_hmax_constraints,use_schedules=use_schedules)
+       
+            deploy_pestpp(m_d_mou_neutral, noptmax=noptmax_mou, pestpp="mou", template_ws=t_d_mou, num_workers=num_workers, num_reals=None,
+                          freeze_on_fail=False,condor=use_condor)
+            plot_mou_phi(m_d_mou_neutral)
+
+        # deterministic opt on posterior base par vals = maximum posterior estimate
+        if m_d_mou_base is not None:
+            t_d_mou = setup_mou(t_d,t_d_mou,m_d_post=m_d_post, num_reals=None,num_indiv=num_indiv,risk_obj=False,
+                           risk=0.5,noptmax=noptmax_mou,drn_obj=drn_obj,chance_points=chance_points,use_truth="base",
+                                use_mar_hmax_constraints=use_mar_hmax_constraints,use_schedules=use_schedules)
+            
+            deploy_pestpp(m_d_mou_base, noptmax=noptmax_mou, pestpp="mou", template_ws=t_d_mou, num_workers=num_workers, num_reals=None,
+                          freeze_on_fail=False,condor=use_condor)
+            plot_mou_phi(m_d_mou_base)
+
+        # deterministic opt on truth par vals = perfect knowledge
+        if m_d_mou_truth is not None:
+            t_d_mou = setup_mou(t_d,t_d_mou,m_d_post=m_d_post, num_reals=None,num_indiv=num_indiv,risk_obj=False,
+                           risk=0.5,noptmax=noptmax_mou,drn_obj=drn_obj,chance_points=chance_points,use_truth=True,
+                                use_mar_hmax_constraints=use_mar_hmax_constraints,use_schedules=use_schedules)
+           
+            deploy_pestpp(m_d_mou_truth, noptmax=noptmax_mou, pestpp="mou", template_ws=t_d_mou, num_workers=num_workers, num_reals=None,
+                          freeze_on_fail=False,condor=use_condor)
+            plot_mou_phi(m_d_mou_truth)
+
+        # reliability-based opt with posterior stack
+        if m_d_mou_risk_pt is not None:
+            t_d_mou = setup_mou(t_d, t_d_mou, m_d_post=m_d_post, num_reals=stack_size, num_indiv=num_indiv, risk_obj=True,
+                                risk=0.95, noptmax=noptmax_mou, drn_obj=drn_obj, chance_points=chance_points,noptmax_pt=None,#todo use_truth="base",?
+                                use_mar_hmax_constraints=use_mar_hmax_constraints,recalc_every=recalc_every,use_schedules=use_schedules)
+        
+            deploy_pestpp(m_d_mou_risk_pt, noptmax=noptmax_mou, pestpp="mou", template_ws=t_d_mou, num_workers=num_workers,
+                          num_reals=None,condor=use_condor,save_binary=True,
+                          freeze_on_fail=False)
+            plot_mou_phi(m_d_mou_risk_pt)
+            #plot_mou_dvars(m_d_mou=m_d_mou_risk_pt)
+            plot_mou_cons(m_d_mou=m_d_mou_risk_pt)
+
+
+        # reliability-based opt with prior stack
+        if m_d_mou_risk_pr is not None:
+            t_d_mou = setup_mou(t_d, t_d_mou, m_d_post=m_d_post, num_reals=stack_size, num_indiv=num_indiv, risk_obj=True,
+                                risk=0.95, noptmax=noptmax_mou, drn_obj=drn_obj, chance_points=chance_points,noptmax_pt=0,
+                                use_mar_hmax_constraints=use_mar_hmax_constraints,recalc_every=recalc_every,use_schedules=use_schedules)
+        
+            deploy_pestpp(m_d_mou_risk_pr, noptmax=noptmax_mou, pestpp="mou", template_ws=t_d_mou, num_workers=num_workers,
+                          num_reals=None,condor=use_condor,save_binary=True,
+                          freeze_on_fail=False)
+            plot_mou_phi(m_d_mou_risk_pr)
+            #plot_mou_dvars(m_d_mou=m_d_mou_risk_pr)
+            plot_mou_cons(m_d_mou=m_d_mou_risk_pr)
+            # interactive_3dplot(m_d_mou)
+
+    if plots_sme:
+
+        fs = 9
+        plt.rc('font', family='sans-serif', size=fs)
+
+        m_ds = [m_d_mou_truth,m_d_mou_neutral,m_d_mou_base,m_d_mou_risk_pt,m_d_mou_risk_pr]
+        #m_ds = [m_d_mou_neutral,m_d_mou_base,m_d_mou_risk_pt,m_d_mou_risk_pr]
+        m_ds = [m_d for m_d in m_ds if m_d is not None]
+
+        m_d_labels = {m_d_mou_truth: "perfect knowledge",
+                      m_d_mou_neutral: "uncalibrated model",
+                      m_d_mou_base: "calibrated model",
+                      m_d_mou_risk_pt: "calibration-constrained highly-reliable",
+                      m_d_mou_risk_pr: "uncalibrated highly-reliable"}
+                      
+        
+        #this makes sure the naive solution uses the base realization:
+        t_d_mou = setup_mou(t_d,t_d_mou,m_d_post=m_d_post, num_reals=stack_size,num_indiv=num_indiv,risk_obj=False,
+                         risk=0.5,noptmax=1,drn_obj=drn_obj,chance_points=chance_points,use_truth="base",
+                              use_mar_hmax_constraints=use_mar_hmax_constraints)
+        base_res,pt_oe = make_naive_run(t_d_mou,t_d_mou+"_naive",m_d_post=m_d_post)
+        if pt_oe is not None and pt_oe.shape[0] > stack_size:
+            pt_oe = pt_oe.iloc[:stack_size,:]
+        make_model_domain_with_truth(m_d_prior,t_d_post)
+        mou_summary_plots(m_ds,m_d_labels,base_res=base_res,result_specific_tweaks=True,pt_oe=pt_oe)
+
+
+

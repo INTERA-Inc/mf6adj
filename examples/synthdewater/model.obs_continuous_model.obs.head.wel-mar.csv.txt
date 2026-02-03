@@ -1,0 +1,10 @@
+  hdsmar_i:5_j:22  HEAD  1 6 23
+  hdsmar_i:15_j:22  HEAD  1 16 23
+  hdsmar_i:25_j:22  HEAD  1 26 23
+  hdsmar_i:35_j:22  HEAD  1 36 23
+  hdsmar_i:45_j:22  HEAD  1 46 23
+  hdsmar_i:55_j:22  HEAD  1 56 23
+  hdsmar_i:65_j:22  HEAD  1 66 23
+  hdsmar_i:75_j:22  HEAD  1 76 23
+  hdsmar_i:85_j:22  HEAD  1 86 23
+  hdsmar_i:95_j:22  HEAD  1 96 23

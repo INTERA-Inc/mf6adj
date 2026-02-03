@@ -354,6 +354,7 @@ class PerfMeas(object):
         top = hdf["gwf_info"]["top"][:]
         bot = hdf["gwf_info"]["bot"][:]
         icelltype = hdf["gwf_info"]["icelltype"][:]
+        ihighcellsat = hdf["gwf_info"]["ihighcellsat"][0]
 
         comp_k33_sens = np.zeros(nnodes)
         comp_k_sens = np.zeros(nnodes)
@@ -582,6 +583,7 @@ class PerfMeas(object):
             self.logger.debug("forming lam_dresdk_h")
             k_sens, k33_sens = PerfMeas.lam_dresdk_h(
                 is_newton,
+                ihighcellsat,
                 lamb,
                 hdf[sol_key]["sat"][:],
                 head,
@@ -897,13 +899,26 @@ class PerfMeas(object):
         return d_s_sat_dh
 
     @staticmethod
-    def _smooth_sat(sat1, sat2, h1, h2):
+    def _cell_sat(top, bot, h):
+        if h > top:
+            sat = 1.0
+        elif h < bot:
+            sat = 0.0
+        else:
+            sat = (h - bot) / (top - bot)
+        return sat
+
+    @staticmethod
+    def _smooth_sat(ihighcellsat, top1, top2, bot1, bot2, h1, h2):
         """Private method for upstream smoothing
 
         Parameters
         ----------
-        sat1 (float) : saturation of node 1
-        sat2 (float) : saturation of node 2
+        ihighcellsat (int) : flag for using highest cell bottom to calculate saturation
+        top1 (float) : top of node 1
+        top2 (float) : top of node 2
+        bot1 (float) : bottom of node 1
+        bot2 (float) : bottom of node 2
         h1 (float) : head of node 1
         h2 (float) : head of node 2
 
@@ -912,11 +927,21 @@ class PerfMeas(object):
         value (float) smoothed saturation of the upstream node
 
         """
-        if h1 >= h2:
-            value = PerfMeas.smooth_sat(sat1)
+        bot = None
+        if ihighcellsat != 0:
+            if (abs(bot1) - abs(bot2)) > 1e-2:
+                bot = max(bot1, bot2)
+        if h1 > h2:
+            if bot is None:
+                sat = PerfMeas._cell_sat(top1, bot1, h1)
+            else:
+                sat = PerfMeas._cell_sat(top1, bot, h1)
         else:
-            value = PerfMeas.smooth_sat(sat2)
-        return value
+            if bot is None:
+                sat = PerfMeas._cell_sat(top2, bot2, h2)
+            else:
+                sat = PerfMeas._cell_sat(top2, bot, h2)
+        return PerfMeas.smooth_sat(sat)
 
     @staticmethod
     def _d_smooth_sat_dh(sat, h1, h2, top, bot):
@@ -944,6 +969,7 @@ class PerfMeas(object):
     @staticmethod
     def lam_dresdk_h(
         is_newton,
+        ihighcellsat,
         lamb,
         sat,
         head,
@@ -965,6 +991,7 @@ class PerfMeas(object):
         Parameters
         ----------
         is_newton (bool) : flag for newton solution
+        ihighcellsat (int) : flag for using highest cell bottom to calculate saturation
         lamb (ndarray) : adjoint state array
         sat (ndarray) : saturation array
         head (ndarray) : head array
@@ -1029,6 +1056,7 @@ class PerfMeas(object):
                     sum1 += t2
 
                 else:
+                    # TODO: check if one cell is convertible (??is this required??)
                     if is_newton:
                         dconddk = PerfMeas._dconddhk(
                             k11[node],
@@ -1040,7 +1068,13 @@ class PerfMeas(object):
                             height2,
                         )
                         SF = PerfMeas._smooth_sat(
-                            sat_mod[node], sat_mod[mnode], head[node], head[mnode]
+                            ihighcellsat,
+                            top[node],
+                            top[mnode],
+                            bot[node],
+                            bot[mnode],
+                            head[node],
+                            head[mnode],
                         )
 
                     else:

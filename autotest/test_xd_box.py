@@ -1416,7 +1416,7 @@ def test_xd_box_chd_ana():
         mx = np.nanmax(np.abs(diff))
         assert mx < 0.04
         
-        fig,axes = plt.subplots(1,2,figsize=(8.5,3))
+        _, axes = plt.subplots(1,2,figsize=(8.5,3))
         cb = axes[0].pcolormesh(X,Y,arrana,vmin=vmin,vmax=vmax)
         plt.colorbar(cb,ax=axes[0],label="adjoint state")
         axes[0].contour(X,Y,arrana,vmin=vmin,vmax=vmax,levels=levels,

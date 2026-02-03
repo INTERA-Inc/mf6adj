@@ -7,6 +7,12 @@
 
 `mamba env create -f environment.yml`
 
+Activate the environment and add the MODFLOW6 executables to the mamba environment bin with the following:
+
+`mamba activate mf6adj`
+
+`get-modflow --subset mf6,libmf6,gridgen :python`
+
 ## Examples
 
 Several notebooks are provide that demonstrate how to use `mf6adj`

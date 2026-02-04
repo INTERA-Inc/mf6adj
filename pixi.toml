@@ -32,15 +32,21 @@ pytest-order = "*"
 pytest-xdist = "*"
 python = "3.10.*"
 requests = "*"
-ruff = "*"
 scipy = "*"
 shapely = "*"
+
+# pre-commit tools
+pre-commit = "*"
+nbstripout = "*"
+ruff = "*"
+jupyterlab_code_formatter = "*"
 
 [pypi-dependencies]
 modflow-devtools = { git = "https://github.com/MODFLOW-ORG/modflow-devtools.git", extras = ["dfn"] }
 hatch-fancy-pypi-readme = "*"
 
 [tasks]
+pre-commit-install = { cmd = "pre-commit install" }
 postinstall = "pip install --no-build-isolation --no-deps --disable-pip-version-check -e ."
 
 # jupyter
@@ -50,6 +56,7 @@ jupyter = { cmd = "jupyter lab" }
 update-flopy = { cmd = "python -m flopy.mf6.utils.generate_classes --ref develop" }
 
 # format
+format = { cmd = "pre-commit run --all-files" }
 check-lint = "ruff check ."
 check-format = "ruff format . --check"
 check-spelling = "codespell"

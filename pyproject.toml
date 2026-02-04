@@ -42,6 +42,7 @@ dev = ["mf6adj[lint,test,doc]"]
 lint = ["codespell[toml] >=2.2.2", "ruff"]
 test = [
     "mf6adj[lint]",
+    "filelock",
     "jupyter",
     "jupyter_client >=8.4.0", # avoid datetime.utcnow() deprecation warning
     "nbmake",

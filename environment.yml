@@ -4,6 +4,7 @@ channels:
   - nodefaults
 dependencies:
   - python=3.10
+  - filelock
   - scipy
   - numpy>=2.0
   - matplotlib

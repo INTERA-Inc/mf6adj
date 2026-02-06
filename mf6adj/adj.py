@@ -55,9 +55,9 @@ class Mf6Adj(object):
         if not os.path.exists(adj_filename):
             raise Exception(f"adj_filename '{adj_filename}' not found")
         self.adj_filename = adj_filename
-        self.logger = logging.getLogger(logging.__name__ + ".Mf6Adj")
+        self.logger = logging.getLogger(f"{logging.__name__}.Mf6Adj.{id(self)}")
         logging.basicConfig(
-            filename=adj_filename + ".log",
+            filename=f"{adj_filename}.log",
             filemode="w",
             format="%(asctime)s %(levelname)s %(message)s",
             level=self.logging_level,

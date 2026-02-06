@@ -1,5 +1,7 @@
+import atexit
 import logging
 import os
+import pathlib as pl
 import shutil
 from collections.abc import Callable
 from datetime import datetime
@@ -34,6 +36,7 @@ class Mf6Adj(object):
         adj_filename: str,
         lib_name: str,
         logging_level: Union[int, str] = "INFO",
+        ws: str = ".",
     ):
         """ """
         if isinstance(logging_level, str):
@@ -55,6 +58,13 @@ class Mf6Adj(object):
         if not os.path.exists(adj_filename):
             raise Exception(f"adj_filename '{adj_filename}' not found")
         self.adj_filename = adj_filename
+
+        self.ws = pl.Path(ws)
+        self.pwd = pl.Path(os.getcwd())
+        if self.ws != self.pwd:
+            os.chdir(self.ws)
+
+        # setup logger
         self.logger = logging.getLogger(f"{logging.__name__}.Mf6Adj.{id(self)}")
         logging.basicConfig(
             filename=f"{adj_filename}.log",
@@ -1330,6 +1340,10 @@ class Mf6Adj(object):
             handler.flush()
             handler.close()
             self.logger.removeHandler(handler)
+
+        # return to starting directory
+        if self.ws != self.pwd:
+            os.chdir(self.pwd)
 
     def _perturbation_test(self, pert_mult: float = 1.01):
         """run the perturbation testing - this is for dev and testing only"""

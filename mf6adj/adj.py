@@ -1324,8 +1324,12 @@ class Mf6Adj(object):
             print(f"{e}\n\nCould not execute finalize()")
         self._gwf = None
 
-        # shut down the logger
-        logging.shutdown()
+        # flush and close logger handlers
+        handlers = list(self.logger.handlers)
+        for handler in handlers:
+            handler.flush()
+            handler.close()
+            self.logger.removeHandler(handler)
 
     def _perturbation_test(self, pert_mult: float = 1.01):
         """run the perturbation testing - this is for dev and testing only"""

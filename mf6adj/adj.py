@@ -26,8 +26,7 @@ class Mf6Adj(object):
     adj_filename (str): the adjoint input filename
     lib_name (str): the MODFLOW6 shared library file
     logging_level (str, int) : logging levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-
-
+    ws (str) : workspace
 
     """
 

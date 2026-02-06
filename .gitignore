@@ -136,5 +136,8 @@ examples/ex-gwf-zaidel/
 examples/freyberg/
 examples/sanpedro/
 examples/xd_box_chd_ana_working
+examples/synthdewater_working
 autotest/*_test*/
 .figures/
+
+.temp/

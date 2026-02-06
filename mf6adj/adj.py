@@ -613,7 +613,8 @@ class Mf6Adj(object):
                     )
             else:
                 raise Exception(
-                    f"unrecognized data_dict entry: {tag},type:{type(item)}"
+                    "Mf6Adj::write_group_to_hdf: unrecognized data_dict entry: "
+                    + f"{tag}, type: {type(item)}"
                 )
 
     def _open_hdf(self, tag: str):
@@ -703,6 +704,8 @@ class Mf6Adj(object):
             data_dict["iconvert"] = iconvert
             storage = PerfMeas.get_ptr_from_gwf(gwf_name, "STO", "SS", gwf)
             data_dict["storage"] = storage
+            sy = PerfMeas.get_ptr_from_gwf(gwf_name, "STO", "SY", gwf)
+            data_dict["sy"] = sy
         nodeuser = PerfMeas.get_ptr_from_gwf(gwf_name, dis_pak, "NODEUSER", gwf) - 1
         data_dict["nodeuser"] = nodeuser
         nodereduced = (
@@ -785,7 +788,12 @@ class Mf6Adj(object):
         return result
 
     @staticmethod
-    def drhsdh(gwf_name: str, gwf, dt: float):
+    def drhsdh(
+        gwf_name: str,
+        gwf,
+        dt: float,
+        sat_old: np.ndarray,
+    ):
         """partial of the RHS WRT H
 
         Parameters
@@ -793,17 +801,31 @@ class Mf6Adj(object):
         gwf_name (str) : name of the GWF model
         gwf (MODFLOW6 API) : the API instance
         dt (float) : length of the current solution step in model time
+        sat_old (ndarray) : saturation from the last solve
 
         Returns
         -------
         drhsdh (ndarray) : drhsdh
 
         """
+        area = PerfMeas.get_ptr_from_gwf(gwf_name, "DIS", "AREA", gwf)
+
+        # specific storage
         top = PerfMeas.get_ptr_from_gwf(gwf_name, "DIS", "TOP", gwf)
         bot = PerfMeas.get_ptr_from_gwf(gwf_name, "DIS", "BOT", gwf)
-        area = PerfMeas.get_ptr_from_gwf(gwf_name, "DIS", "AREA", gwf)
         storage = PerfMeas.get_ptr_from_gwf(gwf_name, "STO", "SS", gwf)
-        drhsdh = -1.0 * storage * area * (top - bot) / dt
+
+        # specific yield
+        iconvert = PerfMeas.get_ptr_from_gwf(gwf_name, "STO", "ICONVERT", gwf)
+        sy = PerfMeas.get_ptr_from_gwf(gwf_name, "STO", "SY", gwf)
+        sat_old_mod = sat_old.copy()
+        sat_old_mod[iconvert == 0] = 1.0
+        sy_mod = sy.copy()
+        sy_mod[sat_old_mod == 1.0] = 0.0
+
+        # calculate drhsdh
+        drhsdh = -1.0 * area * (storage * (top - bot) + sy_mod) / dt
+
         return drhsdh
 
     def solve_gwf(
@@ -1052,7 +1074,7 @@ class Mf6Adj(object):
                     self._gwf_name, self._gwf, head, head_old, dt1, sat, sat_old
                 )
                 data_dict["dresdss_h"] = dresdss_h
-                drhsdh = Mf6Adj.drhsdh(self._gwf_name, self._gwf, dt1)
+                drhsdh = Mf6Adj.drhsdh(self._gwf_name, self._gwf, dt1, sat_old)
                 data_dict["drhsdh"] = drhsdh
             else:
                 data_dict["drhsdh"] = np.zeros_like(sat_old)
@@ -1207,6 +1229,8 @@ class Mf6Adj(object):
         linear_solver_kwargs: dict = {},
         use_precon: bool = True,
         precon_kwargs: dict = {},
+        singular_test: bool = False,
+        tikhonov: float = 0.0,
     ):
         """Solve for the adjoint state, one performance measure at at time
 
@@ -1224,6 +1248,14 @@ class Mf6Adj(object):
             linear solver.
         precon_kwargs (dict): dictionary of keyword args to pass to the ilu
             preconditioner.  Default is {}
+        singular_test (bool): flag to test for a singular matrix and if the matrix
+            is determined to be singular apply Tikhonov regularization.
+            Default is False since there is a non-significant cost to test if a
+            matrix is singular.
+        tikhonov (float) : Tikhonov regularization value. This can be used to stabilize
+            the adjoint solve but introduces an approximation and should
+            be used cautiously. Small values (for example, 1e-6) have been found to
+            be effective. Default is 0.0
 
         Returns
         -------
@@ -1246,6 +1278,8 @@ class Mf6Adj(object):
                 linear_solver_kwargs=linear_solver_kwargs,
                 use_precon=use_precon,
                 precon_kwargs=precon_kwargs,
+                singular_test=singular_test,
+                tikhonov=tikhonov,
             )
             dfs[pm.name] = df
         return dfs

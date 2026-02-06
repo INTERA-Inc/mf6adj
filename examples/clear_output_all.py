@@ -23,18 +23,31 @@ def find_files_with_extension(directory, extension):
 
 directory_path = ".."
 file_extension = ".ipynb"
+exclude_paths = (
+    ".ipynb_checkpoints",
+    "site-packages",
+    ".temp",
+)
 notebook_count = 0
 try:
     files = find_files_with_extension(directory_path, file_extension)
     if files:
         print(f"Files with extension '{file_extension}' found in '{directory_path}':")
         for file in files:
-            print(f"clearing...{file}")
-            os.system(
-                "jupyter nbconvert --ClearOutputPreprocessor.enabled=True "
-                + f"--ClearMetadataPreprocessor.enabled=True --inplace {file}"
-            )
-            notebook_count += 1
+            exclude = False
+            for epath in exclude_paths:
+                if epath in str(file):
+                    exclude = True
+                    break
+            if exclude:
+                print(f"skipping...{file}")
+            else:
+                print(f"clearing...{file}")
+                os.system(
+                    "jupyter nbconvert --ClearOutputPreprocessor.enabled=True "
+                    + f"--ClearMetadataPreprocessor.enabled=True --inplace {file}"
+                )
+                notebook_count += 1
     else:
         print(
             f"No files with extension '{file_extension}' found in '{directory_path}'."

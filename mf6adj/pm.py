@@ -14,8 +14,10 @@ from scipy.sparse.linalg import (
     cg,
     gmres,
     lgmres,
+    lsqr,
     spilu,
     spsolve,
+    svds,
 )
 
 
@@ -232,6 +234,8 @@ class PerfMeas(object):
         linear_solver_kwargs: dict = {},
         use_precon: bool = True,
         precon_kwargs: dict = {},
+        singular_test: bool = False,
+        tikhonov: float = 0.0,
     ):
         """Solve for the adjoint state for the performance measure.
 
@@ -245,16 +249,24 @@ class PerfMeas(object):
             hdf5_forward_solution_fname`.
         linear_solver (varies) : the scipy sparse linear alg solver to use.  If None,
             a choice is made between direct and bicgstab, depending if the number of
-            nodes is less than 50,000.  If `str`, can be "direct" or "bicgstab".
-            Otherwise, can be a function pointer to a solver function in which the
-            first two args are the CSR amat matrix and the dense RHS vector,
-            respectively
+            nodes is less than 50,000.  If `str`, can be "direct", "bicgstab", "cg",
+            "gmres", "lgmres", or "lsqr". Otherwise, can be a function pointer to a
+            solver function in which the first two args are the CSR amat matrix and
+            the dense RHS vector, respectively.
         linear_solver_kwargs (dict): dictionary of keyword args to pass to
             `linear_solver`.  Default is {}
         use_precon (bool): flag to use an ILU preconditioner with iterative
             linear solver.
         precon_kwargs (dict): dictionary of keyword args to pass to the ilu
             preconditioner.  Default is {}
+        singular_test (bool): flag to test for a singular matrix and if the matrix
+            is determined to be singular apply Tikhonov regularization.
+            Default is False since there is a non-significant cost to test if a
+            matrix is singular.
+        tikhonov (float) : Tikhonov regularization value. This can be used to stabilize
+            the adjoint solve but introduces an approximation and should
+            be used cautiously. Small values (for example, 1e-6) have been found to
+            be effective. Default is 0.0
 
         Returns
         -------
@@ -262,13 +274,15 @@ class PerfMeas(object):
 
         """
         supported_iterative_solvers = (
+            "bicgstab",
             "cg",
             "gmres",
             "lgmres",
-            "bicgstab",
+            "lsqr",
         )
 
         adj_start = datetime.now()
+        self.logger.debug(f"starting solve_adjoint at {adj_start}")
         try:
             hdf = h5py.File(hdf5_forward_solution_fname, "r")
         except Exception as e:
@@ -338,9 +352,9 @@ class PerfMeas(object):
         grid_shape = None
         if "nrow" in hdf["gwf_info"].keys():
             grid_shape = (
-                hdf["gwf_info"]["nlay"][0],
-                hdf["gwf_info"]["nrow"][0],
-                hdf["gwf_info"]["ncol"][0],
+                int(hdf["gwf_info"]["nlay"][0]),
+                int(hdf["gwf_info"]["nrow"][0]),
+                int(hdf["gwf_info"]["ncol"][0]),
             )
             self.logger.info(f"structured grid found, shape: {grid_shape}")
 
@@ -400,16 +414,26 @@ class PerfMeas(object):
 
             start = datetime.now()
             self.logger.debug("forming rhs")
+
+            self.logger.debug("calculate dfdh")
             dfdh = self._dfdh(kk, hdf[sol_key])
+            self.logger.debug(
+                "dfdh calculation time = "
+                + f"{(datetime.now() - start).total_seconds()} seconds"
+            )
             data["dfdh"] = dfdh
             iss = hdf[sol_key]["iss"][0]
-            if itime != 0:  # transient
+
+            self.logger.debug(f"itime: {itime} iss: {iss}")
+
+            if iss == 0:  # transient
                 # get the derv of RHS WRT head
                 drhsdh = hdf[sol_key]["drhsdh"][:]
                 data["drhsdh"] = drhsdh
                 rhs = (drhsdh * lamb) - dfdh
             else:
                 rhs = -dfdh
+
             self.logger.debug(
                 f"rhs took: {(datetime.now() - start).total_seconds()} seconds"
             )
@@ -437,12 +461,14 @@ class PerfMeas(object):
             # m = None
 
             is_newton = hdf[sol_key].attrs["is_newton"]
+            self.logger.debug(f"Newton-Raphson: {is_newton}")
 
             if linear_solver is None:
                 if head.shape[0] < 50000:
                     linear_solver = "direct"
                 else:
                     linear_solver = "bicgstab"
+            self.logger.debug(f"linear solver: {linear_solver}")
 
             if linear_solver == "direct":
                 _linear_solver = spsolve
@@ -452,11 +478,18 @@ class PerfMeas(object):
                     _linear_solver_kwargs = linear_solver_kwargs
             elif linear_solver in supported_iterative_solvers:
                 if len(linear_solver_kwargs) == 0:
-                    _linear_solver_kwargs = {
-                        "rtol": 1e-6,
-                        "atol": 1e-6,
-                        "maxiter": 200,
-                    }
+                    if linear_solver == "lsqr":
+                        _linear_solver_kwargs = {
+                            "btol": 1e-6,
+                            "atol": 1e-6,
+                            "iter_lim": 5000,
+                        }
+                    else:
+                        _linear_solver_kwargs = {
+                            "rtol": 1e-6,
+                            "atol": 1e-6,
+                            "maxiter": 200,
+                        }
                 else:
                     _linear_solver_kwargs = linear_solver_kwargs
 
@@ -477,6 +510,8 @@ class PerfMeas(object):
                     _linear_solver = lgmres
                 elif linear_solver == "gmres":
                     _linear_solver = gmres
+                elif linear_solver == "lsqr":
+                    _linear_solver = lsqr
                 else:
                     raise Exception(
                         "unrecognized iterative 'linear_solver' value: "
@@ -495,10 +530,30 @@ class PerfMeas(object):
                 _linear_solver = linear_solver
                 _linear_solver_kwargs = linear_solver_kwargs
 
+            # test if a singular matrix
+            if singular_test:
+                self.logger.info("testing if amat is singular")
+                is_singular = self._is_singular(amat)
+                if is_singular:
+                    self.logger.info("amat is singular")
+                    if tikhonov <= 0.0:
+                        tikhonov = 1e-6
+
+            # add tikhonov regularization
+            if tikhonov > 0.0:
+                self.logger.info(f"adding Tikhonov regularization ({tikhonov})")
+                sign = np.sign(amat.diagonal())
+                mult = sign[0]
+                self.logger.debug(f"diagonal sign: {sign}")
+                self.logger.debug(f"Tikhonov multiplier: {mult}")
+                I = sparse.eye(amat.shape[0], format=amat.format)
+                amat = amat + mult * tikhonov * I
+
             # set up preconditioner
             m = None
-            if linear_solver != "direct":
+            if linear_solver not in ("direct", "lsqr"):
                 if use_precon:
+                    self.logger.debug("setup preconditioner")
                     if len(precon_kwargs) == 0:
                         _precon_kwargs = {
                             "drop_tol": 1e-4,
@@ -507,8 +562,31 @@ class PerfMeas(object):
                         }
                     else:
                         _precon_kwargs = precon_kwargs
-                    amat_ilu = spilu(amat, **_precon_kwargs)
-                    m = LinearOperator((head.shape[0], head.shape[0]), amat_ilu.solve)
+                    try:
+                        amat_ilu = spilu(amat, **_precon_kwargs)
+                        m = LinearOperator(
+                            (head.shape[0], head.shape[0]),
+                            amat_ilu.solve,
+                        )
+                    except Exception as e:
+                        if "maxiter" in _linear_solver_kwargs.keys():
+                            _linear_solver_kwargs["maxiter"] += 1000
+                        else:
+                            _linear_solver_kwargs["maxiter"] = 1000
+
+                        msg = (
+                            "failed to form preconditioner - "
+                            + f"using unpreconditioned {linear_solver} solver and "
+                            + f"reset maxiter to {_linear_solver_kwargs['maxiter']}"
+                        )
+                        self.logger.info(msg)
+
+                        error_lines = str(e).splitlines()
+                        msg = ""
+                        for line in error_lines:
+                            msg += f" {line}."
+                        self.logger.debug(msg)
+                        m = None
                     _linear_solver_kwargs["M"] = m
 
             self.logger.info(f"solving with {linear_solver}")
@@ -525,6 +603,13 @@ class PerfMeas(object):
                         rhs,
                         callback=counter,
                         callback_type="x",
+                        **_linear_solver_kwargs,
+                    )
+                elif linear_solver == "lsqr":
+                    lamb = _linear_solver(
+                        amat,
+                        rhs,
+                        tikhonov,
                         **_linear_solver_kwargs,
                     )
                 else:
@@ -807,9 +892,11 @@ class PerfMeas(object):
                         subgrp.attrs[k] = v
 
             else:
-                raise Exception(
-                    f"unrecognized data_dict entry: {tag},type:{type(item)}"
-                )
+                pass
+                # raise Exception(
+                #     "PerfMeas::write_group_to_hdf unrecognized data_dict entry: "
+                #     + f"{tag},type:{type(item)}"
+                # )
         if nodeuser is not None:
             _ = grp.create_dataset(
                 "nodeuser", nodeuser.shape, dtype=nodeuser.dtype, data=nodeuser
@@ -1139,23 +1226,43 @@ class PerfMeas(object):
         result (ndarray) : partial of performance measure WRT head
 
         """
+
+        # 1. Load data once. Avoid [:] if sol_dataset is already in memory,
+        # but for HDF5, reading once into a local variable is best.
         head = sol_dataset["head"][:]
-        residual = sol_dataset["residual"][:]
         dfdh = np.zeros_like(head)
-        for pfr in self._entries:
-            if pfr.kperkstp == kk:
-                if pfr.pm_type == "head":
-                    if pfr.pm_form == "direct":
-                        dfdh[pfr.inode] = pfr.weight
-                    elif pfr.pm_form == "residual":
-                        dfdh[pfr.inode] = (
-                            2.0 * pfr.weight * (head[pfr.inode] - pfr.obsval)
-                        )
-                else:
+
+        # 2. Cache 'hcof' and 'nodelist' to avoid repeated disk I/O
+        # Also pre-build a map for O(1) index lookups
+        cached_maps = {}
+
+        # 3. Filter entries first to reduce iterations
+        relevant_entries = [p for p in self._entries if p.kperkstp == kk]
+
+        for pfr in relevant_entries:
+            if pfr.pm_type == "head":
+                if pfr.pm_form == "direct":
+                    dfdh[pfr.inode] = pfr.weight
+                elif pfr.pm_form == "residual":
+                    # Scalar math is fine here, but make sure head is a numpy array
+                    dfdh[pfr.inode] = 2.0 * pfr.weight * (head[pfr.inode] - pfr.obsval)
+            else:
+                # Handle non-head types with caching
+                if pfr.pm_type not in cached_maps:
+                    # Store hcof and a mapping of inode -> index
                     hcof = sol_dataset[pfr.pm_type]["hcof"][:]
-                    inodelist = sol_dataset[pfr.pm_type]["nodelist"][:] - 1
-                    idx = np.where(inodelist == pfr.inode)[0][0]
-                    dfdh[pfr.inode] = hcof[idx]
+                    nodes = sol_dataset[pfr.pm_type]["nodelist"][:] - 1
+                    # Dict comprehension is much faster than np.where inside a loop
+                    node_to_idx = {node: i for i, node in enumerate(nodes)}
+                    cached_maps[pfr.pm_type] = (hcof, node_to_idx)
+
+                hcof_arr, node_map = cached_maps[pfr.pm_type]
+
+                # Fast O(1) lookup
+                if pfr.inode in node_map:
+                    idx = node_map[pfr.inode]
+                    dfdh[pfr.inode] = hcof_arr[idx]
+
         return dfdh
 
     @staticmethod
@@ -1252,3 +1359,29 @@ class PerfMeas(object):
         if len(names) == 0:
             return False
         return True
+
+    @staticmethod
+    def _is_singular(A, tol=1e-10):
+        # svds computes the k largest or smallest singular values.
+        # To check for singularity, we need the smallest ones.
+        # 'SM' specifies "smallest magnitude".
+        # We request only one singular value (k=1) for efficiency.
+        try:
+            # Note: svds works on square or rectangular matrices
+            # We need to ensure k is less than min(M, N) for svds to work
+            min_dim = min(A.shape)
+            if min_dim == 0:
+                return True  # Empty matrix is singular
+            k = max(1, min(5, min_dim - 1))  # Get a few smallest, ensure k >= 1
+
+            # Use 'SM' to find smallest magnitude singular values
+            # svds returns U, s, Vh
+            _, s, _ = svds(A, k=k, which="SM")
+
+            # Check if the smallest singular value is close to zero
+            smallest_s_value = np.min(s)
+            return np.isclose(smallest_s_value, 0.0, atol=tol)
+        except RuntimeError:
+            # svds might raise a RuntimeError for very difficult
+            # cases (e.g., convergence issues)
+            return True  # Assume singular or ill-conditioned if solver fails

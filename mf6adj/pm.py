@@ -20,6 +20,8 @@ from scipy.sparse.linalg import (
     svds,
 )
 
+from .utils.utils_logger import LoggerUtil
+
 
 class solver_counter(object):
     def __init__(self, disp=False):
@@ -113,6 +115,7 @@ class PerfMeas(object):
     pm_name (str) : name of the performance measure
     pm_entries (list(PerfMeasRec)) : container of performance measure entries
     logging_level (str) : logging levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    logger (logging) : logger instance. Default is None
 
 
     todo: preprocess all the connectivity in to faster look dict containers,
@@ -134,33 +137,22 @@ class PerfMeas(object):
         pm_name: str,
         pm_entries: List[PerfMeasRecord],
         logging_level: Union[int, str] = "INFO",
+        logger: Optional[LoggerUtil] = None,
     ):
         self._name = pm_name.lower().strip()
         self._entries = pm_entries
 
-        if isinstance(logging_level, str):
-            if logging_level.upper() == "INFO":
-                self.logging_level = logging.INFO
-            elif logging_level.upper() == "DEBUG":
-                self.logging_level = logging.DEBUG
-            elif logging_level.upper() == "WARNING":
-                self.logging_level = logging.WARNING
-            elif logging_level.upper() == "ERROR":
-                self.logging_level = logging.ERROR
-            else:
-                self.logging_level = logging.CRITICAL
+        if logger is None:
+            logger_name = f"{self.__class__.__name__}-{self.name}"
+            logger_filename = f"{self.name}.log"
+            self.logger = LoggerUtil(
+                logger_name,
+                logging_level,
+                logger_filename,
+            )
         else:
-            if logging_level < 0:
-                logging_level = 0
-            self.logging_level = logging_level
-
-        self.logger = logging.getLogger(logging.__name__ + self._name)
-        logging.basicConfig(
-            filename=self._name + ".log",
-            filemode="w",
-            format="%(asctime)s %(levelname)s %(message)s",
-            level=self.logging_level,
-        )
+            self.new_logger = False
+            self.logger = logger
 
     @property
     def name(self):
@@ -282,7 +274,7 @@ class PerfMeas(object):
         )
 
         adj_start = datetime.now()
-        self.logger.debug(f"starting solve_adjoint at {adj_start}")
+        self.logger.logger.info(f"starting solve_adjoint at {adj_start}")
         try:
             hdf = h5py.File(hdf5_forward_solution_fname, "r")
         except Exception as e:
@@ -300,7 +292,7 @@ class PerfMeas(object):
             )
 
         if os.path.exists(hdf5_adjoint_solution_fname):
-            self.logger.warning(
+            self.logger.logger.warning(
                 (
                     "removing existing adjoint solution "
                     + f"file '{hdf5_adjoint_solution_fname}'"
@@ -356,7 +348,7 @@ class PerfMeas(object):
                 int(hdf["gwf_info"]["nrow"][0]),
                 int(hdf["gwf_info"]["ncol"][0]),
             )
-            self.logger.info(f"structured grid found, shape: {grid_shape}")
+            self.logger.logger.info(f"structured grid found, shape: {grid_shape}")
 
         ia = hdf["gwf_info"]["ia"][:]
         ja = hdf["gwf_info"]["ja"][:]
@@ -402,9 +394,9 @@ class PerfMeas(object):
                 "starting adjoint solve for PerfMeas: "
                 + f"{self._name} (kper, kstp) ({int(kk[0] + 1)}, {int(kk[1] + 1)})"
             )
-            self.logger.info(msg)
-            if itime == 0:
-                print(f"starting adjoint solve for PerfMeas: {self._name}")
+            self.logger.logger.info(msg)
+            # if itime == 0:
+            #     print(f"starting adjoint solve for PerfMeas: {self._name}")
 
             sol_key = kk_sol_map[kk]
             if sol_key in adf:
@@ -413,18 +405,18 @@ class PerfMeas(object):
                 )
 
             start = datetime.now()
-            self.logger.debug("forming rhs")
+            self.logger.logger.debug("forming rhs")
 
-            self.logger.debug("calculate dfdh")
+            self.logger.logger.debug("calculate dfdh")
             dfdh = self._dfdh(kk, hdf[sol_key])
-            self.logger.debug(
+            self.logger.logger.debug(
                 "dfdh calculation time = "
                 + f"{(datetime.now() - start).total_seconds()} seconds"
             )
             data["dfdh"] = dfdh
             iss = hdf[sol_key]["iss"][0]
 
-            self.logger.debug(f"itime: {itime} iss: {iss}")
+            self.logger.logger.debug(f"itime: {itime} iss: {iss}")
 
             if iss == 0:  # transient
                 # get the derv of RHS WRT head
@@ -434,13 +426,13 @@ class PerfMeas(object):
             else:
                 rhs = -dfdh
 
-            self.logger.debug(
+            self.logger.logger.debug(
                 f"rhs took: {(datetime.now() - start).total_seconds()} seconds"
             )
 
             start = datetime.now()
 
-            self.logger.debug("forming amat transpose")
+            self.logger.logger.debug("forming amat transpose")
             amat = hdf[sol_key]["amat"][:]
             head = hdf[sol_key]["head"][:]
             residual = hdf[sol_key]["residual"][:]
@@ -449,7 +441,7 @@ class PerfMeas(object):
                 shape=(len(ia) - 1, len(ia) - 1),
             )
             amat = amat.transpose()
-            self.logger.debug(
+            self.logger.logger.debug(
                 (
                     "amat transpose took: "
                     + f"{(datetime.now() - start).total_seconds()} seconds"
@@ -457,18 +449,17 @@ class PerfMeas(object):
             )
 
             start = datetime.now()
-            self.logger.info("lambda solve")
-            # m = None
+            self.logger.logger.info("lambda solve")
 
             is_newton = hdf[sol_key].attrs["is_newton"]
-            self.logger.debug(f"Newton-Raphson: {is_newton}")
+            self.logger.logger.debug(f"Newton-Raphson: {is_newton}")
 
             if linear_solver is None:
                 if head.shape[0] < 50000:
                     linear_solver = "direct"
                 else:
                     linear_solver = "bicgstab"
-            self.logger.debug(f"linear solver: {linear_solver}")
+            self.logger.logger.debug(f"linear solver: {linear_solver}")
 
             if linear_solver == "direct":
                 _linear_solver = spsolve
@@ -497,7 +488,7 @@ class PerfMeas(object):
                     _linear_solver = bicgstab
                 elif linear_solver == "cg":
                     if is_newton:
-                        self.logger.warning(
+                        self.logger.logger.warning(
                             "GWF model is using the Newton-Raphson formulation. "
                             + f"Switching from '{linear_solver}' to 'bicgstab' "
                             + "linear solver."
@@ -532,20 +523,20 @@ class PerfMeas(object):
 
             # test if a singular matrix
             if singular_test:
-                self.logger.info("testing if amat is singular")
+                self.logger.logger.info("testing if amat is singular")
                 is_singular = self._is_singular(amat)
                 if is_singular:
-                    self.logger.info("amat is singular")
+                    self.logger.logger.info("amat is singular")
                     if tikhonov <= 0.0:
                         tikhonov = 1e-6
 
             # add tikhonov regularization
             if tikhonov > 0.0:
-                self.logger.info(f"adding Tikhonov regularization ({tikhonov})")
+                self.logger.logger.info(f"adding Tikhonov regularization ({tikhonov})")
                 sign = np.sign(amat.diagonal())
                 mult = sign[0]
-                self.logger.debug(f"diagonal sign: {sign}")
-                self.logger.debug(f"Tikhonov multiplier: {mult}")
+                self.logger.logger.debug(f"diagonal sign: {sign}")
+                self.logger.logger.debug(f"Tikhonov multiplier: {mult}")
                 I = sparse.eye(amat.shape[0], format=amat.format)
                 amat = amat + mult * tikhonov * I
 
@@ -553,7 +544,7 @@ class PerfMeas(object):
             m = None
             if linear_solver not in ("direct", "lsqr"):
                 if use_precon:
-                    self.logger.debug("setup preconditioner")
+                    self.logger.logger.debug("setup preconditioner")
                     if len(precon_kwargs) == 0:
                         _precon_kwargs = {
                             "drop_tol": 1e-4,
@@ -579,18 +570,18 @@ class PerfMeas(object):
                             + f"using unpreconditioned {linear_solver} solver and "
                             + f"reset maxiter to {_linear_solver_kwargs['maxiter']}"
                         )
-                        self.logger.info(msg)
+                        self.logger.logger.info(msg)
 
                         error_lines = str(e).splitlines()
                         msg = ""
                         for line in error_lines:
                             msg += f" {line}."
-                        self.logger.debug(msg)
+                        self.logger.logger.debug(msg)
                         m = None
                     _linear_solver_kwargs["M"] = m
 
-            self.logger.info(f"solving with {linear_solver}")
-            self.logger.info(f"with solver options: {_linear_solver_kwargs}")
+            self.logger.logger.info(f"solving with {linear_solver}")
+            self.logger.logger.info(f"with solver options: {_linear_solver_kwargs}")
 
             # solve the system of equations
             if linear_solver == "direct":
@@ -627,7 +618,7 @@ class PerfMeas(object):
                 residual = rhs - amat @ lamb
                 residual_2norm = np.linalg.norm(residual)
                 residual_infnorm = np.linalg.norm(residual, ord=np.inf)
-                self.logger.info(
+                self.logger.logger.info(
                     (
                         f"solver return code: {info} "
                         + f"iterations: {counter.niter + 1} "
@@ -636,18 +627,18 @@ class PerfMeas(object):
                     )
                 )
                 if info < 0:
-                    self.logger.error("solver parameter breakdown")
+                    self.logger.logger.error("solver parameter breakdown")
                 elif info > 0:
-                    self.logger.warning("solver convergence not achieved")
+                    self.logger.logger.warning("solver convergence not achieved")
 
             if np.any(np.isnan(lamb)):
-                self.logger.warning(
+                self.logger.logger.warning(
                     (
                         f"nans in adjoint states for pm {self.name} "
                         + f"at (kper,kstp) ({int(kk[0] + 1)}, {int(kk[1] + 1)})"
                     )
                 )
-            self.logger.info(
+            self.logger.logger.info(
                 (
                     "lambda solve took: "
                     + f"{(datetime.now() - start).total_seconds()} seconds"
@@ -665,7 +656,7 @@ class PerfMeas(object):
             lamb[chd_nodelist] = 0.0
 
             start = datetime.now()
-            self.logger.debug("forming lam_dresdk_h")
+            self.logger.logger.debug("forming lam_dresdk_h")
             k_sens, k33_sens = PerfMeas.lam_dresdk_h(
                 is_newton,
                 ihighcellsat,
@@ -690,7 +681,7 @@ class PerfMeas(object):
             data["k33"] = k33_sens
             comp_k_sens += k_sens
             comp_k33_sens += k33_sens
-            self.logger.debug(
+            self.logger.logger.debug(
                 (
                     "lam_dresdk_h took: "
                     + f"{(datetime.now() - start).total_seconds()} seconds"
@@ -700,7 +691,7 @@ class PerfMeas(object):
             if has_sto:
                 start = datetime.now()
 
-                self.logger.debug("storage")
+                self.logger.logger.debug("storage")
 
                 if iss == 0:
                     ss_sens = lamb * hdf[sol_key]["dresdss_h"][:]
@@ -708,7 +699,7 @@ class PerfMeas(object):
                     ss_sens = np.zeros_like(lamb)
                 data["ss"] = ss_sens
                 comp_ss_sens += ss_sens
-                self.logger.debug(
+                self.logger.logger.debug(
                     (
                         "storage took: "
                         + f"{(datetime.now() - start).total_seconds()} seconds"
@@ -729,7 +720,7 @@ class PerfMeas(object):
                             continue
                         start = datetime.now()
 
-                        self.logger.debug(f"{ptype}, {pname}")
+                        self.logger.logger.debug(f"{ptype}, {pname}")
 
                         sp_bnd_dict = {
                             "bound": hdf[sol_key][pname]["bound"][:],
@@ -747,7 +738,7 @@ class PerfMeas(object):
                                 sens_cond
                             )
                             data[pname + "_" + bnd_dict[ptype][1]] = sens_cond
-                        self.logger.debug(
+                        self.logger.logger.debug(
                             (
                                 f"{ptype}, {pname} took: "
                                 + f"{(datetime.now() - start).total_seconds()} "
@@ -763,13 +754,15 @@ class PerfMeas(object):
                 + f"seconds to solve adjoint solution for PerfMeas: {self._name} "
                 + f"(kper, kstp) ({int(kk[0] + 1)}, {int(kk[1] + 1)})"
             )
-            self.logger.info(msg)
+            self.logger.logger.info(msg)
 
-            if self.logging_level == logging.DEBUG:
+            if self.logger.isDebugLogger:
+                self.logger.logger.debug("Adding amat, rhs, and residual to hdf file")
                 data["amat"] = amat
                 data["rhs"] = rhs
                 data["residual"] = residual
-            self.logger.info("write group to hdf file")
+
+            self.logger.logger.info("write group to hdf file")
             PerfMeas.write_group_to_hdf(
                 adf,
                 sol_key,
@@ -778,7 +771,7 @@ class PerfMeas(object):
                 grid_shape=grid_shape,
                 nodereduced=nodereduced,
             )
-        self.logger.info("form composite sensitivities")
+        self.logger.logger.info("form composite sensitivities")
         data = {}
         data["k11"] = comp_k_sens
         data["k33"] = comp_k33_sens
@@ -790,7 +783,7 @@ class PerfMeas(object):
 
         for name, vals in comp_bnd_results.items():
             data[name] = vals
-        self.logger.info("writing composite sensitivities")
+        self.logger.logger.info("writing composite sensitivities")
         PerfMeas.write_group_to_hdf(
             adf,
             "composite",
@@ -827,8 +820,8 @@ class PerfMeas(object):
             + f"{dtsec:10.5g} seconds "
             + f"for pm '{self._name}' at (kper,kstp) ({int(kper + 1)}, {int(kstp + 1)})"
         )
-        self.logger.info(line)
-        print(f"adjoint solve took: {dtsec:10.5g} seconds for pm '{self._name}'")
+        self.logger.logger.info(line)
+
         return df
 
     @staticmethod

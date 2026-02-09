@@ -56,7 +56,8 @@ jupyter = { cmd = "jupyter lab" }
 update-flopy = { cmd = "python -m flopy.mf6.utils.generate_classes --ref develop" }
 
 # format
-format = { cmd = "pixi run clean-notebooks; pre-commit run --all-files" }
+format = { cmd = "pre-commit run --all-files" }
+format-all = { cmd = "pixi run clean-notebooks; pre-commit run --all-files" }
 check-lint = "ruff check ."
 check-format = "ruff format . --check"
 check-spelling = "codespell"

@@ -28,3 +28,4 @@ dependencies:
   - pip
   - pip:
     - git+https://github.com/pypest/pyemu@develop
+    - git+https://github.com/MODFLOW-ORG/modflow-devtools.git

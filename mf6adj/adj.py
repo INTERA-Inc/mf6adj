@@ -63,7 +63,7 @@ class Mf6Adj(object):
         # make sure the lib exists
         if not os.path.exists(lib_name):
             self.logger.logger.warning(
-                f"lib_name '{lib_name}' not found...continuing..."
+                f"MODFLOW 6 library file '{lib_name}' not found...continuing..."
             )
         # find the model name
         self._gwf_model_dict, namfile_dict = Mf6Adj.get_model_names_from_mfsim(".")
@@ -79,15 +79,15 @@ class Mf6Adj(object):
                 f"model is not a gwf6 type: {self._gwf_model_dict[self._gwf_name]}"
             )
         if "dis6" in self._gwf_package_dict:
-            self.logger.logger.info("structured grid found")
+            self.logger.logger.info("Structured grid found")
             is_structured = True
             unstructured_type = None
         elif "disv6" in self._gwf_package_dict:
-            self.logger.logger.info("unstructured disv grid found")
+            self.logger.logger.info("Unstructured disv grid found")
             is_structured = False
             unstructured_type = "disv"
         elif "disu6" in self._gwf_package_dict:
-            self.logger.logger.info("unstructured disu grid found")
+            self.logger.logger.info("Unstructured disu grid found")
             is_structured = False
             unstructured_type = "disu"
         else:
@@ -182,7 +182,7 @@ class Mf6Adj(object):
         """
         # clear any existing PMs
         self._performance_measures = []
-        self.logger.logger.info(f"processing adjoint file: {self.adj_filename!s}")
+        self.logger.logger.info(f"Processing adjoint file: {self.adj_filename}")
         addr = ["NODEUSER", self._gwf_name.upper(), "DIS"]
         wbaddr = self._gwf.get_var_address(*addr)
         nuser = self._gwf.get_value(wbaddr) - 1
@@ -278,13 +278,13 @@ class Mf6Adj(object):
                         elif line2.lower().strip().startswith("open"):
                             fname = line2.split()[1]
                             if not os.path.exists(fname):
-                                raise Exception(f"external file '{fname}' found")
+                                raise Exception(f"External file '{fname}' found")
                             # df = pd.read_csv()
                             raise NotImplementedError()
 
                         raw = line2.lower().strip().split()
                         if self.is_structured and len(raw) != 9:
-                            self.logger.logger.info(f"parsed line: {raw!s}")
+                            self.logger.logger.info(f"Parsed line: {raw}")
                             raise Exception(
                                 (
                                     f"performance measure entry on line {count} has "
@@ -294,7 +294,7 @@ class Mf6Adj(object):
                             )
                         elif not self.is_structured:
                             if self.unstructured_type == "disv" and len(raw) != 8:
-                                self.logger.logger.info(f"parsed line: {raw!s}")
+                                self.logger.logger.info(f"Parsed line: {raw}")
                                 raise Exception(
                                     (
                                         "performance measure entry on line "
@@ -303,7 +303,7 @@ class Mf6Adj(object):
                                     )
                                 )
                             elif self.unstructured_type == "disu" and len(raw) != 7:
-                                self.logger.logger.info(f"parsed line: {raw!s}")
+                                self.logger.logger.info(f"Parsed line: {raw}")
                                 raise Exception(
                                     (
                                         "performance measure entry on line "
@@ -339,9 +339,9 @@ class Mf6Adj(object):
                             if len(nuser) > 1:
                                 nn = np.where(nuser == inode)[0]
                                 if nn.shape[0] != 1:
-                                    self.logger.logger.info(f"{nuser!s} {nn!s}")
+                                    self.logger.logger.info(f"{nuser} {nn}")
                                     if self.is_structured:
-                                        self.logger.logger.info(f"{kij!s}")
+                                        self.logger.logger.info(f"{kij}")
                                     raise Exception(
                                         f"node num {nuser} not in reduced node num"
                                     )
@@ -407,7 +407,7 @@ class Mf6Adj(object):
                                     break
                                 ppnames.extend(pnames)
                             if not found:
-                                self.logger.logger.info(f"{ppnames!s}")
+                                self.logger.logger.info(f"{ppnames}")
                                 raise Exception(
                                     f"`pm_type` {pm_type} names a GWF package "
                                     + "instance that was not found"
@@ -435,7 +435,7 @@ class Mf6Adj(object):
                     if len(pm_forms) > 1:
                         raise Exception(
                             "performance measure"
-                            + f"{pm_name} has mixed 'pm_forms' ({pm_forms!s}), "
+                            + f"{pm_name} has mixed 'pm_forms' ({pm_forms}), "
                             + "this is not supported"
                         )
                     if (
@@ -870,7 +870,7 @@ class Mf6Adj(object):
         fhd = self._open_hdf(self._hdf5_name)
         sim_start = datetime.now()
 
-        self.logger.logger.info("starting flow solution")
+        self.logger.logger.info("Starting flow solution")
 
         # get current sim time
         ctime = self._gwf.get_current_time()
@@ -988,7 +988,7 @@ class Mf6Adj(object):
                     td = (datetime.now() - sol_start).total_seconds() / 60.0
                     if verbose:
                         self.logger.logger.info(
-                            f"flow (stress period,time step) ({stress_period},"
+                            f"Flow (stress period,time step) ({stress_period},"
                             + f"{time_step}) converged in {kiter} iters, took "
                             + f"{td:10.5G} mins"
                         )
@@ -999,7 +999,7 @@ class Mf6Adj(object):
                 td = (datetime.now() - sol_start).total_seconds() / 60.0
                 if verbose:
                     self.logger.logger.info(
-                        f"flow stress period,time step {stress_period},{time_step} "
+                        f"Flow stress period,time step {stress_period},{time_step} "
                         + f"did not converge, {kiter} iters, took {td:10.5G} mins"
                     )
                 num_fails += 1
@@ -1214,10 +1214,12 @@ class Mf6Adj(object):
         td = (sim_end - sim_start).total_seconds() / 60.0
         if verbose:
             self.logger.logger.info(
-                f"flow solution finished and took {td:10.5G} minutes"
+                f"Flow solution finished and took {td:10.5G} minutes"
             )
             if num_fails > 0:
-                self.logger.logger.info(f"...failed to converge {num_fails} times")
+                self.logger.logger.info(
+                    f"Flow solution failed to converge {num_fails} times"
+                )
 
         PerfMeas.write_group_to_hdf(
             fhd, "aux", {"totime": ctimes, "dt": dts, "kper": kpers, "kstp": kstps}
@@ -1322,7 +1324,7 @@ class Mf6Adj(object):
 
     def finalize(self):
         """close the api and file handles"""
-        self.logger.logger.info(f"finalizing {self.__class__.__name__}")
+        self.logger.logger.info(f"Finalizing {self.__class__.__name__}")
         try:
             self._gwf.finalize()
         except Exception as e:
@@ -1383,7 +1385,7 @@ class Mf6Adj(object):
             nodes = []
             names = []
             pert_results_dict = {pm.name: [] for pm in self._performance_measures}
-            self.logger.logger.info(f"running perturbations for {paktype}")
+            self.logger.logger.info(f"Running perturbations for {paktype}")
             for kk, infolist in pdict.items():
                 for ibnd, infodict in enumerate(infolist):
                     # bnd_items = infodict["bound"].shape[0]
@@ -1464,7 +1466,7 @@ class Mf6Adj(object):
         inodes = self._gwf.get_value_ptr(wbaddr).shape[0]
 
         for addr in address:
-            self.logger.logger.info(f"running perturbations for {addr}")
+            self.logger.logger.info(f"Running perturbations for {addr}")
             pert_results_dict = {pm.name: [] for pm in self._performance_measures}
             wbaddr = self._gwf.get_var_address(*addr)
 
@@ -1534,7 +1536,7 @@ class Mf6Adj(object):
                     )
 
             self.logger.logger.info(
-                "running manual flopy based perturbations for sto ss"
+                "Running manual flopy based perturbations for sto ss"
             )
             pert_results_dict = {pm.name: [] for pm in self._performance_measures}
             epsilons = []

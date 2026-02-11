@@ -654,7 +654,7 @@ class PerfMeas(object):
                 self.logger.logger.info(
                     (
                         f"Solver return code: {info} "
-                        + f"iterations: {solver_cb.niter + 1} "
+                        + f"iterations: {solver_cb.niter} "
                         + f"solver norms: L2 ({residual_2norm}) "
                         + f"infinity ({residual_infnorm})"
                     )

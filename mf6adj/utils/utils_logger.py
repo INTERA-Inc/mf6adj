@@ -43,8 +43,8 @@ class LoggerUtil:
             handler = logging.StreamHandler()
             formatter = logging.Formatter("%(asctime)s - %(message)s")
             handler.setFormatter(formatter)
+            handler.setLevel(self.level)
             self.logger.addHandler(handler)
-            self.logger.setLevel(logging.INFO)
 
             if self.file_name is not None:
                 file_formatter = logging.Formatter(
@@ -54,6 +54,8 @@ class LoggerUtil:
                 file_handler.setFormatter(file_formatter)
                 file_handler.setLevel(self.level)
                 self.logger.addHandler(file_handler)
+
+            self.logger.setLevel(self.level)
 
     @property
     def isDebugLogger(self):

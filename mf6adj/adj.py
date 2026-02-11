@@ -1237,6 +1237,7 @@ class Mf6Adj(object):
         precon_kwargs: dict = {},
         singular_test: bool = False,
         tikhonov: float = 0.0,
+        dvclose: Optional[float] = None,
     ):
         """Solve for the adjoint state, one performance measure at at time
 
@@ -1262,6 +1263,10 @@ class Mf6Adj(object):
             the adjoint solve but introduces an approximation and should
             be used cautiously. Small values (for example, 1e-6) have been found to
             be effective. Default is 0.0
+        dvclose (float): custom convergence criterion for iterative solvers based on the
+            maximum absolute change in the solution vector between consecutive
+            iterations. If None, the custom convergence criteria will not be used and
+            atol and btol will be used.
 
         Returns
         -------
@@ -1286,6 +1291,7 @@ class Mf6Adj(object):
                 precon_kwargs=precon_kwargs,
                 singular_test=singular_test,
                 tikhonov=tikhonov,
+                dvclose=dvclose,
             )
             dfs[pm.name] = df
         return dfs

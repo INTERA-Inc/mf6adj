@@ -23,15 +23,33 @@ from scipy.sparse.linalg import (
 from .utils.utils_logger import LoggerUtil
 
 
-class solver_counter(object):
-    def __init__(self, disp=False):
-        self._disp = disp
+class solver_callback(object):
+    def __init__(self, logger, dvclose=None):
+        self.logger = logger
         self.niter = 0
+        self.dvclose = dvclose
+        self.xold = None
+        if self.dvclose is not None:
+            self.logger.logger.info(f"Solver dvclose value: {self.dvclose}")
 
-    def __call__(self, rk=None):
+    def __call__(self, xk):
         self.niter += 1
-        if self._disp:
-            print("iter %3i\trk = %s" % (self.niter, str(rk)))
+        if self.dvclose is not None:
+            if self.xold is None:
+                self.xold = np.zeros_like(xk)
+
+            # Calculate the maximum difference between current and
+            # previous solutions
+            dv = xk - self.xold
+            dvmax = np.abs(dv).max()
+            self.logger.logger.debug(f"Solver iteration: {self.niter} dvmax: {dvmax}")
+            self.xold = xk.copy()
+
+            if dvmax < self.dvclose:
+                msg = (
+                    "Custom convergence reached: " + f"dvmax = {dvmax} < {self.dvclose}"
+                )
+                raise StopIteration(msg)
 
 
 class PerfMeasRecord(object):
@@ -228,6 +246,7 @@ class PerfMeas(object):
         precon_kwargs: dict = {},
         singular_test: bool = False,
         tikhonov: float = 0.0,
+        dvclose: Optional[float] = 1e-6,
     ):
         """Solve for the adjoint state for the performance measure.
 
@@ -259,6 +278,10 @@ class PerfMeas(object):
             the adjoint solve but introduces an approximation and should
             be used cautiously. Small values (for example, 1e-6) have been found to
             be effective. Default is 0.0
+        dvclose (float): custom convergence criterion for iterative solvers based on the
+            maximum absolute change in the solution vector between consecutive
+            iterations. If None, the custom convergence criteria will not be used and
+            atol and btol will be used. Default is 1e-6.
 
         Returns
         -------
@@ -577,6 +600,10 @@ class PerfMeas(object):
                         m = None
                     _linear_solver_kwargs["M"] = m
 
+            if linear_solver != "direct" and dvclose is not None:
+                _linear_solver_kwargs["atol"] = 0.0
+                _linear_solver_kwargs["rtol"] = 0.0
+
             self.logger.logger.info(
                 f"Solving with {linear_solver}"
                 + f"with solver options: {_linear_solver_kwargs}"
@@ -586,29 +613,36 @@ class PerfMeas(object):
             if linear_solver == "direct":
                 lamb = _linear_solver(amat, rhs, **_linear_solver_kwargs)
             else:
-                counter = solver_counter()
-                if linear_solver == "gmres":
-                    lamb = _linear_solver(
-                        amat,
-                        rhs,
-                        callback=counter,
-                        callback_type="x",
-                        **_linear_solver_kwargs,
+                try:
+                    solver_cb = solver_callback(
+                        logger=self.logger,
+                        dvclose=dvclose,
                     )
-                elif linear_solver == "lsqr":
-                    lamb = _linear_solver(
-                        amat,
-                        rhs,
-                        tikhonov,
-                        **_linear_solver_kwargs,
-                    )
-                else:
-                    lamb = _linear_solver(
-                        amat,
-                        rhs,
-                        callback=counter,
-                        **_linear_solver_kwargs,
-                    )
+                    if linear_solver == "gmres":
+                        lamb = _linear_solver(
+                            amat,
+                            rhs,
+                            callback=solver_cb,
+                            callback_type="x",
+                            **_linear_solver_kwargs,
+                        )
+                    elif linear_solver == "lsqr":
+                        lamb = _linear_solver(
+                            amat,
+                            rhs,
+                            tikhonov,
+                            **_linear_solver_kwargs,
+                        )
+                    else:
+                        lamb = _linear_solver(
+                            amat,
+                            rhs,
+                            callback=solver_cb,
+                            **_linear_solver_kwargs,
+                        )
+                except StopIteration as e:
+                    self.logger.logger.info(e)
+                    lamb = [solver_cb.xold, 0]
 
             if linear_solver in supported_iterative_solvers:
                 info = lamb[1]
@@ -620,7 +654,7 @@ class PerfMeas(object):
                 self.logger.logger.info(
                     (
                         f"Solver return code: {info} "
-                        + f"iterations: {counter.niter + 1} "
+                        + f"iterations: {solver_cb.niter} "
                         + f"solver norms: L2 ({residual_2norm}) "
                         + f"infinity ({residual_infnorm})"
                     )

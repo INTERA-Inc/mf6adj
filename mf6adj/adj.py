@@ -1237,7 +1237,7 @@ class Mf6Adj(object):
         precon_kwargs: dict = {},
         singular_test: bool = False,
         tikhonov: float = 0.0,
-        dvclose: Optional[float] = None,
+        dvclose: Optional[float] = 1e-6,
     ):
         """Solve for the adjoint state, one performance measure at at time
 
@@ -1266,7 +1266,7 @@ class Mf6Adj(object):
         dvclose (float): custom convergence criterion for iterative solvers based on the
             maximum absolute change in the solution vector between consecutive
             iterations. If None, the custom convergence criteria will not be used and
-            atol and btol will be used.
+            atol and btol will be used. Default is 1e-6.
 
         Returns
         -------

@@ -35,16 +35,18 @@ class LoggerUtil:
             logging_level = max(logging_level, 0)
 
         self.level = logging_level
+        self.logger.setLevel(self.level)
 
     def _setup_logger(self, level):
         """Helper to ensure the logger has a handler and a format."""
         if not self.logger.handlers:
             self._get_logger_level(level)
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter("%(asctime)s - %(message)s")
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
-            self.logger.setLevel(logging.INFO)
+
+            stream_handler = logging.StreamHandler()
+            stream_formatter = logging.Formatter("%(asctime)s - %(message)s")
+            stream_handler.setFormatter(stream_formatter)
+            stream_handler.setLevel(logging.INFO)
+            self.logger.addHandler(stream_handler)
 
             if self.file_name is not None:
                 file_formatter = logging.Formatter(

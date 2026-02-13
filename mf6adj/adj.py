@@ -1238,6 +1238,7 @@ class Mf6Adj(object):
         singular_test: bool = False,
         tikhonov: float = 0.0,
         dvclose: Optional[float] = 1e-6,
+        rclose: Optional[float] = 1e-3,
     ):
         """Solve for the adjoint state, one performance measure at at time
 
@@ -1264,9 +1265,13 @@ class Mf6Adj(object):
             be used cautiously. Small values (for example, 1e-6) have been found to
             be effective. Default is 0.0
         dvclose (float): custom convergence criterion for iterative solvers based on the
-            maximum absolute change in the solution vector between consecutive
-            iterations. If None, the custom convergence criteria will not be used and
-            atol and btol will be used. Default is 1e-6.
+            maximum absolute solution vector change between consecutive iterations.
+            If None and rclose is also None, the standard scipy.sparse.linalg
+            convergence check that uses atol and btol will be used. Default is 1e-6.
+        rclose (float): custom convergence criterion for iterative solvers based on the
+            maximum absolute residual for a iteration. If None and dvclose is also None,
+            the standard scipy.sparse.linalg convergence check that uses atol and btol
+            will be used. Default is 1e-3.
 
         Returns
         -------
@@ -1292,6 +1297,7 @@ class Mf6Adj(object):
                 singular_test=singular_test,
                 tikhonov=tikhonov,
                 dvclose=dvclose,
+                rclose=rclose,
             )
             dfs[pm.name] = df
         return dfs

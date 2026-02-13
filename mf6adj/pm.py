@@ -24,32 +24,69 @@ from .utils.utils_logger import LoggerUtil
 
 
 class solver_callback(object):
-    def __init__(self, logger, dvclose=None):
+    def __init__(self, logger, A, b, dvclose=None, rclose=None):
         self.logger = logger
+        self.A = A
+        self.b = b
         self.niter = 0
         self.dvclose = dvclose
+        self.rclose = rclose
+        self.dvmax = None
+        self.rmax = None
         self.xold = None
+        self.custom_convergence = False
         if self.dvclose is not None:
+            self.custom_convergence = True
             self.logger.logger.info(f"Solver dvclose value: {self.dvclose}")
+        if self.rclose is not None:
+            self.custom_convergence = True
+            self.logger.logger.info(f"Solver rclose value: {self.rclose}")
 
     def __call__(self, xk):
         self.niter += 1
-        if self.dvclose is not None:
-            if self.xold is None:
+        if self.dvclose is not None or self.rclose is not None:
+            if self.dvclose is not None and self.niter == 1:
                 self.xold = np.zeros_like(xk)
+
+            debug_msg = f"Solver iteration: {self.niter}"
 
             # Calculate the maximum difference between current and
             # previous solutions
-            dv = xk - self.xold
-            dvmax = np.abs(dv).max()
-            self.logger.logger.debug(f"Solver iteration: {self.niter} dvmax: {dvmax}")
-            self.xold = xk.copy()
+            if self.dvclose is not None:
+                dv = xk - self.xold
+                self.dvmax = np.abs(dv).max()
+                self.xold = xk.copy()
+                debug_msg += f" dvmax: {self.dvmax}"
 
-            if dvmax < self.dvclose:
-                msg = (
-                    "Custom convergence reached: " + f"dvmax = {dvmax} < {self.dvclose}"
-                )
-                raise StopIteration(msg)
+            # calculate the maximum residual
+            if self.rclose is not None:
+                resid = self.b - self.A @ xk
+                self.rmax = np.abs(resid).max()
+                debug_msg += f" rmax: {self.rmax}"
+
+            self.logger.logger.debug(debug_msg)
+
+            if self.custom_convergence and self._is_converged:
+                convergence_msg = "Custom convergence reached:"
+                if self.dvclose is not None:
+                    convergence_msg += f" dvmax = {self.dvmax} < {self.dvclose}"
+                if self.rclose is not None:
+                    convergence_msg += f" rmax = {self.rmax} < {self.rclose}"
+                raise StopIteration(convergence_msg.strip())
+
+    @property
+    def _is_converged(self):
+        dv_converged = 1
+        if self.dvmax is not None:
+            if self.dvmax > self.dvclose:
+                dv_converged = 0
+
+        dr_converged = 1
+        if self.rmax is not None:
+            if self.rmax > self.rclose:
+                dr_converged = 0
+
+        return bool(int(dv_converged * dr_converged))
 
 
 class PerfMeasRecord(object):
@@ -247,6 +284,7 @@ class PerfMeas(object):
         singular_test: bool = False,
         tikhonov: float = 0.0,
         dvclose: Optional[float] = 1e-6,
+        rclose: Optional[float] = 1e-3,
     ):
         """Solve for the adjoint state for the performance measure.
 
@@ -279,9 +317,13 @@ class PerfMeas(object):
             be used cautiously. Small values (for example, 1e-6) have been found to
             be effective. Default is 0.0
         dvclose (float): custom convergence criterion for iterative solvers based on the
-            maximum absolute change in the solution vector between consecutive
-            iterations. If None, the custom convergence criteria will not be used and
-            atol and btol will be used. Default is 1e-6.
+            maximum absolute solution vector change between consecutive iterations.
+            If None and rclose is also None, the standard scipy.sparse.linalg
+            convergence check that uses atol and btol will be used. Default is 1e-6.
+        rclose (float): custom convergence criterion for iterative solvers based on the
+            maximum absolute residual for a iteration. If None and dvclose is also None,
+            the standard scipy.sparse.linalg convergence check that uses atol and btol
+            will be used. Default is 1e-3.
 
         Returns
         -------
@@ -600,7 +642,9 @@ class PerfMeas(object):
                         m = None
                     _linear_solver_kwargs["M"] = m
 
-            if linear_solver != "direct" and dvclose is not None:
+            if linear_solver != "direct" and (
+                dvclose is not None or rclose is not None
+            ):
                 _linear_solver_kwargs["atol"] = 0.0
                 _linear_solver_kwargs["rtol"] = 0.0
 
@@ -616,7 +660,10 @@ class PerfMeas(object):
                 try:
                     solver_cb = solver_callback(
                         logger=self.logger,
+                        A=amat,
+                        b=rhs,
                         dvclose=dvclose,
+                        rclose=rclose,
                     )
                     if linear_solver == "gmres":
                         lamb = _linear_solver(

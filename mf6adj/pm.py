@@ -285,6 +285,7 @@ class PerfMeas(object):
         tikhonov: float = 0.0,
         dvclose: Optional[float] = 1e-6,
         rclose: Optional[float] = 1e-3,
+        dvscale: Optional[bool] = False,
     ):
         """Solve for the adjoint state for the performance measure.
 
@@ -324,6 +325,9 @@ class PerfMeas(object):
             maximum absolute residual for a iteration. If None and dvclose is also None,
             the standard scipy.sparse.linalg convergence check that uses atol and btol
             will be used. Default is 1e-3.
+        dvscale (float): scale lambda and the rhs to improve iterative solver
+            convergence for large lambda values. dvscale is not used if the direct
+            solver is used. Default is False
 
         Returns
         -------
@@ -657,6 +661,13 @@ class PerfMeas(object):
             if linear_solver == "direct":
                 lamb = _linear_solver(amat, rhs, **_linear_solver_kwargs)
             else:
+                if dvscale:
+                    idx_max = np.abs(lamb).argmax()
+                    scale = float(np.abs(lamb[idx_max]))
+                    if scale > 1e-30:
+                        self.logger.logger.debug(f"Scaling lambda and rhs ({scale})")
+                        lamb /= scale
+                        rhs /= scale
                 try:
                     solver_cb = solver_callback(
                         logger=self.logger,
@@ -666,34 +677,42 @@ class PerfMeas(object):
                         rclose=rclose,
                     )
                     if linear_solver == "gmres":
-                        lamb = _linear_solver(
+                        lamb, info = _linear_solver(
                             amat,
                             rhs,
+                            x0=lamb,
                             callback=solver_cb,
                             callback_type="x",
                             **_linear_solver_kwargs,
                         )
                     elif linear_solver == "lsqr":
-                        lamb = _linear_solver(
+                        lamb, info = _linear_solver(
                             amat,
                             rhs,
-                            tikhonov,
+                            damp=tikhonov,
+                            x0=lamb,
                             **_linear_solver_kwargs,
                         )
                     else:
-                        lamb = _linear_solver(
+                        lamb, info = _linear_solver(
                             amat,
                             rhs,
+                            x0=lamb,
                             callback=solver_cb,
                             **_linear_solver_kwargs,
                         )
                 except StopIteration as e:
                     self.logger.logger.info(e)
-                    lamb = [solver_cb.xold, 0]
+                    lamb, info = solver_cb.xold, 0
 
             if linear_solver in supported_iterative_solvers:
-                info = lamb[1]
-                lamb = lamb[0]
+                # info = lamb[1]
+                # lamb = lamb[0]
+                if dvscale:
+                    if scale > 1e-30:
+                        self.logger.logger.debug(f"Unscaling lambda and rhs ({scale})")
+                        lamb *= scale
+                        rhs *= scale
 
                 residual = rhs - amat @ lamb
                 residual_2norm = np.linalg.norm(residual)

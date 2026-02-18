@@ -1239,6 +1239,7 @@ class Mf6Adj(object):
         tikhonov: float = 0.0,
         dvclose: Optional[float] = 1e-6,
         rclose: Optional[float] = 1e-3,
+        dvscale: Optional[bool] = False,
     ):
         """Solve for the adjoint state, one performance measure at at time
 
@@ -1272,6 +1273,9 @@ class Mf6Adj(object):
             maximum absolute residual for a iteration. If None and dvclose is also None,
             the standard scipy.sparse.linalg convergence check that uses atol and btol
             will be used. Default is 1e-3.
+        dvscale (float): scale lambda and the rhs to improve iterative solver
+            convergence for large lambda values. dvscale is not used if the direct
+            solver is used. Default is False
 
         Returns
         -------
@@ -1298,6 +1302,7 @@ class Mf6Adj(object):
                 tikhonov=tikhonov,
                 dvclose=dvclose,
                 rclose=rclose,
+                dvscale=dvscale,
             )
             dfs[pm.name] = df
         return dfs

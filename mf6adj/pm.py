@@ -459,6 +459,9 @@ class PerfMeas(object):
                         comp_bnd_results[pname + "_" + aname] = np.zeros(nnodes)
 
         for itime, kk in enumerate(kperkstp[::-1]):
+            if not self._pm_available:
+                continue
+
             data = {}
             kper_start = datetime.now()
             msg = (
@@ -485,12 +488,6 @@ class PerfMeas(object):
                 "Calculating dfdh took: "
                 + f"{(datetime.now() - start).total_seconds()} seconds"
             )
-            nonzeros = np.count_nonzero(dfdh)
-            if nonzeros < 1:
-                self.logger.logger.info(
-                    f"No performance measures defined for ({kk[0] + 1}, {kk[1] + 1})"
-                )
-                continue
 
             data["dfdh"] = dfdh
             iss = hdf[sol_key]["iss"][0]
@@ -1314,6 +1311,24 @@ class PerfMeas(object):
                 result_cond[n] += bound[0] - head[n]
 
         return result_head, result_cond
+
+    def _pm_available(self, kk):
+        """
+        Determine if a performance measure is available for a given stress
+        period and time step.
+
+        Parameters
+        ----------
+        kk (tuple) : zero-based stress period and time step
+
+        Returns
+        -------
+        bool
+            True if a performance measure is available, False otherwise
+        """
+
+        relevant_entries = [p for p in self._entries if p.kperkstp == kk]
+        return len(relevant_entries) > 0
 
     def _dfdh(self, kk, sol_dataset):
         """partial of the performance measure with respect to head

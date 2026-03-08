@@ -1297,11 +1297,15 @@ class Mf6Adj(object):
         if self._hdf5_name is None or not os.path.exists(self._hdf5_name):
             raise Exception("need to call solve_gwf() first")
 
+        generateName = False
+        if hdf5_adjoint_solution_fname is None:
+            generateName = True
+
         dfs = {}
         for pm in self._performance_measures:
-            if hdf5_adjoint_solution_fname is None:
+            if generateName:
                 path = pl.Path(self._hdf5_name).parent
-                hdf5_adjoint_solution_fname = path / f"{pm.name}_adjoint_solution.hd5"
+                hdf5_adjoint_solution_fname = path / f"adjoint_solution_{pm.name}.hd5"
 
             df = pm.solve_adjoint(
                 hdf5_forward_solution_fname=self._hdf5_name,

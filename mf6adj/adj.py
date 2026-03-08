@@ -1305,7 +1305,10 @@ class Mf6Adj(object):
         for pm in self._performance_measures:
             if generateName:
                 path = pl.Path(self._hdf5_name).parent
-                hdf5_adjoint_solution_fname = path / f"adjoint_solution_{pm.name}.hd5"
+                extension = self._hdf5_name.suffix
+                hdf5_adjoint_solution_fname = (
+                    path / f"adjoint_solution_{pm.name}{extension}"
+                )
 
             df = pm.solve_adjoint(
                 hdf5_forward_solution_fname=self._hdf5_name,

@@ -478,10 +478,18 @@ class PerfMeas(object):
 
             self.logger.logger.debug("Calculate dfdh")
             dfdh = self._dfdh(kk, hdf[sol_key])
+
             self.logger.logger.debug(
                 "Calculating dfdh took: "
                 + f"{(datetime.now() - start).total_seconds()} seconds"
             )
+            nonzeros = np.count_nonzero(dfdh)
+            if nonzeros < 1:
+                self.logger.logger.info(
+                    f"No performance measures defined for ({kk[0] + 1}, {kk[1] + 1})"
+                )
+                continue
+
             data["dfdh"] = dfdh
             iss = hdf[sol_key]["iss"][0]
 

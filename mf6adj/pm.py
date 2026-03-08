@@ -277,6 +277,7 @@ class PerfMeas(object):
         self,
         hdf5_forward_solution_fname: str,
         hdf5_adjoint_solution_fname: Optional[str] = None,
+        csv_summary_fname: Optional[str] = None,
         linear_solver=None,
         linear_solver_kwargs: dict = {},
         use_precon: bool = True,
@@ -297,6 +298,8 @@ class PerfMeas(object):
         hdf5_adjoint_solution_fname (str) : the HDF5 file to be created by the adjoint
             solution process. If None, use `f"adjoint_solution_{self._name0}_" +
             hdf5_forward_solution_fname`.
+        csv_summary_fname (str) : optional csv file to write a summary of the composite
+            sensitivity information.  If None, no csv file is written.
         linear_solver (varies) : the scipy sparse linear alg solver to use.  If None,
             a choice is made between direct and bicgstab, depending if the number of
             nodes is less than 50,000.  If `str`, can be "direct", "bicgstab", "cg",
@@ -916,7 +919,8 @@ class PerfMeas(object):
             df["ss"] = comp_ss_sens
 
         df.index.name = "node"
-        df.to_csv(f"adjoint_summary_{self._name}.csv")
+        if csv_summary_fname is not None:
+            df.to_csv(csv_summary_fname)
 
         kper, kstp = kk
         dtsec = (datetime.now() - adj_start).total_seconds()

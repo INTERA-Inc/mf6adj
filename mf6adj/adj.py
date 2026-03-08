@@ -1231,6 +1231,8 @@ class Mf6Adj(object):
 
     def solve_adjoint(
         self,
+        hdf5_adjoint_solution_fname: Optional[str] = None,
+        csv_summary=False,
         linear_solver=None,
         linear_solver_kwargs: dict = {},
         use_precon: bool = True,
@@ -1245,6 +1247,11 @@ class Mf6Adj(object):
 
         Parameters
         ----------
+        hdf5_adjoint_solution_fname (str) : the HDF5 file to write the adjoint
+            solution. If None, a default name based on the performance measure
+            name is used.
+        csv_summary (bool) : flag to write a summary CSV file with the sensitivity
+            information.
         linear_solver (varies) : the scipy sparse linear alg solver to use.  If None,
             a choice is made between direct and bicgstab, depending if the number of
             nodes is less than 50,000.  If `str`, can be "direct" or "bicgstab".
@@ -1292,8 +1299,14 @@ class Mf6Adj(object):
 
         dfs = {}
         for pm in self._performance_measures:
+            if hdf5_adjoint_solution_fname is None:
+                path = pl.Path(self._hdf5_name).parent
+                hdf5_adjoint_solution_fname = path / f"{pm.name}_adjoint_solution.hd5"
+
             df = pm.solve_adjoint(
-                self._hdf5_name,
+                hdf5_forward_solution_fname=self._hdf5_name,
+                hdf5_adjoint_solution_fname=hdf5_adjoint_solution_fname,
+                csv_summary=csv_summary,
                 linear_solver=linear_solver,
                 linear_solver_kwargs=linear_solver_kwargs,
                 use_precon=use_precon,

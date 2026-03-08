@@ -275,9 +275,9 @@ class PerfMeas(object):
 
     def solve_adjoint(
         self,
-        hdf5_forward_solution_fname: str,
+        hdf5_forward_solution_fname,
         hdf5_adjoint_solution_fname: Optional[str] = None,
-        csv_summary_fname: Optional[str] = None,
+        csv_summary=False,
         linear_solver=None,
         linear_solver_kwargs: dict = {},
         use_precon: bool = True,
@@ -292,14 +292,13 @@ class PerfMeas(object):
 
         Parameters
         ----------
-        hdf5_forward_solution_fname (str) : the HDF5 file written during the forward
-            GWF  solution that contains all the information needed to solve for the
-            adjoint state
-        hdf5_adjoint_solution_fname (str) : the HDF5 file to be created by the adjoint
-            solution process. If None, use `f"adjoint_solution_{self._name0}_" +
-            hdf5_forward_solution_fname`.
-        csv_summary_fname (str) : optional csv file to write a summary of the composite
-            sensitivity information.  If None, no csv file is written.
+        hdf5_forward_solution_fname (str) : the HDF5 file created by solve_gwf() that
+            contains the forward solution information needed to solve the adjoint.
+            hdf5_adjoint_solution_fname (str) : the HDF5 file to write the
+            adjoint solution. If None, a default name based on the performance
+            measure name is used.
+        csv_summary (bool) : flag to write a summary CSV file with the sensitivity
+            information.  If False, no CSV file is written.
         linear_solver (varies) : the scipy sparse linear alg solver to use.  If None,
             a choice is made between direct and bicgstab, depending if the number of
             nodes is less than 50,000.  If `str`, can be "direct", "bicgstab", "cg",
@@ -919,8 +918,9 @@ class PerfMeas(object):
             df["ss"] = comp_ss_sens
 
         df.index.name = "node"
-        if csv_summary_fname is not None:
-            df.to_csv(csv_summary_fname)
+        if csv_summary:
+            csv_path = hdf5_adjoint_solution_fname.with_suffix(".csv")
+            df.to_csv(csv_path)
 
         kper, kstp = kk
         dtsec = (datetime.now() - adj_start).total_seconds()

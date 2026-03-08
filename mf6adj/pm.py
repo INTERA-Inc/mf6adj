@@ -459,7 +459,7 @@ class PerfMeas(object):
                         comp_bnd_results[pname + "_" + aname] = np.zeros(nnodes)
 
         for itime, kk in enumerate(kperkstp[::-1]):
-            if not self._pm_available:
+            if not self._pm_available(kk):
                 continue
 
             data = {}

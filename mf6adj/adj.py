@@ -427,27 +427,6 @@ class Mf6Adj(object):
                                 j,
                             )
                         )
-                    if len(pm_entries) == 0:
-                        raise Exception(f"no entries found for PM {pm_name}")
-                    pm_types = {entry.pm_type for entry in pm_entries}
-
-                    pm_forms = {entry.pm_form for entry in pm_entries}
-                    if len(pm_forms) > 1:
-                        raise Exception(
-                            "performance measure"
-                            + f"{pm_name} has mixed 'pm_forms' ({pm_forms}), "
-                            + "this is not supported"
-                        )
-                    if (
-                        next(iter(pm_types)) != "head"
-                        and next(iter(pm_forms)) != "direct"
-                    ):
-                        raise Exception(
-                            "performance measure"
-                            + pm_name
-                            + " has a flux 'pm_form' and is a "
-                            + "residual 'pm_type', this is not supported"
-                        )
                     if pm_name in [pm._name for pm in self._performance_measures]:
                         raise Exception(f"PM {pm_name} multiply defined")
                     self._performance_measures.append(

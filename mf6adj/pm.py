@@ -168,7 +168,12 @@ class PerfMeas(object):
     Parameters
     ----------
     pm_name (str) : name of the performance measure
-    pm_entries (list(PerfMeasRec)) : container of performance measure entries
+    pm_entries (list(PerfMeasRecord), optional) : container of performance measure
+        entries.  Either ``pm_entries`` or ``df`` must be provided.
+    df (pd.DataFrame, optional) : DataFrame with one row per performance measure
+        entry.  Required columns: ``kper``, ``kstp``, ``inode``, ``pm_type``,
+        ``pm_form``, ``weight``, ``obsval``.  Optional columns: ``k``, ``i``, ``j``.
+        Either ``pm_entries`` or ``df`` must be provided.
     logging_level (str) : logging levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     logger (logging) : logger instance. Default is None
 
@@ -187,15 +192,27 @@ class PerfMeas(object):
 
     """
 
+    _REQUIRED_DF_COLS = {"kper", "kstp", "inode", "pm_type", "pm_form", "weight", "obsval"}
+
     def __init__(
         self,
         pm_name: str,
-        pm_entries: List[PerfMeasRecord],
+        pm_entries: Optional[List[PerfMeasRecord]] = None,
         logging_level: Union[int, str] = "INFO",
         logger: Optional[LoggerUtil] = None,
+        df: Optional[pd.DataFrame] = None,
     ):
+        if pm_entries is None and df is None:
+            raise ValueError("Either 'pm_entries' or 'df' must be provided")
+        if pm_entries is not None and df is not None:
+            raise ValueError("Provide either 'pm_entries' or 'df', not both")
+
+        if df is not None:
+            pm_entries = PerfMeas._entries_from_dataframe(df)
+
         self._name = pm_name.lower().strip()
         self._entries = pm_entries
+        PerfMeas._validate_entries(self._name, self._entries)
 
         if logger is None:
             logger_name = f"{self.__class__.__name__}-{self.name}"
@@ -208,6 +225,73 @@ class PerfMeas(object):
         else:
             self.new_logger = False
             self.logger = logger
+
+    @staticmethod
+    def _entries_from_dataframe(df: pd.DataFrame) -> List[PerfMeasRecord]:
+        """Convert a DataFrame to a list of PerfMeasRecord objects.
+
+        Parameters
+        ----------
+        df (pd.DataFrame) : DataFrame with required columns ``kper``, ``kstp``,
+            ``inode``, ``pm_type``, ``pm_form``, ``weight``, ``obsval`` and
+            optional columns ``k``, ``i``, ``j``.
+
+        Returns
+        -------
+        list[PerfMeasRecord]
+        """
+        missing = PerfMeas._REQUIRED_DF_COLS - set(df.columns)
+        if missing:
+            raise ValueError(
+                f"DataFrame is missing required column(s): {sorted(missing)}"
+            )
+        entries = []
+        for _, row in df.iterrows():
+            entries.append(
+                PerfMeasRecord(
+                    kper=row["kper"],
+                    kstp=row["kstp"],
+                    inode=row["inode"],
+                    pm_type=row["pm_type"],
+                    pm_form=row["pm_form"],
+                    weight=row["weight"],
+                    obsval=row["obsval"],
+                    k=row.get("k", None),
+                    i=row.get("i", None),
+                    j=row.get("j", None),
+                )
+            )
+        return entries
+
+    @staticmethod
+    def _validate_entries(pm_name: str, pm_entries: List[PerfMeasRecord]) -> None:
+        """Validate a list of PerfMeasRecord entries for a named performance measure.
+
+        Parameters
+        ----------
+        pm_name (str) : name of the performance measure (used in error messages)
+        pm_entries (list[PerfMeasRecord]) : entries to validate
+
+        Raises
+        ------
+        ValueError
+        """
+        if len(pm_entries) == 0:
+            raise ValueError(f"no entries found for PM '{pm_name}'")
+
+        pm_forms = {entry.pm_form for entry in pm_entries}
+        if len(pm_forms) > 1:
+            raise ValueError(
+                f"performance measure '{pm_name}' has mixed 'pm_forms' "
+                f"({pm_forms}), this is not supported"
+            )
+
+        pm_types = {entry.pm_type for entry in pm_entries}
+        if next(iter(pm_types)) != "head" and next(iter(pm_forms)) != "direct":
+            raise ValueError(
+                f"performance measure '{pm_name}' has a flux 'pm_type' and a "
+                "'residual' pm_form, this is not supported"
+            )
 
     @property
     def name(self):

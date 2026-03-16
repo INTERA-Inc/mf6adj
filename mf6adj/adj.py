@@ -1304,8 +1304,12 @@ class Mf6Adj(object):
         dfs = {}
         for pm in self._performance_measures:
             if generateName:
-                path = pl.Path(self._hdf5_name).parent
-                extension = self._hdf5_name.suffix
+                if isinstance(self._hdf5_name, str):
+                    hdf5_name = pl.Path(self._hdf5_name)
+                else:
+                    hdf5_name = self._hdf5_name
+                path = hdf5_name.parent
+                extension = hdf5_name.suffix
                 hdf5_adjoint_solution_fname = (
                     path / f"adjoint_solution_{pm.name}{extension}"
                 )

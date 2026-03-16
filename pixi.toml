@@ -70,9 +70,10 @@ install-gridgen = {cmd = "get-modflow --subset gridgen :python"}
 
 # test
 autotest = { cmd = "pixi run autotest-base; pixi run autotest-notebooks" }
-autotest-base = { cmd = "pytest -v -n=auto --durations=0 --cov=mf6adj --cov-report=xml --keep-failed .failed", cwd = "autotest" }
+autotest-base = { cmd = "pixi run clean-tests; pytest -v -n=auto --durations=0 --cov=mf6adj --cov-report=xml --keep-failed .failed", cwd = "autotest" }
 autotest-notebooks = { cmd = "pytest -v -n=auto --durations=0 --nbmake --nbmake-timeout=3000", cwd = "examples" }
 clean-notebooks = { cmd = "python clear_output_all.py", cwd = "examples" }
+clean-tests = { cmd = "rm -rf *_test", cwd = "autotest" }
 
 # coverage report
 coverage-report = { cmd = "coverage report", cwd = "autotest"}

@@ -550,7 +550,7 @@ def xd_box_compare(new_d, plot_compare=False, dif_thres=1e-6,):
     adj_summary_files = [
         os.path.join(new_d, f)
         for f in os.listdir(new_d)
-        if f.startswith("adjoint_summary") and f.endswith(".csv")
+        if f.startswith("adjoint_solution") and f.endswith(".csv")
     ]
 
     assert len(adj_summary_files) > 0
@@ -882,9 +882,13 @@ def test_xd_box():
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
 
-        adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        adj.solve_adjoint()
+        adj.solve_adjoint(csv_summary=True)
         adj._perturbation_test(pert_mult=pert_mult)
         adj.finalize()
 
@@ -1114,9 +1118,13 @@ def test_xd_box_unstruct():
                     )
                 f.write("end performance_measure\n\n")
 
-        adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        adj.solve_adjoint()
+        adj.solve_adjoint(csv_summary=True)
         adj._perturbation_test(pert_mult=pert_mult)
         adj.finalize()
 
@@ -1267,9 +1275,13 @@ def test_xd_box_chd():
                     lines.append("end performance_measure\n\n")
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
-        adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        adj.solve_adjoint()
+        adj.solve_adjoint(csv_summary=True)
         adj._perturbation_test(pert_mult=pert_mult)
         adj.finalize()
 
@@ -1383,9 +1395,13 @@ def test_xd_box_chd_ana():
                         format(kper + 1, k + 1, i + 1, j + 1, weight))
                 f.write("end performance_measure\n\n")
             
-        adj = mf6adj.Mf6Adj("test.adj", lib_name,logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        df_dict = adj.solve_adjoint()
+        df_dict = adj.solve_adjoint(csv_summary=True)
         
         lamb = df_dict[pm_name]["wel6_q"]
         
@@ -1569,9 +1585,13 @@ def test_xd_box_ss():
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
 
-        adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        adj.solve_adjoint()
+        adj.solve_adjoint(csv_summary=True)
         adj._perturbation_test(pert_mult=pert_mult)
         adj.finalize()
 
@@ -1726,9 +1746,13 @@ def test_xd_box_drn():
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
 
-        adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        adj.solve_adjoint()
+        adj.solve_adjoint(csv_summary=True)
         adj._perturbation_test(pert_mult=pert_mult)
         adj.finalize()
 
@@ -1927,9 +1951,13 @@ def test_xd_box_maw():
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
 
-        adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        adj.solve_adjoint()
+        adj.solve_adjoint(csv_summary=True)
         adj._perturbation_test(pert_mult=pert_mult)
         adj.finalize()
 
@@ -1976,9 +2004,13 @@ def nested_test():
     b_d = os.getcwd()
     os.chdir(new_d)
 
-    adj = mf6adj.Mf6Adj("test.adj", lib_name, False)
+    adj = mf6adj.Mf6Adj(
+        "test.adj", 
+        lib_name, 
+        logging_level="WARNING",
+        )
     adj.solve_gwf()
-    adjdf = adj.solve_adjoint()["pm1"]
+    adjdf = adj.solve_adjoint(csv_summary=True)["pm1"]
     pertdf1 = adj._perturbation_test(pert_mult=1.1)
     adj.finalize()
 

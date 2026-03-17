@@ -42,12 +42,12 @@ gg_bin = env_path / f"{bin_path}/gridgen{exe_ext}"
 def test_sanpedro():
     prep = True
 
-    org_d = os.path.join("sanpedro", "mf6_transient_ghb")
+    org_d = pl.Path("sanpedro") / "mf6_transient_ghb"
     new_d = "sanpedro_test"
 
-    adj_file = os.path.join(new_d, "test.adj")
+    adj_file = pl.Path(new_d) / "test.adj"
     if prep:
-        if os.path.exists(new_d):
+        if pl.Path(new_d).exists():
             shutil.rmtree(new_d)
         shutil.copytree(org_d, new_d)
 
@@ -70,7 +70,7 @@ def test_sanpedro():
     start = datetime.now()
     os.chdir(new_d)
 
-    adj = mf6adj.Mf6Adj(os.path.split(adj_file)[1], lib_name, logging_level="INFO")
+    adj = mf6adj.Mf6Adj(adj_file.name, lib_name, logging_level="INFO")
 
     adj.solve_gwf()
     adj.solve_adjoint(
@@ -92,7 +92,7 @@ def test_sanpedro():
     assert len(result_hdf) == 1
     result_hdf = result_hdf[0]
 
-    hdf = h5py.File(os.path.join(new_d, result_hdf), "r")
+    hdf = h5py.File(pl.Path(new_d) / result_hdf, "r")
     keys = list(hdf.keys())
     keys.sort()
 
@@ -100,7 +100,7 @@ def test_sanpedro():
 
     idomain = gwf.dis.idomain.array
     thresh = 0.0001
-    with PdfPages(os.path.join(new_d, "results.pdf")) as pdf:
+    with PdfPages(pl.Path(new_d) / "results.pdf") as pdf:
         for key in keys:
             if key != "composite":
                 continue

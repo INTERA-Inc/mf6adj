@@ -1,5 +1,5 @@
 import logging
-import os
+import pathlib as pl
 import types
 from datetime import datetime
 from typing import List, Optional, Union
@@ -275,8 +275,10 @@ class PerfMeas(object):
 
     def solve_adjoint(
         self,
-        hdf5_forward_solution_fname: str,
+        hdf5_forward_solution_fname,
         hdf5_adjoint_solution_fname: Optional[str] = None,
+        skip_solve: bool = False,
+        csv_summary=False,
         linear_solver=None,
         linear_solver_kwargs: dict = {},
         use_precon: bool = True,
@@ -291,12 +293,20 @@ class PerfMeas(object):
 
         Parameters
         ----------
-        hdf5_forward_solution_fname (str) : the HDF5 file written during the forward
-            GWF  solution that contains all the information needed to solve for the
-            adjoint state
-        hdf5_adjoint_solution_fname (str) : the HDF5 file to be created by the adjoint
-            solution process. If None, use `f"adjoint_solution_{self._name0}_" +
-            hdf5_forward_solution_fname`.
+        hdf5_forward_solution_fname (str) : the HDF5 file created by solve_gwf() that
+            contains the forward solution information needed to solve the adjoint.
+            hdf5_adjoint_solution_fname (str) : the HDF5 file to write the
+            adjoint solution. If None, a default name based on the performance
+            measure name is used.
+        skip_solve (bool) : flag to skip the adjoint solve for time steps with no
+            performance measure entries. This can be used to significantly speed up
+            the solve for cases with many time steps but only a few with performance
+            measure entries. One possible use case is to calculate individual
+            sensitivities for a single time step. Default is False, which means the
+            adjoint solve is performed for all time steps, even those with no
+            performance measure entries.
+        csv_summary (bool) : flag to write a summary CSV file with the sensitivity
+            information.  If False, no CSV file is written.
         linear_solver (varies) : the scipy sparse linear alg solver to use.  If None,
             a choice is made between direct and bicgstab, depending if the number of
             nodes is less than 50,000.  If `str`, can be "direct", "bicgstab", "cg",
@@ -344,6 +354,7 @@ class PerfMeas(object):
 
         adj_start = datetime.now()
         self.logger.logger.info(f"Starting solve_adjoint at {adj_start}")
+        hdf5_forward_solution_fname = pl.Path(hdf5_forward_solution_fname)
         try:
             hdf = h5py.File(hdf5_forward_solution_fname, "r")
         except Exception as e:
@@ -354,20 +365,21 @@ class PerfMeas(object):
                 )
             )
         if hdf5_adjoint_solution_fname is None:
-            pth = os.path.split(hdf5_forward_solution_fname)[0]
-            hdf5_adjoint_solution_fname = os.path.join(
-                pth,
-                f"adjoint_solution_{self._name}_" + hdf5_forward_solution_fname,
+            hdf5_adjoint_solution_fname = hdf5_forward_solution_fname.parent / (
+                f"adjoint_solution_{self._name}_"
+                + f"{hdf5_forward_solution_fname.name}"
             )
+        else:
+            hdf5_adjoint_solution_fname = pl.Path(hdf5_adjoint_solution_fname)
 
-        if os.path.exists(hdf5_adjoint_solution_fname):
+        if hdf5_adjoint_solution_fname.exists():
             self.logger.logger.warning(
                 (
                     "Removing existing adjoint solution "
                     + f"file '{hdf5_adjoint_solution_fname}'"
                 )
             )
-            os.remove(hdf5_adjoint_solution_fname)
+            hdf5_adjoint_solution_fname.unlink()
 
         adf = h5py.File(hdf5_adjoint_solution_fname, "w")
 
@@ -457,6 +469,9 @@ class PerfMeas(object):
                         comp_bnd_results[pname + "_" + aname] = np.zeros(nnodes)
 
         for itime, kk in enumerate(kperkstp[::-1]):
+            if skip_solve and not self._pm_available(kk):
+                continue
+
             data = {}
             kper_start = datetime.now()
             msg = (
@@ -478,10 +493,12 @@ class PerfMeas(object):
 
             self.logger.logger.debug("Calculate dfdh")
             dfdh = self._dfdh(kk, hdf[sol_key])
+
             self.logger.logger.debug(
                 "Calculating dfdh took: "
                 + f"{(datetime.now() - start).total_seconds()} seconds"
             )
+
             data["dfdh"] = dfdh
             iss = hdf[sol_key]["iss"][0]
 
@@ -908,7 +925,9 @@ class PerfMeas(object):
             df["ss"] = comp_ss_sens
 
         df.index.name = "node"
-        df.to_csv(f"adjoint_summary_{self._name}.csv")
+        if csv_summary:
+            csv_path = hdf5_adjoint_solution_fname.with_suffix(".csv")
+            df.to_csv(csv_path)
 
         kper, kstp = kk
         dtsec = (datetime.now() - adj_start).total_seconds()
@@ -1302,6 +1321,24 @@ class PerfMeas(object):
                 result_cond[n] += bound[0] - head[n]
 
         return result_head, result_cond
+
+    def _pm_available(self, kk):
+        """
+        Determine if a performance measure is available for a given stress
+        period and time step.
+
+        Parameters
+        ----------
+        kk (tuple) : zero-based stress period and time step
+
+        Returns
+        -------
+        bool
+            True if a performance measure is available, False otherwise
+        """
+
+        relevant_entries = [p for p in self._entries if p.kperkstp == kk]
+        return len(relevant_entries) > 0
 
     def _dfdh(self, kk, sol_dataset):
         """partial of the performance measure with respect to head

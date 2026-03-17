@@ -1,5 +1,5 @@
 import logging
-import os
+import pathlib as pl
 import types
 from datetime import datetime
 from typing import List, Optional, Union
@@ -354,6 +354,7 @@ class PerfMeas(object):
 
         adj_start = datetime.now()
         self.logger.logger.info(f"Starting solve_adjoint at {adj_start}")
+        hdf5_forward_solution_fname = pl.Path(hdf5_forward_solution_fname)
         try:
             hdf = h5py.File(hdf5_forward_solution_fname, "r")
         except Exception as e:
@@ -364,20 +365,21 @@ class PerfMeas(object):
                 )
             )
         if hdf5_adjoint_solution_fname is None:
-            pth = os.path.split(hdf5_forward_solution_fname)[0]
-            hdf5_adjoint_solution_fname = os.path.join(
-                pth,
-                f"adjoint_solution_{self._name}_" + hdf5_forward_solution_fname,
+            hdf5_adjoint_solution_fname = hdf5_forward_solution_fname.parent / (
+                f"adjoint_solution_{self._name}_"
+                + f"{hdf5_forward_solution_fname.name}"
             )
+        else:
+            hdf5_adjoint_solution_fname = pl.Path(hdf5_adjoint_solution_fname)
 
-        if os.path.exists(hdf5_adjoint_solution_fname):
+        if hdf5_adjoint_solution_fname.exists():
             self.logger.logger.warning(
                 (
                     "Removing existing adjoint solution "
                     + f"file '{hdf5_adjoint_solution_fname}'"
                 )
             )
-            os.remove(hdf5_adjoint_solution_fname)
+            hdf5_adjoint_solution_fname.unlink()
 
         adf = h5py.File(hdf5_adjoint_solution_fname, "w")
 

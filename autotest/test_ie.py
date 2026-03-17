@@ -36,12 +36,12 @@ mf6_bin = env_path / f"{bin_path}/mf6{exe_ext}"
 def test_ie_nomaw_1sp():
     prep = True
 
-    org_d = os.path.join("ie_nomaw_1sp")
+    org_d = pl.Path("ie_nomaw_1sp")
     new_d = "ie_nomaw_1sp_test"
 
-    adj_file = os.path.join(new_d, "test.adj")
+    adj_file = pl.Path(new_d) / "test.adj"
     if prep:
-        if os.path.exists(new_d):
+        if pl.Path(new_d).exists():
             shutil.rmtree(new_d)
         shutil.copytree(org_d, new_d)
 
@@ -60,7 +60,7 @@ def test_ie_nomaw_1sp():
     start = datetime.now()
     os.chdir(new_d)
 
-    adj = mf6adj.Mf6Adj(os.path.split(adj_file)[1], lib_name, logging_level="INFO")
+    adj = mf6adj.Mf6Adj(adj_file.name, lib_name, logging_level="INFO")
 
     adj.solve_gwf()
     adj.solve_adjoint(
@@ -77,12 +77,12 @@ def test_ie_nomaw_1sp():
 def test_ie_1sp():
     prep = True
 
-    org_d = os.path.join("ie_1sp")
+    org_d = pl.Path("ie_1sp")
     new_d = "ie_1sp_test"
 
-    adj_file = os.path.join(new_d, "test.adj")
+    adj_file = pl.Path(new_d) / "test.adj"
     if prep:
-        if os.path.exists(new_d):
+        if pl.Path(new_d).exists():
             shutil.rmtree(new_d)
         shutil.copytree(org_d, new_d)
 
@@ -101,7 +101,7 @@ def test_ie_1sp():
     start = datetime.now()
     os.chdir(new_d)
 
-    adj = mf6adj.Mf6Adj(os.path.split(adj_file)[1], lib_name, logging_level="INFO")
+    adj = mf6adj.Mf6Adj(adj_file.name, lib_name, logging_level="INFO")
 
     adj.solve_gwf()
     adj.solve_adjoint(

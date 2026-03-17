@@ -44,9 +44,9 @@ def test_sagehen():
     org_d = "ex-gwf-sagehen-external"
     new_d = "sagehen_test"
 
-    adj_file = os.path.join(new_d, "test.adj")
+    adj_file = pl.Path(new_d) / "test.adj"
     if prep:
-        if os.path.exists(new_d):
+        if pl.Path(new_d).exists():
             shutil.rmtree(new_d)
         shutil.copytree(org_d, new_d)
         pyemu.os_utils.run("mf6", cwd=new_d)
@@ -78,7 +78,7 @@ def test_sagehen():
     os.chdir(new_d)
 
     print("calculating adjoint...")
-    adj = mf6adj.Mf6Adj(os.path.split(adj_file)[1], lib_name, logging_level="INFO")
+    adj = mf6adj.Mf6Adj(adj_file.name, lib_name, logging_level="INFO")
 
     adj.solve_gwf()
     adj.solve_adjoint()
@@ -95,7 +95,7 @@ def test_sagehen():
     assert len(result_hdf) == 1
     result_hdf = result_hdf[0]
 
-    hdf = h5py.File(os.path.join(new_d, result_hdf), "r")
+    hdf = h5py.File(pl.Path(new_d) / result_hdf, "r")
     keys = list(hdf.keys())
     keys.sort()
 
@@ -103,7 +103,7 @@ def test_sagehen():
 
     idomain = gwf.dis.idomain.array
     thresh = 0.0001
-    with PdfPages(os.path.join(new_d, "results.pdf")) as pdf:
+    with PdfPages(pl.Path(new_d) / "results.pdf") as pdf:
         for key in keys:
             if key != "composite":
                 continue

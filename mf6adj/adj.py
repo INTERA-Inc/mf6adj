@@ -1,5 +1,4 @@
 import logging
-import os
 import pathlib as pl
 import shutil
 import uuid
@@ -36,7 +35,7 @@ class Mf6Adj(object):
         adj_filename: str,
         lib_name: str,
         logging_level: Union[int, str] = "INFO",
-        logging_filename: Optional[Union[os.PathLike, str]] = None,
+        logging_filename: Optional[Union[pl.Path, str]] = None,
         # ws: str = ".",
     ):
         """ """
@@ -61,7 +60,7 @@ class Mf6Adj(object):
 
         # process the flow model
         # make sure the lib exists
-        if not os.path.exists(lib_name):
+        if not pl.Path(lib_name).exists():
             self.logger.logger.warning(
                 f"MODFLOW 6 library file '{lib_name}' not found...continuing..."
             )
@@ -277,7 +276,7 @@ class Mf6Adj(object):
                             break
                         elif line2.lower().strip().startswith("open"):
                             fname = line2.split()[1]
-                            if not os.path.exists(fname):
+                            if not pl.Path(fname).exists():
                                 raise Exception(f"External file '{fname}' found")
                             # df = pd.read_csv()
                             raise NotImplementedError()
@@ -481,12 +480,12 @@ class Mf6Adj(object):
                 namfile: model-type (e.g. {"gwf-1":"gwf_1.nam"})
 
         """
-        sim_nam = os.path.join(sim_ws, "mfsim.nam")
-        if not os.path.exists(sim_nam):
+        sim_nam = pl.Path(sim_ws) / "mfsim.nam"
+        if not sim_nam.exists():
             raise Exception(f"simulation nam file '{sim_nam}' not found")
         model_dict = {}
         namfile_dict = {}
-        with open(sim_nam, "r") as f:
+        with sim_nam.open("r") as f:
             while True:
                 line = f.readline()
                 if line == "":
@@ -525,11 +524,12 @@ class Mf6Adj(object):
             dict: package types as keys and list of package names as values
 
         """
-        if not os.path.exists(gwf_nam_file):
+        gwf_nam_file = pl.Path(gwf_nam_file)
+        if not gwf_nam_file.exists():
             raise Exception(f"gwf nam file '{gwf_nam_file}' not found")
         package_dict = {}
         count_dict = {}
-        with open(gwf_nam_file, "r") as f:
+        with gwf_nam_file.open("r") as f:
             while True:
                 line = f.readline()
                 if line == "":
@@ -640,9 +640,10 @@ class Mf6Adj(object):
             )
         else:
             fname = tag
+        fname = pl.Path(fname)
         self._hdf5_name = fname
-        if os.path.exists(fname):
-            os.remove(fname)
+        if fname.exists():
+            fname.unlink()
         f = h5py.File(fname, "w")
         return f
 
@@ -1302,7 +1303,7 @@ class Mf6Adj(object):
 
 
         """
-        if self._hdf5_name is None or not os.path.exists(self._hdf5_name):
+        if self._hdf5_name is None or not pl.Path(self._hdf5_name).exists():
             raise Exception("need to call solve_gwf() first")
 
         generateName = False
@@ -1312,10 +1313,7 @@ class Mf6Adj(object):
         dfs = {}
         for pm in self._performance_measures:
             if generateName:
-                if isinstance(self._hdf5_name, str):
-                    hdf5_name = pl.Path(self._hdf5_name)
-                else:
-                    hdf5_name = self._hdf5_name
+                hdf5_name = pl.Path(self._hdf5_name)
                 path = hdf5_name.parent
                 extension = hdf5_name.suffix
                 hdf5_adjoint_solution_fname = (
@@ -1354,8 +1352,9 @@ class Mf6Adj(object):
         if self._gwf is not None:
             self._gwf.finalize()
             self._gwf = None
+        sim_ws = pl.Path(sim_ws)
         gwf = modflowapi.ModflowApi(
-            os.path.join(sim_ws, lib_name), working_directory=sim_ws
+            str(sim_ws / lib_name), working_directory=str(sim_ws)
         )
         gwf.initialize()
         return gwf
@@ -1560,7 +1559,7 @@ class Mf6Adj(object):
                 test_dir = self._flow_dir + "_pert_temp"
             else:
                 test_dir = "pert_temp"
-            if os.path.exists(test_dir):
+            if pl.Path(test_dir).exists():
                 shutil.rmtree(test_dir)
             sim = flopy.mf6.MFSimulation.load(sim_ws=self._flow_dir)
             gwf = sim.get_model()
@@ -1571,14 +1570,14 @@ class Mf6Adj(object):
             sim.set_sim_path(test_dir)
             sim.set_all_data_external()
             sim.write_simulation()
-            ss_arr_name = os.path.join(test_dir, f"{gwf.name}.sto_ss.txt")
-            if not os.path.exists(ss_arr_name):
+            ss_arr_name = pl.Path(test_dir) / f"{gwf.name}.sto_ss.txt"
+            if not ss_arr_name.exists():
                 raise Exception(
                     "couldn't find ss_arr_name '{0}' needed for BS super hack"
                 )
-            if os.path.exists(os.path.join(self._flow_dir, self._lib_name)):
-                src = os.path.join(self._flow_dir, self._lib_name)
-                dst = os.path.join(test_dir, self._lib_name)
+            src = pl.Path(self._flow_dir) / self._lib_name
+            if src.exists():
+                dst = pl.Path(test_dir) / self._lib_name
                 if src != dst:
                     shutil.copy2(
                         src,

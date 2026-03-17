@@ -60,7 +60,7 @@ def setup_xd_box_model(
     tdis_pd = [(sp_len, 1, 1.0) for _ in range(nper)]
     if botm is None:
         botm = np.linspace(0, -nlay + 1, nlay)
-    if os.path.exists(new_d):
+    if pl.Path(new_d).exists():
         shutil.rmtree(new_d)
     os.mkdir(new_d)
 
@@ -275,7 +275,7 @@ def setup_xd_box_model(
     sim.write_simulation()
 
     # hack in tvk so we can use pert within api later
-    with open(os.path.join(new_d, "blank.tvk"), "w") as f:
+    with open(pl.Path(new_d) / "blank.tvk", "w") as f:
         f.write("\n")
 
     pyemu.os_utils.run(mf6_bin.name, cwd=new_d)
@@ -295,7 +295,7 @@ def run_xd_box_pert(
     # # now run with API
     bd = os.getcwd()
     os.chdir(new_d)
-    sys.path.append(os.path.join("..", ".."))
+    sys.path.append(str(pl.Path("..") / ".."))
     print(os.listdir("."))
     print("test run to completion with API")
     mf6api = modflowapi.ModflowApi(lib_name)
@@ -548,19 +548,19 @@ def xd_box_compare(new_d, plot_compare=False, dif_thres=1e-6,):
     id = gwf.dis.idomain.array
 
     adj_summary_files = [
-        os.path.join(new_d, f)
+        str(pl.Path(new_d) / f)
         for f in os.listdir(new_d)
-        if f.startswith("adjoint_summary") and f.endswith(".csv")
+        if f.startswith("adjoint_solution") and f.endswith(".csv")
     ]
 
     assert len(adj_summary_files) > 0
 
-    pert_summary = pd.read_csv(os.path.join(new_d, "pert_results.csv"), index_col=0)
+    pert_summary = pd.read_csv(pl.Path(new_d) / "pert_results.csv", index_col=0)
     for col in ["k", "i", "j"]:
         if col in pert_summary:
             pert_summary[col] = pert_summary[col].astype(int)
     if plot_compare:
-        pdf = PdfPages(os.path.join(new_d, "compare.pdf"))
+        pdf = PdfPages(pl.Path(new_d) / "compare.pdf")
 
     skip = ["epsilon", "k", "i", "j", "addr"]
     pm_names = [c for c in pert_summary.columns if c not in skip]
@@ -726,7 +726,7 @@ def xd_box_compare(new_d, plot_compare=False, dif_thres=1e-6,):
         ax.set_yticks(np.arange(df.shape[0]))
         ax.set_yticklabels(df.index.values, fontsize=8)
         plt.tight_layout()
-        plt.savefig(os.path.join(new_d, "abs_percent_dif_results.pdf"))
+        plt.savefig(pl.Path(new_d) / "abs_percent_dif_results.pdf")
         plt.close(fig)
 
     return df
@@ -831,7 +831,7 @@ def test_xd_box():
     if run_adj:
         bd = os.getcwd()
         os.chdir(new_d)
-        sys.path.append(os.path.join("..", ".."))
+        sys.path.append(str(pl.Path("..") / ".."))
 
         print("calculating mf6adj sensitivity")
 
@@ -882,9 +882,13 @@ def test_xd_box():
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
 
-        adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        adj.solve_adjoint()
+        adj.solve_adjoint(csv_summary=True)
         adj._perturbation_test(pert_mult=pert_mult)
         adj.finalize()
 
@@ -985,7 +989,7 @@ def test_xd_box_unstruct():
 
     wel = gwf.get_package("wel")
     if wel is not None:
-        f_wel = open(os.path.join(new_d, f"{name}_disv.wel"), "w")
+        f_wel = open(pl.Path(new_d) / f"{name}_disv.wel", "w")
         f_wel.write(
             "begin options\nprint_input\nprint_flows\nsave_flows\nend options\n\n"
         )
@@ -1020,7 +1024,7 @@ def test_xd_box_unstruct():
 
     ghb = gwf.get_package("ghb")
     if ghb is not None:
-        f_ghb = open(os.path.join(new_d, f"{name}_disv.ghb"), "w")
+        f_ghb = open(pl.Path(new_d) / f"{name}_disv.ghb", "w")
         f_ghb.write(
             "begin options\nprint_input\nprint_flows\nsave_flows\nend options\n\n"
         )
@@ -1058,7 +1062,7 @@ def test_xd_box_unstruct():
         f_ghb.close()
 
     # now hack the nam file
-    nam_file = os.path.join(new_d, f"{name}.nam")
+    nam_file = pl.Path(new_d) / f"{name}.nam"
     lines = open(nam_file, "r").readlines()
 
     with open(nam_file, "w") as f:
@@ -1114,9 +1118,13 @@ def test_xd_box_unstruct():
                     )
                 f.write("end performance_measure\n\n")
 
-        adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        adj.solve_adjoint()
+        adj.solve_adjoint(csv_summary=True)
         adj._perturbation_test(pert_mult=pert_mult)
         adj.finalize()
 
@@ -1217,7 +1225,7 @@ def test_xd_box_chd():
     if run_adj:
         bd = os.getcwd()
         os.chdir(new_d)
-        sys.path.append(os.path.join("..", ".."))
+        sys.path.append(str(pl.Path("..") / ".."))
 
         print("calculating mf6adj sensitivity")
 
@@ -1267,9 +1275,13 @@ def test_xd_box_chd():
                     lines.append("end performance_measure\n\n")
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
-        adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        adj.solve_adjoint()
+        adj.solve_adjoint(csv_summary=True)
         adj._perturbation_test(pert_mult=pert_mult)
         adj.finalize()
 
@@ -1361,12 +1373,12 @@ def test_xd_box_chd_ana():
     
 
     assert len(pm_locs) > 0
-    sys.path.insert(0,os.path.join(".."))
+    sys.path.insert(0, str(pl.Path("..")))
     import mf6adj
     if run_adj:
         bd = os.getcwd()
         os.chdir(new_d)
-        sys.path.append(os.path.join("..",".."))
+        sys.path.append(str(pl.Path("..") / ".."))
 
         print('calculating mf6adj sensitivity')
 
@@ -1383,9 +1395,13 @@ def test_xd_box_chd_ana():
                         format(kper + 1, k + 1, i + 1, j + 1, weight))
                 f.write("end performance_measure\n\n")
             
-        adj = mf6adj.Mf6Adj("test.adj", lib_name,logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        df_dict = adj.solve_adjoint()
+        df_dict = adj.solve_adjoint(csv_summary=True)
         
         lamb = df_dict[pm_name]["wel6_q"]
         
@@ -1394,8 +1410,7 @@ def test_xd_box_chd_ana():
         X = gwf.modelgrid.xcellcenters
         Y = gwf.modelgrid.ycellcenters
         
-        lambana = np.loadtxt(os.path.join("testing_files",
-                                  "lamb_Analytical.txt"))
+        lambana = np.loadtxt(pl.Path("testing_files") / "lamb_Analytical.txt")
         lambana = pd.Series(lambana)
         lamb = lamb.reindex(np.arange(nrow*ncol,dtype=int))
         lamb.loc[:] *= -1
@@ -1440,7 +1455,7 @@ def test_xd_box_chd_ana():
             ax.set_xlabel("X (m)")
             ax.set_ylabel("Y (m)")
         plt.tight_layout()
-        plt.savefig(os.path.join(new_d,"compare.png"),dpi=500)
+        plt.savefig(pl.Path(new_d) / "compare.png", dpi=500)
         plt.close()
 
     
@@ -1518,7 +1533,7 @@ def test_xd_box_ss():
     if run_adj:
         bd = os.getcwd()
         os.chdir(new_d)
-        sys.path.append(os.path.join("..", ".."))
+        sys.path.append(str(pl.Path("..") / ".."))
 
         print("calculating mf6adj sensitivity")
 
@@ -1569,9 +1584,13 @@ def test_xd_box_ss():
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
 
-        adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        adj.solve_adjoint()
+        adj.solve_adjoint(csv_summary=True)
         adj._perturbation_test(pert_mult=pert_mult)
         adj.finalize()
 
@@ -1675,7 +1694,7 @@ def test_xd_box_drn():
     if run_adj:
         bd = os.getcwd()
         os.chdir(new_d)
-        sys.path.append(os.path.join("..", ".."))
+        sys.path.append(str(pl.Path("..") / ".."))
 
         print("calculating mf6adj sensitivity")
 
@@ -1726,9 +1745,13 @@ def test_xd_box_drn():
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
 
-        adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        adj.solve_adjoint()
+        adj.solve_adjoint(csv_summary=True)
         adj._perturbation_test(pert_mult=pert_mult)
         adj.finalize()
 
@@ -1871,12 +1894,12 @@ def test_xd_box_maw():
     pm_locs.sort()
 
     assert len(pm_locs) > 0
-    sys.path.insert(0, os.path.join(".."))
+    sys.path.insert(0, str(pl.Path("..")))
 
     if run_adj:
         bd = os.getcwd()
         os.chdir(new_d)
-        sys.path.append(os.path.join("..", ".."))
+        sys.path.append(str(pl.Path("..") / ".."))
 
         print("calculating mf6adj sensitivity")
 
@@ -1927,9 +1950,13 @@ def test_xd_box_maw():
                 if len(lines) > 2:
                     [f.write(line) for line in lines]
 
-        adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="WARNING")
+        adj = mf6adj.Mf6Adj(
+            "test.adj", 
+            lib_name, 
+            logging_level="WARNING",
+            )
         adj.solve_gwf()
-        adj.solve_adjoint()
+        adj.solve_adjoint(csv_summary=True)
         adj._perturbation_test(pert_mult=pert_mult)
         adj.finalize()
 
@@ -1963,11 +1990,11 @@ def test_xd_box_maw():
 def nested_test():
     org_d = "nested"
     new_d = "nested_test"
-    if os.path.exists(new_d):
+    if pl.Path(new_d).exists():
         shutil.rmtree(new_d)
     shutil.copytree(org_d,new_d)
 
-    with open(os.path.join(new_d,"test.adj"),'w') as f:
+    with open(pl.Path(new_d) / "test.adj",'w') as f:
         f.write("\nbegin options\n\nend options\n\n")
         f.write("begin performance_measure pm1\n")
         f.write("1 1 1 80 head direct 1.0 -1.0e30 \n")
@@ -1976,9 +2003,13 @@ def nested_test():
     b_d = os.getcwd()
     os.chdir(new_d)
 
-    adj = mf6adj.Mf6Adj("test.adj", lib_name, False)
+    adj = mf6adj.Mf6Adj(
+        "test.adj", 
+        lib_name, 
+        logging_level="WARNING",
+        )
     adj.solve_gwf()
-    adjdf = adj.solve_adjoint()["pm1"]
+    adjdf = adj.solve_adjoint(csv_summary=True)["pm1"]
     pertdf1 = adj._perturbation_test(pert_mult=1.1)
     adj.finalize()
 

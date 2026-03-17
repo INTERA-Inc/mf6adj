@@ -43,7 +43,7 @@ gg_bin = env_path / f"{bin_path}/gridgen{exe_ext}"
 def test_freyberg_structured():
     org_d = "freyberg_structured"
     new_d = "freyberg_structured_test"
-    if os.path.exists(new_d):
+    if pl.Path(new_d).exists():
         shutil.rmtree(new_d)
     shutil.copytree(org_d, new_d)
 
@@ -55,7 +55,7 @@ def test_freyberg_structured():
 
     lrcs = []
     k_dict = {}
-    with open(os.path.join(new_d, "head.obs"), "r") as f:
+    with open(pl.Path(new_d) / "head.obs", "r") as f:
         f.readline()
         for line in f:
             if line.strip().lower().startswith("end"):
@@ -71,7 +71,7 @@ def test_freyberg_structured():
 
     np.random.seed(11111)
     rvals = np.random.random(len(lrcs)) + 36
-    with open(os.path.join(new_d, "test.adj"), "w") as f:
+    with open(pl.Path(new_d) / "test.adj", "w") as f:
         f.write("begin performance_measure pm1\n")
         for rval, lrc in zip(rvals, lrcs):
             for kper in range(sim.tdis.nper.data):
@@ -126,13 +126,13 @@ def test_freyberg_structured():
     for result_hdf in result_hdfs:
         print(result_hdf)
 
-        hdf = h5py.File(os.path.join(new_d, result_hdf), "r")
+        hdf = h5py.File(pl.Path(new_d) / result_hdf, "r")
         keys = list(hdf.keys())
         keys.sort()
         print(keys)
 
-        idomain = np.loadtxt(os.path.join(new_d, "freyberg6.dis_idomain_layer1.txt"))
-        with PdfPages(os.path.join(new_d, result_hdf + ".pdf")) as pdf:
+        idomain = np.loadtxt(pl.Path(new_d) / "freyberg6.dis_idomain_layer1.txt")
+        with PdfPages(pl.Path(new_d) / (result_hdf + ".pdf")) as pdf:
             for key in keys:
                 if key != "composite":
                     continue
@@ -159,18 +159,18 @@ def test_freyberg_quadtree():
     prep_run = True
     run_adj = True
 
-    sim = flopy.mf6.MFSimulation.load(sim_ws=os.path.join(org_d))
+    sim = flopy.mf6.MFSimulation.load(sim_ws=org_d)
     m = sim.get_model()
 
     if prep_run:
-        if os.path.exists(new_d):
+        if pl.Path(new_d).exists():
             shutil.rmtree(new_d)
         shutil.copytree(org_d, new_d)
         pyemu.os_utils.run("mf6", cwd=new_d)
 
     if run_adj:
         df = pd.read_csv(
-            os.path.join(new_d, "freyberg6.obs_continuous_heads.csv.txt"),
+            pl.Path(new_d) / "freyberg6.obs_continuous_heads.csv.txt",
             header=None,
             names=["site", "otype", "layer", "node"],
         )
@@ -179,7 +179,7 @@ def test_freyberg_quadtree():
 
         np.random.seed(11111)
         rvals = np.random.random(df.shape[0]) + 36
-        with open(os.path.join(new_d, "test.adj"), "w") as f:
+        with open(pl.Path(new_d) / "test.adj", "w") as f:
             f.write("begin performance_measure pm1\n")
             for rval, lay, node in zip(rvals, df.layer, df.node):
                 for kper in range(25):
@@ -224,7 +224,7 @@ def test_freyberg_quadtree():
     result_hdf = result_hdf[-1]
     print("using hdf", result_hdf)
 
-    hdf = h5py.File(os.path.join(new_d, result_hdf), "r")
+    hdf = h5py.File(pl.Path(new_d) / result_hdf, "r")
     keys = list(hdf.keys())
     keys.sort()
     print(keys)
@@ -236,7 +236,7 @@ def test_freyberg_quadtree():
     idomain = m.dis.idomain.array.copy()
     idomain = idomain.reshape((nlay, nplc))
 
-    with PdfPages(os.path.join(new_d, "results.pdf")) as _:
+    with PdfPages(pl.Path(new_d) / "results.pdf") as _:
         for key in keys:
             print(key)
             if key != "composite":
@@ -273,7 +273,7 @@ def freyberg_structured_highres():
     org_d = "freyberg_highres"
     new_d = "freyberg_highres_test"
 
-    if os.path.exists(new_d):
+    if pl.Path(new_d).exists():
         shutil.rmtree(new_d)
     shutil.copytree(org_d, new_d)
 
@@ -282,7 +282,7 @@ def freyberg_structured_highres():
     sim = flopy.mf6.MFSimulation.load(sim_ws=new_d)
     gwf = sim.get_model()
     df = pd.read_csv(
-        os.path.join(new_d, "freyberg6.obs_continuous_heads.csv.txt"),
+        pl.Path(new_d) / "freyberg6.obs_continuous_heads.csv.txt",
         header=None,
         names=["site", "otype", "layer", "row", "col"],
         sep=r"\s+",
@@ -293,7 +293,7 @@ def freyberg_structured_highres():
 
     np.random.seed(11111)
     rvals = np.random.random(df.shape[0]) + 36
-    with open(os.path.join(new_d, "test.adj"), "w") as f:
+    with open(pl.Path(new_d) / "test.adj", "w") as f:
         f.write("begin performance_measure pm1\n")
         for rval, lay, row, col in zip(rvals, df.layer, df.row, df.col):
             for kper in range(25):
@@ -334,13 +334,13 @@ def freyberg_structured_highres():
     assert len(result_hdf) == 1
     result_hdf = result_hdf[0]
 
-    hdf = h5py.File(os.path.join(new_d, result_hdf), "r")
+    hdf = h5py.File(pl.Path(new_d) / result_hdf, "r")
     keys = list(hdf.keys())
     keys.sort()
     print(keys)
 
-    idomain = np.loadtxt(os.path.join(new_d, "freyberg6.dis_idomain_layer1.txt"))
-    with PdfPages(os.path.join(new_d, "results.pdf")) as pdf:
+    idomain = np.loadtxt(pl.Path(new_d) / "freyberg6.dis_idomain_layer1.txt")
+    with PdfPages(pl.Path(new_d) / "results.pdf") as pdf:
         for key in keys:
             if key != "composite":
                 continue
@@ -365,7 +365,7 @@ def freyberg_structured_highres():
 def test_freyberg_notional_unstruct():
     org_d = "freyberg_structured"
     new_d = "freyberg_notional_unstructured_test"
-    if os.path.exists(new_d):
+    if pl.Path(new_d).exists():
         shutil.rmtree(new_d)
     shutil.copytree(org_d, new_d)
 
@@ -407,7 +407,7 @@ def test_freyberg_notional_unstruct():
 
     wel = gwf.get_package("wel")
     if wel is not None:
-        f_wel = open(os.path.join(new_d, "freyberg6_disv.wel"), "w")
+        f_wel = open(pl.Path(new_d) / "freyberg6_disv.wel", "w")
         f_wel.write(
             "begin options\nprint_input\nprint_flows\nsave_flows\nend options\n\n"
         )
@@ -439,7 +439,7 @@ def test_freyberg_notional_unstruct():
 
     ghb = gwf.get_package("ghb")
     if ghb is not None:
-        f_ghb = open(os.path.join(new_d, "freyberg6_disv.ghb"), "w")
+        f_ghb = open(pl.Path(new_d) / "freyberg6_disv.ghb", "w")
         f_ghb.write(
             "begin options\nprint_input\nprint_flows\nsave_flows\nend options\n\n"
         )
@@ -480,7 +480,7 @@ def test_freyberg_notional_unstruct():
         f_ghb.close()
 
     df = pd.read_csv(
-        os.path.join(new_d, "head.obs"),
+        pl.Path(new_d) / "head.obs",
         skipfooter=1,
         skiprows=1,
         header=None,
@@ -489,14 +489,14 @@ def test_freyberg_notional_unstruct():
         engine="python",
     )
     df.loc[:, "node"] = df.apply(lambda x: (int(x.r) * ncol) + int(x.c), axis=1)
-    with open(os.path.join(new_d, "head.obs"), "w") as f:
+    with open(pl.Path(new_d) / "head.obs", "w") as f:
         f.write("BEGIN CONTINUOUS FILEOUT heads.csv\n")
         for site, otype, lay, node in zip(df.site, df.otype, df.l, df.node):
             f.write(f"{site} {otype} {lay} {node}\n")
         f.write("END CONTINUOUS")
 
     # now hack the nam file
-    nam_file = os.path.join(new_d, "freyberg6.nam")
+    nam_file = pl.Path(new_d) / "freyberg6.nam"
     lines = open(nam_file, "r").readlines()
 
     with open(nam_file, "w") as f:
@@ -513,7 +513,7 @@ def test_freyberg_notional_unstruct():
 
     laynode = []
     k_dict = {}
-    with open(os.path.join(new_d, "head.obs"), "r") as f:
+    with open(pl.Path(new_d) / "head.obs", "r") as f:
         f.readline()
         for line in f:
             if line.strip().lower().startswith("end"):
@@ -529,7 +529,7 @@ def test_freyberg_notional_unstruct():
 
     np.random.seed(11111)
     rvals = np.random.random(len(laynode)) + 36
-    with open(os.path.join(new_d, "test.adj"), "w") as f:
+    with open(pl.Path(new_d) / "test.adj", "w") as f:
         f.write("begin performance_measure pm1\n")
         for rval, ln in zip(rvals, laynode):
             for kper in range(25):
@@ -555,13 +555,13 @@ def test_freyberg_notional_unstruct():
     assert len(result_hdf) == 1
     result_hdf = result_hdf[0]
 
-    hdf = h5py.File(os.path.join(new_d, result_hdf), "r")
+    hdf = h5py.File(pl.Path(new_d) / result_hdf, "r")
     keys = list(hdf.keys())
     keys.sort()
     print(keys)
 
-    idomain = np.loadtxt(os.path.join(new_d, "freyberg6.dis_idomain_layer1.txt"))
-    with PdfPages(os.path.join(new_d, "results.pdf")) as pdf:
+    idomain = np.loadtxt(pl.Path(new_d) / "freyberg6.dis_idomain_layer1.txt")
+    with PdfPages(pl.Path(new_d) / "results.pdf") as pdf:
         for key in keys:
             if key != "composite":
                 continue

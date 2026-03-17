@@ -213,7 +213,7 @@ def build_model(ws, name="disv"):
 
     sim.write_simulation()
 
-    pm_fname = "perfmeas.dat"
+    pm_fname = f"{name}_perfmeas.dat"
     with open(ws / pm_fname, "w") as fpm:
         for bnd in ("river", "drain"):
             if bnd == "river":
@@ -246,7 +246,7 @@ def solve_adjoint(ws, pm_fname):
     bd = pl.Path.cwd()
     os.chdir(ws)
 
-    forward_hdf5_name = "forward.hdf5"
+    forward_hdf5_name = "test_unstructured_forward.hdf5"
     start = datetime.now()
 
     adj = mf6adj.Mf6Adj(pm_fname, lib_name, logging_level="INFO")
@@ -262,7 +262,7 @@ def solve_adjoint(ws, pm_fname):
 def get_sensitivities(ws):
     results = {}
     for bnd in ("river", "drain"):
-        result_hdf = ws / f"adjoint_solution_{bnd}_forward.hdf5"
+        result_hdf = ws / f"adjoint_solution_{bnd}.hdf5"
         hdf = h5py.File(result_hdf, "r")
         for key in hdf.keys():
             if key == "composite":

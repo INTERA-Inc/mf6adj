@@ -277,6 +277,7 @@ class PerfMeas(object):
         self,
         hdf5_forward_solution_fname,
         hdf5_adjoint_solution_fname: Optional[str] = None,
+        skip_solve: bool = False,
         csv_summary=False,
         linear_solver=None,
         linear_solver_kwargs: dict = {},
@@ -297,6 +298,13 @@ class PerfMeas(object):
             hdf5_adjoint_solution_fname (str) : the HDF5 file to write the
             adjoint solution. If None, a default name based on the performance
             measure name is used.
+        skip_solve (bool) : flag to skip the adjoint solve for time steps with no
+            performance measure entries. This can be used to significantly speed up
+            the solve for cases with many time steps but only a few with performance
+            measure entries. One possible use case is to calculate individual
+            sensitivities for a single time step. Default is False, which means the
+            adjoint solve is performed for all time steps, even those with no
+            performance measure entries.
         csv_summary (bool) : flag to write a summary CSV file with the sensitivity
             information.  If False, no CSV file is written.
         linear_solver (varies) : the scipy sparse linear alg solver to use.  If None,
@@ -459,7 +467,7 @@ class PerfMeas(object):
                         comp_bnd_results[pname + "_" + aname] = np.zeros(nnodes)
 
         for itime, kk in enumerate(kperkstp[::-1]):
-            if not self._pm_available(kk):
+            if skip_solve and not self._pm_available(kk):
                 continue
 
             data = {}

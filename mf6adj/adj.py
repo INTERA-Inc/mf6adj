@@ -1232,6 +1232,7 @@ class Mf6Adj(object):
     def solve_adjoint(
         self,
         hdf5_adjoint_solution_fname: Optional[str] = None,
+        skip_solve: bool = False,
         csv_summary=False,
         linear_solver=None,
         linear_solver_kwargs: dict = {},
@@ -1250,6 +1251,13 @@ class Mf6Adj(object):
         hdf5_adjoint_solution_fname (str) : the HDF5 file to write the adjoint
             solution. If None, a default name based on the performance measure
             name is used.
+        skip_solve (bool) : flag to skip the adjoint solve for time steps with no
+            performance measure entries. This can be used to significantly speed up
+            the solve for cases with many time steps but only a few with performance
+            measure entries. One possible use case is to calculate individual
+            sensitivities for a single time step. Default is False, which means the
+            adjoint solve is performed for all time steps, even those with no
+            performance measure entries.
         csv_summary (bool) : flag to write a summary CSV file with the sensitivity
             information.
         linear_solver (varies) : the scipy sparse linear alg solver to use.  If None,
@@ -1317,6 +1325,7 @@ class Mf6Adj(object):
             df = pm.solve_adjoint(
                 hdf5_forward_solution_fname=self._hdf5_name,
                 hdf5_adjoint_solution_fname=hdf5_adjoint_solution_fname,
+                skip_solve=skip_solve,
                 csv_summary=csv_summary,
                 linear_solver=linear_solver,
                 linear_solver_kwargs=linear_solver_kwargs,

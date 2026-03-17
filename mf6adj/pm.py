@@ -2,7 +2,7 @@ import logging
 import pathlib as pl
 import types
 from datetime import datetime
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 import h5py
 import numpy as np
@@ -22,8 +22,10 @@ from scipy.sparse.linalg import (
 
 from .utils.utils_logger import LoggerUtil
 
+PathLike = Union[str, pl.Path]
 
-class solver_callback(object):
+
+class SolverCallback:
     def __init__(self, logger, A, b, dvclose=None, rclose=None):
         self.logger = logger
         self.A = A
@@ -42,7 +44,7 @@ class solver_callback(object):
             self.custom_convergence = True
             self.logger.logger.info(f"Solver rclose value: {self.rclose}")
 
-    def __call__(self, xk):
+    def __call__(self, xk) -> None:
         self.niter += 1
         if self.dvclose is not None or self.rclose is not None:
             if self.dvclose is not None and self.niter == 1:
@@ -75,7 +77,7 @@ class solver_callback(object):
                 raise StopIteration(convergence_msg.strip())
 
     @property
-    def _is_converged(self):
+    def _is_converged(self) -> bool:
         dv_converged = 1
         if self.dvmax is not None:
             if self.dvmax > self.dvclose:
@@ -89,7 +91,10 @@ class solver_callback(object):
         return bool(int(dv_converged * dr_converged))
 
 
-class PerfMeasRecord(object):
+solver_callback = SolverCallback
+
+
+class PerfMeasRecord:
     """A performance measure record class - an instance for each row in the
     performance measure block
 
@@ -150,7 +155,7 @@ class PerfMeasRecord(object):
                 + f"not '{self.pm_form}'"
             )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         s = (
             f"kperkstp:{self.kperkstp}, inode:{self.inode}, "
             + f"k:{self._k}, type:{self.pm_type}, form:{self.pm_form}"
@@ -162,7 +167,7 @@ class PerfMeasRecord(object):
         return s
 
 
-class PerfMeas(object):
+class PerfMeas:
     """Performance measures for adjoint solves
 
     Parameters
@@ -210,8 +215,8 @@ class PerfMeas(object):
             self.logger = logger
 
     @property
-    def name(self):
-        """get self._name
+    def name(self) -> str:
+        """Get performance measure name.
 
         Returns
         -------
@@ -221,7 +226,7 @@ class PerfMeas(object):
         return str(self._name)
 
     @staticmethod
-    def get_mf6_bound_dict():
+    def get_mf6_bound_dict() -> dict[str, dict[int, str]]:
         """get a container of information about which axes of the 'bound'
         array from MODFLOW6 has the quantities for calculating the sensitivity to
 
@@ -239,9 +244,9 @@ class PerfMeas(object):
         # "chd6":{0:"head"}}
         return d
 
-    def solve_forward(self, head_dict, sp_package_dict):
+    def solve_forward(self, head_dict, sp_package_dict) -> float:
         """calculate forward solution for the performance measure.
-        Thjs is only for the perturbation testing process
+        This is only for the perturbation testing process
 
 
         """
@@ -275,27 +280,28 @@ class PerfMeas(object):
 
     def solve_adjoint(
         self,
-        hdf5_forward_solution_fname,
-        hdf5_adjoint_solution_fname: Optional[str] = None,
+        hdf5_forward_solution_fname: PathLike,
+        hdf5_adjoint_solution_fname: Optional[PathLike] = None,
         skip_solve: bool = False,
-        csv_summary=False,
+        csv_summary: bool = False,
         linear_solver=None,
-        linear_solver_kwargs: dict = {},
+        linear_solver_kwargs: Optional[dict] = None,
         use_precon: bool = True,
-        precon_kwargs: dict = {},
+        precon_kwargs: Optional[dict] = None,
         singular_test: bool = False,
         tikhonov: float = 0.0,
         dvclose: Optional[float] = 1e-6,
         rclose: Optional[float] = 1e-3,
-        dvscale: Optional[bool] = False,
-    ):
+        dvscale: bool = False,
+    ) -> pd.DataFrame:
         """Solve for the adjoint state for the performance measure.
 
         Parameters
         ----------
-        hdf5_forward_solution_fname (str) : the HDF5 file created by solve_gwf() that
+        hdf5_forward_solution_fname (PathLike) : the HDF5 file created by
+            solve_gwf() that
             contains the forward solution information needed to solve the adjoint.
-            hdf5_adjoint_solution_fname (str) : the HDF5 file to write the
+            hdf5_adjoint_solution_fname (PathLike) : the HDF5 file to write the
             adjoint solution. If None, a default name based on the performance
             measure name is used.
         skip_solve (bool) : flag to skip the adjoint solve for time steps with no
@@ -341,7 +347,7 @@ class PerfMeas(object):
 
         Returns
         -------
-        dfs (DataFrame) : summary of composite sensitivity information
+        df (DataFrame) : summary of composite sensitivity information
 
         """
         supported_iterative_solvers = (
@@ -351,6 +357,10 @@ class PerfMeas(object):
             "lgmres",
             "lsqr",
         )
+        linear_solver_kwargs = (
+            {} if linear_solver_kwargs is None else dict(linear_solver_kwargs)
+        )
+        precon_kwargs = {} if precon_kwargs is None else dict(precon_kwargs)
 
         adj_start = datetime.now()
         self.logger.logger.info(f"Starting solve_adjoint at {adj_start}")
@@ -548,12 +558,12 @@ class PerfMeas(object):
 
             if linear_solver == "direct":
                 _linear_solver = spsolve
-                if len(linear_solver_kwargs) == 0:
+                if not linear_solver_kwargs:
                     _linear_solver_kwargs = {"use_umfpack": True}
                 else:
                     _linear_solver_kwargs = linear_solver_kwargs
             elif linear_solver in supported_iterative_solvers:
-                if len(linear_solver_kwargs) == 0:
+                if not linear_solver_kwargs:
                     if linear_solver == "lsqr":
                         _linear_solver_kwargs = {
                             "btol": 1e-6,
@@ -628,7 +638,7 @@ class PerfMeas(object):
             if linear_solver not in ("direct", "lsqr"):
                 if use_precon:
                     self.logger.logger.debug("Setup preconditioner")
-                    if len(precon_kwargs) == 0:
+                    if not precon_kwargs:
                         _precon_kwargs = {
                             "drop_tol": 1e-4,
                             "fill_factor": 10,
@@ -643,7 +653,7 @@ class PerfMeas(object):
                             amat_ilu.solve,
                         )
                     except Exception as e:
-                        if "maxiter" in _linear_solver_kwargs.keys():
+                        if "maxiter" in _linear_solver_kwargs:
                             _linear_solver_kwargs["maxiter"] += 1000
                         else:
                             _linear_solver_kwargs["maxiter"] = 1000
@@ -686,7 +696,7 @@ class PerfMeas(object):
                         lamb /= scale
                         rhs /= scale
                 try:
-                    solver_cb = solver_callback(
+                    solver_cb = SolverCallback(
                         logger=self.logger,
                         A=amat,
                         b=rhs,
@@ -942,14 +952,14 @@ class PerfMeas(object):
 
     @staticmethod
     def write_group_to_hdf(
-        hdf,
-        group_name,
-        data_dict,
-        attr_dict={},
-        grid_shape=None,
-        nodeuser=None,
-        nodereduced=None,
-    ):
+        hdf: h5py.File,
+        group_name: str,
+        data_dict: dict,
+        attr_dict: Optional[dict] = None,
+        grid_shape: Optional[tuple[int, int, int]] = None,
+        nodeuser: Optional[np.ndarray] = None,
+        nodereduced: Optional[np.ndarray] = None,
+    ) -> None:
         """write a group in data to an open HDF5 file
 
         Parameters
@@ -962,6 +972,8 @@ class PerfMeas(object):
         nodereduced (ndarray) : optional `nodereduced` array from MODFLOW6
 
         """
+        if attr_dict is None:
+            attr_dict = {}
         if group_name in hdf:
             raise Exception(f"group_name {group_name} already in hdf file")
         grp = hdf.create_group(group_name)
@@ -1016,7 +1028,7 @@ class PerfMeas(object):
                 _ = grp.create_dataset(name, arr.shape, dtype=arr.dtype, data=arr)
 
     @staticmethod
-    def _dconddhk(k1, k2, cl1, cl2, width, height1, height2):
+    def _dconddhk(k1, k2, cl1, cl2, width, height1, height2) -> float:
         """Partial of conductance with respect to K
 
         Parameters
@@ -1027,7 +1039,7 @@ class PerfMeas(object):
         cl2 (float) : length of connection 2
         width (float) : connection width
         height1 (float) : height of connection 1
-        height2 (float) : height of connmection 2
+        height2 (float) : height of connection 2
 
         Returns
         -------
@@ -1043,7 +1055,7 @@ class PerfMeas(object):
         return d
 
     @staticmethod
-    def smooth_sat(sat):
+    def smooth_sat(sat) -> float:
         """Saturation smoother using sigmoid function from MODFLOW6
 
         Parameters
@@ -1069,7 +1081,7 @@ class PerfMeas(object):
         return s_sat
 
     @staticmethod
-    def d_smooth_sat_dh(sat, top, bot):
+    def d_smooth_sat_dh(sat, top, bot) -> float:
         """Partial of smoother saturation with respect to head
 
         Parameters
@@ -1095,7 +1107,7 @@ class PerfMeas(object):
         return d_s_sat_dh
 
     @staticmethod
-    def _cell_sat(top, bot, h):
+    def _cell_sat(top, bot, h) -> float:
         if h > top:
             sat = 1.0
         elif h < bot:
@@ -1105,7 +1117,7 @@ class PerfMeas(object):
         return sat
 
     @staticmethod
-    def _smooth_sat(ihighcellsat, top1, top2, bot1, bot2, h1, h2):
+    def _smooth_sat(ihighcellsat, top1, top2, bot1, bot2, h1, h2) -> float:
         """Private method for upstream smoothing
 
         Parameters
@@ -1140,7 +1152,7 @@ class PerfMeas(object):
         return PerfMeas.smooth_sat(sat)
 
     @staticmethod
-    def _d_smooth_sat_dh(sat, h1, h2, top, bot):
+    def _d_smooth_sat_dh(sat, h1, h2, top, bot) -> float:
         """Private method of partial of smoothed saturation
            with respect to upstream head
 
@@ -1181,7 +1193,7 @@ class PerfMeas(object):
         icelltype,
         k11,
         k33,
-    ):
+    ) -> tuple[np.ndarray, np.ndarray]:
         """adjoint state times the partial of residual with respect to k times head
 
         Parameters
@@ -1297,7 +1309,13 @@ class PerfMeas(object):
             result[node] = sum2
         return result, result33
 
-    def lam_drhs_dbnd(self, lamb, head, sp_dict, has_flux_pm):
+    def lam_drhs_dbnd(
+        self,
+        lamb: np.ndarray,
+        head: np.ndarray,
+        sp_dict: dict,
+        has_flux_pm: bool,
+    ) -> tuple[np.ndarray, np.ndarray]:
         result_head = np.zeros_like(lamb)
         result_cond = np.zeros_like(lamb)
 
@@ -1322,7 +1340,7 @@ class PerfMeas(object):
 
         return result_head, result_cond
 
-    def _pm_available(self, kk):
+    def _pm_available(self, kk) -> bool:
         """
         Determine if a performance measure is available for a given stress
         period and time step.
@@ -1340,7 +1358,7 @@ class PerfMeas(object):
         relevant_entries = [p for p in self._entries if p.kperkstp == kk]
         return len(relevant_entries) > 0
 
-    def _dfdh(self, kk, sol_dataset):
+    def _dfdh(self, kk, sol_dataset) -> np.ndarray:
         """partial of the performance measure with respect to head
 
         Parameters
@@ -1393,7 +1411,7 @@ class PerfMeas(object):
         return dfdh
 
     @staticmethod
-    def get_value_from_gwf(gwf_name, pak_name, prop_name, gwf):
+    def get_value_from_gwf(gwf_name, pak_name, prop_name, gwf) -> Any:
         """get a copy of a quantity from the MODFLOW6 API
 
         Parameters
@@ -1412,7 +1430,7 @@ class PerfMeas(object):
         return gwf.get_value(addr)
 
     @staticmethod
-    def get_ptr_from_gwf(gwf_name, pak_name, prop_name, gwf):
+    def get_ptr_from_gwf(gwf_name, pak_name, prop_name, gwf) -> Any:
         """get a pointer (well reference anyway) to a quantity from the MODFLOW6 API
 
         Parameters
@@ -1431,7 +1449,7 @@ class PerfMeas(object):
         return gwf.get_value_ptr(addr)
 
     @staticmethod
-    def get_node(shape, lrc_list):
+    def get_node(shape, lrc_list) -> list[int]:
         """get the node numbers for a given list of lrc values. stolen from flopy
 
         Parameters
@@ -1450,7 +1468,7 @@ class PerfMeas(object):
         return np.ravel_multi_index(multi_index, shape).tolist()
 
     @staticmethod
-    def get_lrc(shape, nodes):
+    def get_lrc(shape, nodes) -> list[tuple[int, ...]]:
         """get layer row column values from node numbers.  Also stolen from flopy
 
         Parameters
@@ -1468,8 +1486,8 @@ class PerfMeas(object):
         return list(zip(*np.unravel_index(nodes, shape)))
 
     @staticmethod
-    def has_sto_iconvert(gwf):
-        """does the forward model has an sto package with iconvert
+    def has_sto_iconvert(gwf) -> bool:
+        """Does the forward model have an STO package with ICONVERT.
 
         Parameters
         ----------
@@ -1488,7 +1506,7 @@ class PerfMeas(object):
         return True
 
     @staticmethod
-    def _is_singular(A, tol=1e-10):
+    def _is_singular(A, tol=1e-10) -> bool:
         # svds computes the k largest or smallest singular values.
         # To check for singularity, we need the smallest ones.
         # 'SM' specifies "smallest magnitude".

@@ -21,18 +21,20 @@ PathLike = Union[str, pl.Path]
 
 
 class Mf6Adj:
-    """The MODFLOW6 Adjoint solver
+    """MODFLOW 6 adjoint solver interface.
 
     Parameters
     ----------
-    adj_filename (str): the adjoint input filename
-    lib_name (str): the MODFLOW6 shared library file
-    logging_level (str, int) : logging levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    logging_filename (str, pl.Path) : optional logging filename, if not
-        provided logging is restricted to the console.
-    working_directory (str, pl.Path) : optional working directory, if not
-        provided uses current directory
-
+    adj_filename : str
+        Adjoint input filename.
+    lib_name : str
+        MODFLOW 6 shared library path.
+    logging_level : str or int, optional
+        Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`).
+    logging_filename : str or pl.Path, optional
+        Optional log filename. If omitted, logging is limited to the console.
+    working_directory : str or pl.Path, optional
+        Working directory. If omitted, the current directory is used.
     """
 
     def __init__(
@@ -43,7 +45,7 @@ class Mf6Adj:
         logging_filename: Optional[PathLike] = None,
         working_directory: Optional[PathLike] = None,
     ):
-        """Initialize the MODFLOW6 adjoint helper."""
+        """Initialize the MODFLOW 6 adjoint helper."""
 
         if working_directory is None:
             working_directory = pl.Path(".").resolve()
@@ -145,19 +147,17 @@ class Mf6Adj:
             }
 
     def _read_adj_file(self) -> None:
-        """private method to read the adj input file
+        """Read and parse the adjoint input file.
 
-        Note
-        ----
-        The input file structure is very similar to other MODFLOW6 input files.
-        Each performance measure is defined in a 'performance_measure' block.  Each
-        block contains one or more entries describing model output quantities that
-        together define the performance measure.  Each performance measure entry must
-        have information about the spatial and temporal location of the quantity such as
-        node/lay-row-col information and stress period/time step information, as well as
-        information about which output quantity to use (head or flux).  The entries must
-        also include a weight and optionally an observed value (for residual type
-        performance measures).
+        Notes
+        -----
+        The input file structure closely follows other MODFLOW 6 input files.
+        Each performance measure is defined in a `performance_measure` block.
+        Each block contains one or more entries that describe model output
+        quantities that together define the performance measure. Every entry
+        includes the spatial and temporal location of the quantity, the output
+        type (`head` or a flux package name), a weight, and optionally an
+        observed value for residual-type performance measures.
 
         For example, if the performance measure was for a head in a single cell located
         in layer 3, row 10, column 34 during the 4th timestep of the 25th stress period
@@ -177,11 +177,9 @@ class Mf6Adj:
         The resulting adjoint sensitivities will be with respect to the ghb flux in
         model cell (10,2,3) for both stress periods 1 and 2
 
-        As presently coded, performance measure forms (i.e. 'direct' or 'residual')
-        cannot be mixed for a given performance measure and performance type
-        (i.e. 'head' or flux) cannot be mixed for a given performance measure.
-
-
+        At present, performance measure forms (`direct` or `residual`) cannot be
+        mixed within a single performance measure, and performance types (`head`
+        or flux) also cannot be mixed within a single performance measure.
         """
         # clear any existing PMs
         self._performance_measures = []
@@ -471,18 +469,18 @@ class Mf6Adj:
     def get_model_names_from_mfsim(
         sim_ws: PathLike,
     ) -> tuple[dict[str, str], dict[str, str]]:
-        """return the model names from an mfsim.nam file
+        """Return model names from an `mfsim.nam` file.
 
         Parameters
         ----------
-            sim_ws (PathLike): the simulation path
+        sim_ws : PathLike
+            Simulation workspace containing `mfsim.nam`.
 
         Returns
         -------
-            dict,dict: a pair of dicts, first is model-name:model-type
-                (e.g. {"gwf-1":"gwf"}, the second is model
-                namfile: model-type (e.g. {"gwf-1":"gwf_1.nam"})
-
+        tuple[dict[str, str], dict[str, str]]
+            Pair of dictionaries. The first maps model names to model
+            types, and the second maps model names to model name files.
         """
         sim_nam = pl.Path(sim_ws) / "mfsim.nam"
         if not sim_nam.exists():
@@ -519,16 +517,17 @@ class Mf6Adj:
     def get_package_names_from_gwfname(
         gwf_nam_file: PathLike,
     ) -> dict[str, list[str]]:
-        """return the package names from a GWF nam file
+        """Return package names from a GWF name file.
 
         Parameters
         ----------
-            gwf_nam_file (PathLike): GWF nam file
+        gwf_nam_file : PathLike
+            Groundwater-flow name file.
 
         Returns
         -------
-            dict: package types as keys and list of package names as values
-
+        dict[str, list[str]]
+            Mapping of package types to package names.
         """
         gwf_nam_file = pl.Path(gwf_nam_file)
         if not gwf_nam_file.exists():
@@ -587,17 +586,19 @@ class Mf6Adj:
         data_dict: dict,
         attr_dict: dict = {},
     ) -> None:
-        """write information to an open HDF5 file
+        """Write group data to an open HDF5 file.
 
         Parameters
         ----------
-            hdf (h5py.File) : an open HDF5 filehandle
-            group_name (str) : name of the group to create
-            data_dict (dict) : dict of info to write as the group.  If key
-                is a list, its cast to an ndarray.  If key is a dict itself,
-                only 'nodelist' and 'bound' are stored.
-            attr_dict (dict) : an optional dict of attributes to store with the
-                group
+        hdf : h5py.File
+            Open HDF5 file handle.
+        group_name : str
+            Name of the group to create.
+        data_dict : dict
+            Data to write into the group. Lists are converted to ndarrays.
+            For nested dictionaries, only `nodelist` and `bound` are stored.
+        attr_dict : dict, optional
+            Group attributes to write.
         """
         if group_name in hdf:
             raise Exception(f"group_name {group_name} already in hdf file")
@@ -631,16 +632,17 @@ class Mf6Adj:
                 )
 
     def _open_hdf(self, tag: Optional[PathLike]) -> h5py.File:
-        """private method to open an HDF5 filehandle for writing
+        """Open an HDF5 file for writing.
 
         Parameters
         ----------
-        tag (str | Path) : a prefix tag for the file
+        tag : str or PathLike, optional
+            Filename or filename prefix.
 
         Returns
         -------
-        f (h5py.File) : filehandle
-
+        h5py.File
+            Open HDF5 file handle.
         """
         if tag is None:
             fname = (
@@ -659,14 +661,12 @@ class Mf6Adj:
         return f
 
     def _add_gwf_info_to_hdf(self, hdf: h5py.File) -> None:
-        """add model structure and metadata to an HDF5 file
+        """Add model structure and metadata to an HDF5 file.
 
         Parameters
         ----------
-        hdf (h5py.File) : an HDF5 filehandle
-
-
-
+        hdf : h5py.File
+            Open HDF5 file handle.
         """
         gwf_name = self._gwf_name
         gwf = self._gwf
@@ -755,23 +755,32 @@ class Mf6Adj:
         sat: np.ndarray,
         sat_old: np.ndarray,
     ) -> np.ndarray:
-        """partial of residual wrt ss times h.  Just need to mult
-        times lambda in the PerfMeas.solve_adjoint()
+        """Return the residual derivative with respect to specific storage.
+
+        The returned term is later multiplied by the adjoint state in
+        `PerfMeas.solve_adjoint()`.
 
         Parameters
         ----------
-        gwf_name (str) : name of the GWF model
-        gwf (MODFLOW6 API) : the API instance
-        head (ndarray) : current heads
-        head_old (ndarray) : heads from the last solve
-        dt (float) : length of the current solution step in model time
-        sat (ndarray) : current saturation
-        sat_old (ndarray) : saturation from the last solve
+        gwf_name : str
+            Name of the groundwater-flow model.
+        gwf : modflowapi.ModflowApi
+            Active MODFLOW 6 API instance.
+        head : ndarray
+            Current heads.
+        head_old : ndarray
+            Heads from the previous solution step.
+        dt : float
+            Length of the current solution step in model time.
+        sat : ndarray
+            Current saturation.
+        sat_old : ndarray
+            Saturation from the previous solution step.
 
         Returns
         -------
-        result (ndarray) : dresdss_h
-
+        ndarray
+            Residual derivative with respect to specific storage.
         """
         top = PerfMeas.get_ptr_from_gwf(gwf_name, "DIS", "TOP", gwf)
         bot = PerfMeas.get_ptr_from_gwf(gwf_name, "DIS", "BOT", gwf)
@@ -806,19 +815,23 @@ class Mf6Adj:
         dt: float,
         sat_old: np.ndarray,
     ) -> np.ndarray:
-        """partial of the RHS WRT H
+        """Return the derivative of the right-hand side with respect to head.
 
         Parameters
         ----------
-        gwf_name (str) : name of the GWF model
-        gwf (MODFLOW6 API) : the API instance
-        dt (float) : length of the current solution step in model time
-        sat_old (ndarray) : saturation from the last solve
+        gwf_name : str
+            Name of the groundwater-flow model.
+        gwf : modflowapi.ModflowApi
+            Active MODFLOW 6 API instance.
+        dt : float
+            Length of the current solution step in model time.
+        sat_old : ndarray
+            Saturation from the previous solution step.
 
         Returns
         -------
-        drhsdh (ndarray) : drhsdh
-
+        ndarray
+            Right-hand-side derivative with respect to head.
         """
         area = PerfMeas.get_ptr_from_gwf(gwf_name, "DIS", "AREA", gwf)
 
@@ -851,26 +864,32 @@ class Mf6Adj:
         presolve_func_ptr: Callable[[modflowapi.ModflowApi], None] | None = None,
         postsolve_func_ptr: Callable[[modflowapi.ModflowApi], None] | None = None,
     ) -> tuple[dict, dict] | None:
-        """solve the flow across the modflow sim times and harvest the solution
-        components needed for the adjoint solution and store them in the HDF5 file
+        """Solve the forward-flow model and store adjoint inputs in HDF5.
+
+        The forward simulation is run across all MODFLOW 6 times, and the
+        solution components needed for the adjoint solve are harvested and
+        written to the HDF5 file.
 
         Parameters
         ----------
-        verbose (bool) : flag to control stdout reporting
-        _force_k_update (bool) : flag to force MODFLOW6 to re-process the K and
-            K33 arrays.
-            This is used in the perturbation testing
-        _sp_pert_dict (dict) : a dictionary of perturbed boundary information.
-            This is used in the perturbation testing
-        pert_save (bool) : flag to save more information for the perturbation testing
-        hdf5_name (PathLike) : optional hdf5 filename to store forward
-            solution components in. If None, a generic time-stamped filename
-            is created.
+        verbose : bool, optional
+            Flag controlling stdout reporting.
+        _force_k_update : bool, optional
+            Force MODFLOW 6 to reprocess the `K` and `K33` arrays. Used only
+            during perturbation testing.
+        _sp_pert_dict : dict, optional
+            Perturbed boundary information used during perturbation testing.
+        pert_save : bool, optional
+            Save additional information for perturbation testing.
+        hdf5_name : PathLike, optional
+            Output HDF5 filename for forward-solution components. If omitted,
+            a generic time-stamped filename is created.
 
         Returns
         -------
-        pert_results (dict) : information for the perturbation testing.
-
+        tuple[dict, dict] or None
+            Perturbation-testing data when `pert_save` is `True`; otherwise
+            `None`.
         """
         with utils_cd(self.working_directory):
             if self._gwf is None:
@@ -1259,63 +1278,47 @@ class Mf6Adj:
         rclose: Optional[float] = 1e-3,
         dvscale: bool = False,
     ) -> dict[str, pd.DataFrame]:
-        """Solve for the adjoint state, one performance measure at a time
+        """Solve for the adjoint state, one performance measure at a time.
 
         Parameters
         ----------
-        hdf5_adjoint_solution_fname (PathLike) : the HDF5 file to write the
-            adjoint solution. If None, a default name based on the
-            performance measure name is used.
-        skip_solve (bool) : flag to skip the adjoint solve for time steps with no
-            performance measure entries. This can be used to significantly speed up
-            the solve for cases with many time steps but only a few with performance
-            measure entries. One possible use case is to calculate individual
-            sensitivities for a single time step. Default is False, which means the
-            adjoint solve is performed for all time steps, even those with no
-            performance measure entries.
-        csv_summary (bool) : flag to write a summary CSV file with the sensitivity
-            information.
-        linear_solver (varies) : the scipy sparse linear alg solver to use.  If None,
-            a choice is made between direct and bicgstab, depending if the number of
-            nodes is less than 50,000.  If `str`, can be "direct" or "bicgstab".
-            Otherwise, can be a function pointer to a solver function in which the
-            first two args are the CSR amat matrix and the dense RHS vector,
-            respectively.
-        linear_solver_kwargs (dict): dictionary of keyword args to pass to
-            `linear_solver`.  Default is {}
-        use_precon (bool): flag to use an ILU preconditioner with iterative
-            linear solver.
-        precon_kwargs (dict): dictionary of keyword args to pass to the ilu
-            preconditioner.  Default is {}
-        singular_test (bool): flag to test for a singular matrix and if the matrix
-            is determined to be singular apply Tikhonov regularization.
-            Default is False since there is a non-significant cost to test if a
-            matrix is singular.
-        tikhonov (float) : Tikhonov regularization value. This can be used to stabilize
-            the adjoint solve but introduces an approximation and should
-            be used cautiously. Small values (for example, 1e-6) have been found to
-            be effective. Default is 0.0
-        dvclose (float): custom convergence criterion for iterative solvers based on the
-            maximum absolute solution vector change between consecutive iterations.
-            If None and rclose is also None, the standard scipy.sparse.linalg
-            convergence check that uses atol and btol will be used. Default is 1e-6.
-        rclose (float): custom convergence criterion for iterative solvers based on the
-            maximum absolute residual for a iteration. If None and dvclose is also None,
-            the standard scipy.sparse.linalg convergence check that uses atol and btol
-            will be used. Default is 1e-3.
-        dvscale (float): scale lambda and the rhs to improve iterative solver
-            convergence for large lambda values. dvscale is not used if the direct
-            solver is used. Default is False
+        hdf5_adjoint_solution_fname : PathLike, optional
+            HDF5 file to write the adjoint solution. If omitted, a default
+            name based on the performance-measure name is used.
+        skip_solve : bool, optional
+            Skip the adjoint solve for time steps with no performance-measure
+            entries.
+        csv_summary : bool, optional
+            Write a CSV summary of the sensitivity information.
+        linear_solver : varies, optional
+            Sparse linear solver to use. If `None`, either a direct solver or
+            `bicgstab` is selected based on model size. If a string, supported
+            values are `"direct"` and `"bicgstab"`. A compatible solver
+            callable may also be supplied.
+        linear_solver_kwargs : dict, optional
+            Keyword arguments passed to `linear_solver`.
+        use_precon : bool, optional
+            Use an ILU preconditioner with an iterative linear solver.
+        precon_kwargs : dict, optional
+            Keyword arguments passed to the ILU preconditioner.
+        singular_test : bool, optional
+            Test for a singular matrix and apply Tikhonov regularization when
+            needed.
+        tikhonov : float, optional
+            Tikhonov regularization value.
+        dvclose : float, optional
+            Custom convergence criterion based on the maximum absolute change
+            between consecutive iterates.
+        rclose : float, optional
+            Custom convergence criterion based on the maximum absolute residual.
+        dvscale : bool, optional
+            Scale lambda and the right-hand side to improve iterative solver
+            convergence for large lambda values.
 
         Returns
         -------
-
-        dfs (dict) : dictionary of dataframes (one per performance measure) summarizing
-            the composite sensitivity information.  More granular information can be
-            found in the corresponding HDF5 file that is created by the adjoint
-            solve
-
-
+        dict[str, DataFrame]
+            Composite sensitivity summaries keyed by performance-measure name.
         """
         generate_name = hdf5_adjoint_solution_fname is None
 
@@ -1352,14 +1355,14 @@ class Mf6Adj:
         return dfs
 
     def _initialize_gwf(self, lib_name: str, sim_ws: PathLike) -> modflowapi.ModflowApi:
-        """initialize the MODFLOW6 API
+        """Initialize the MODFLOW 6 API.
 
         Parameters
         ----------
-        lib_name (str) : MODFLOW6 shared library file
-        sim_ws (PathLike) : directory of the simulation. This dir
-            is assumed to contain the shared library file
-
+        lib_name : str
+            MODFLOW 6 shared library filename.
+        sim_ws : PathLike
+            Simulation directory containing the shared library file.
         """
         # instantiate the flow model api
         if self._gwf is not None:
@@ -1373,12 +1376,12 @@ class Mf6Adj:
         return gwf
 
     def _get_gwf_version(self) -> str:
-        """Get the MODFLOW 6 version number
+        """Return the MODFLOW 6 version number.
 
         Returns
         -------
-        version (str) : MODFLOW 6 version number
-
+        str
+            MODFLOW 6 version number.
         """
         version = self._gwf.get_version()
         self.logger.logger.info(f"MODFLOW 6 version: {version}")
@@ -1435,6 +1438,22 @@ class Mf6Adj:
             pert_sp_dict: dict,
             epsilon: float,
         ) -> dict[str, float]:
+            """Return finite-difference perturbation responses for each measure.
+
+            Parameters
+            ----------
+            pert_head : dict
+                Perturbed head results by time step.
+            pert_sp_dict : dict
+                Perturbed stress-package data by time step.
+            epsilon : float
+                Perturbation magnitude.
+
+            Returns
+            -------
+            dict[str, float]
+                Perturbation responses indexed by performance-measure name.
+            """
             return {
                 pm.name: (
                     pm.solve_forward(pert_head, pert_sp_dict) - base_results[pm.name]
@@ -1444,6 +1463,18 @@ class Mf6Adj:
             }
 
         def _add_spatial_labels(df: pd.DataFrame) -> pd.DataFrame:
+            """Add structured-grid spatial labels to a perturbation summary.
+
+            Parameters
+            ----------
+            df : DataFrame
+                Perturbation summary indexed by node number.
+
+            Returns
+            -------
+            DataFrame
+                Input summary with optional `k`, `i`, and `j` columns.
+            """
             if kijs is not None:
                 for idx, lab in zip([0, 1, 2], ["k", "i", "j"]):
                     df.loc[:, lab] = df.index.map(lambda x: kijs[x][idx])

@@ -77,3 +77,9 @@ clean-tests = { cmd = "rm -rf *_test", cwd = "autotest" }
 
 # coverage report
 coverage-report = { cmd = "coverage report", cwd = "autotest"}
+
+# docs
+docs-install = { cmd = "pip install --no-build-isolation --disable-pip-version-check -e '.[doc]'" }
+docs-apidoc = { cmd = "python scripts/sphinx_apidoc.py" }
+docs-build = { cmd = "pixi run docs-install; python scripts/sphinx_build.py" }
+docs-clean = { cmd = "rm -rf docs/_build docs/source/_api" }

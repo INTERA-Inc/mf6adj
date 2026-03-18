@@ -4,8 +4,11 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.11"
+  apt_packages:
+    - pandoc
   jobs:
     pre_build:
+      - python scripts/sphinx_prepare_notebooks.py --execute
       - python scripts/sphinx_apidoc.py
 
 sphinx:

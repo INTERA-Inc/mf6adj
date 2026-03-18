@@ -1,7 +1,9 @@
 Quickstart
 ==========
 
-Install the package with documentation dependencies:
+For installation options from GitHub, see :doc:`Installing mf6adj <installing>`.
+
+To work on documentation locally, install the package with documentation dependencies:
 
 .. code-block:: bash
 

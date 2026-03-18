@@ -5,6 +5,8 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -220,6 +222,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/overrides-7.7.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pandas-2.3.3-py310h0158d43_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/pandoc-3.9.0.1-ha770c72_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pandocfilters-1.5.0-pyhd8ed1ab_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/parso-0.8.5-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pathspec-0.12.1-pyhd8ed1ab_1.conda
@@ -559,6 +562,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/overrides-7.7.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/pandas-2.3.3-py310hc97b22d_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/pandoc-3.9.0.1-h8af1aa0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pandocfilters-1.5.0-pyhd8ed1ab_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/parso-0.8.5-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pathspec-0.12.1-pyhd8ed1ab_1.conda
@@ -858,6 +862,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/overrides-7.7.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/pandas-2.3.3-py310h39ce848_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/pandoc-3.9.0.1-h694c41f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pandocfilters-1.5.0-pyhd8ed1ab_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/parso-0.8.5-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pathspec-0.12.1-pyhd8ed1ab_1.conda
@@ -1135,6 +1140,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/overrides-7.7.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pandas-2.3.3-py310h25f4b65_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pandoc-3.9.0.1-hce30654_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pandocfilters-1.5.0-pyhd8ed1ab_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/parso-0.8.5-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pathspec-0.12.1-pyhd8ed1ab_1.conda
@@ -1422,6 +1428,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/overrides-7.7.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/pandas-2.3.3-py310hed136d8_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/pandoc-3.9.0.1-h57928b3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pandocfilters-1.5.0-pyhd8ed1ab_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/parso-0.8.5-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pathspec-0.12.1-pyhd8ed1ab_1.conda
@@ -9699,6 +9706,46 @@ packages:
   - pkg:pypi/pandas?source=hash-mapping
   size: 11635503
   timestamp: 1759266458775
+- conda: https://conda.anaconda.org/conda-forge/linux-64/pandoc-3.9.0.1-ha770c72_0.conda
+  sha256: 224c0f9970174009c82634c00ac90f3eecdf238154675a4055d02421a639aa1c
+  md5: 2e036aa3d69e03812e0eac334d162ef2
+  license: GPL-2.0-or-later
+  license_family: GPL
+  purls: []
+  size: 22360792
+  timestamp: 1773855665852
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/pandoc-3.9.0.1-h8af1aa0_0.conda
+  sha256: 944e72fcdcb998a91e6fe6992227f8af36b90b463900efd6d4eee437d23fe696
+  md5: 2adaab5975c8533855767cf79e9e9c77
+  license: GPL-2.0-or-later
+  license_family: GPL
+  purls: []
+  size: 23459582
+  timestamp: 1773855677769
+- conda: https://conda.anaconda.org/conda-forge/osx-64/pandoc-3.9.0.1-h694c41f_0.conda
+  sha256: b6152c3da8188f4529191ded0c41d706789da7128a11ad135986e7297ff1042d
+  md5: f2c7706578e8590dcba0e8a3be16f127
+  license: GPL-2.0-or-later
+  license_family: GPL
+  purls: []
+  size: 16856311
+  timestamp: 1773855908785
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/pandoc-3.9.0.1-hce30654_0.conda
+  sha256: ff38eb6db04318dc8fbb9478c80a5f0da54943a8c864050541e7fba8bcffff14
+  md5: cb3741c9fd093cdc44319d10529d9e8c
+  license: GPL-2.0-or-later
+  license_family: GPL
+  purls: []
+  size: 23212933
+  timestamp: 1773855987666
+- conda: https://conda.anaconda.org/conda-forge/win-64/pandoc-3.9.0.1-h57928b3_0.conda
+  sha256: 0981459c6f001c5e0d68a341ca3c0a6eeee84c1890d7bfff3737ecf67c3ec0c2
+  md5: 4ab82bdc11461c3dd1d47ced6c1305cd
+  license: GPL-2.0-or-later
+  license_family: GPL
+  purls: []
+  size: 26631703
+  timestamp: 1773855900526
 - conda: https://conda.anaconda.org/conda-forge/noarch/pandocfilters-1.5.0-pyhd8ed1ab_0.tar.bz2
   sha256: 2bb9ba9857f4774b85900c2562f7e711d08dd48e2add9bee4e1612fbee27e16f
   md5: 457c2c8c08e54905d6954e79cb5b5db9

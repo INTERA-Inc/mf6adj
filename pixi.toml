@@ -17,6 +17,7 @@ h5py = "*"
 ipykernel = "*"
 jupyter = "*"
 jupyter_client = ">=8.4.0"
+pandoc = "*"
 matplotlib = "*"
 modflowapi = "*"
 nbmake = "*"
@@ -82,4 +83,5 @@ coverage-report = { cmd = "coverage report", cwd = "autotest"}
 docs-install = { cmd = "pip install --no-build-isolation --disable-pip-version-check -e '.[doc]'" }
 docs-apidoc = { cmd = "python scripts/sphinx_apidoc.py" }
 docs-build = { cmd = "pixi run docs-install; python scripts/sphinx_build.py" }
-docs-clean = { cmd = "rm -rf docs/_build docs/source/_api" }
+docs-build-exec = { cmd = "pixi run docs-install; python scripts/sphinx_build.py --execute" }
+docs-clean = { cmd = "rm -rf docs/_build docs/source/_api docs/source/examples" }

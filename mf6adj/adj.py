@@ -146,6 +146,280 @@ class Mf6Adj:
                 "rch6": ["recharge"],
             }
 
+    @staticmethod
+    def _is_empty_or_comment(line: str) -> bool:
+        stripped = line.strip()
+        return len(stripped) == 0 or stripped[0] == "#"
+
+    def _map_reduced_node(
+        self,
+        inode: int,
+        nuser: np.ndarray,
+        kij: Optional[list[int]] = None,
+    ) -> int:
+        if len(nuser) <= 1:
+            return inode
+        nn = np.where(nuser == inode)[0]
+        if nn.shape[0] != 1:
+            self.logger.logger.info(f"{nuser} {nn}")
+            if kij is not None:
+                self.logger.logger.info(f"{kij}")
+            raise Exception(f"node num {nuser} not in reduced node num")
+        return int(nn[0])
+
+    def _validate_pm_entry_length(self, raw: list[str], count: int) -> None:
+        if self.is_structured and len(raw) != 9:
+            self.logger.logger.info(f"Parsed line: {raw}")
+            raise Exception(
+                (
+                    f"performance measure entry on line {count} has "
+                    + f"the wrong number of items, found {len(raw)}, "
+                    + "should have 9"
+                )
+            )
+        if not self.is_structured:
+            if self.unstructured_type == "disv" and len(raw) != 8:
+                self.logger.logger.info(f"Parsed line: {raw}")
+                raise Exception(
+                    (
+                        "performance measure entry on line "
+                        + f"{count} has the wrong number of items, "
+                        + f"found {len(raw)}, should have 8"
+                    )
+                )
+            if self.unstructured_type == "disu" and len(raw) != 7:
+                self.logger.logger.info(f"Parsed line: {raw}")
+                raise Exception(
+                    (
+                        "performance measure entry on line "
+                        + f"{count} has the wrong number of items, "
+                        + f"found {len(raw)}, should have 7"
+                    )
+                )
+
+    @staticmethod
+    def _validate_pm_time_indices(
+        kper: int,
+        kstp: int,
+        nper: int,
+        nstp: np.ndarray,
+        count: int,
+    ) -> None:
+        if kper > nper - 1:
+            raise Exception(f"kper > nper -1 on line number {count}")
+        if kstp > nstp[kper] - 1:
+            raise Exception(f"kstp > nstp[kper] -1 on line number {count}")
+
+    def _parse_pm_location(
+        self,
+        raw: list[str],
+        count: int,
+        line2: str,
+        nuser: np.ndarray,
+        ncpl: Optional[int],
+    ) -> tuple[int, Optional[int], Optional[int], Optional[int]]:
+        i, j, k = None, None, None
+        if self.is_structured:
+            kij = []
+            for idx in range(3):
+                try:
+                    kij.append(int(raw[idx + 2]) - 1)
+                except Exception as e:
+                    print(
+                        f"{e}\n\nerror casting k-i-j info on "
+                        + f"line {count}: '{line2}'"
+                    )
+            k, i, j = kij[0], kij[1], kij[2]
+            inode = PerfMeas.get_node(self._shape, [kij])[0]
+            inode = self._map_reduced_node(inode, nuser, kij=kij)
+            return inode, k, i, j
+
+        if self.unstructured_type == "disv":
+            try:
+                lay = int(raw[2])
+            except Exception as e:
+                print(
+                    f"{e}\n\nerror casting layer info info on "
+                    + f"line {count}: '{line2}'"
+                )
+            k = lay - 1
+            try:
+                node = int(raw[3])
+            except Exception as e:
+                print(
+                    f"{e}\n\nerror casting layer info info on "
+                    + f"line {count}: '{line2}'"
+                )
+
+            if ncpl is None:
+                raise Exception("ncpl is None for disv parsing")
+            inode = ((ncpl * (lay - 1)) + node) - 1
+            inode = self._map_reduced_node(inode, nuser)
+            return inode, k, i, j
+
+        if self.unstructured_type == "disu":
+            try:
+                inode = int(raw[2]) - 1
+            except Exception as e:
+                print(
+                    f"{e}\n\nerror casting node info on " + f"line {count}: '{line2}'"
+                )
+            inode = self._map_reduced_node(inode, nuser)
+            return inode, k, i, j
+
+        raise Exception(
+            "gwf6 model discretization is not dis, disu, or disv "
+            + f"({self.unstructured_type})"
+        )
+
+    def _validate_pm_type(self, pm_type: str) -> None:
+        if pm_type == "head":
+            return
+        found = False
+        ppnames = []
+        for _, pnames in self._gwf_package_dict.items():
+            if pm_type in pnames:
+                found = True
+                break
+            ppnames.extend(pnames)
+        if not found:
+            self.logger.logger.info(f"{ppnames}")
+            raise Exception(
+                f"`pm_type` {pm_type} names a GWF package "
+                + "instance that was not found"
+            )
+
+    def _parse_adj_options_block(self, f, count: int) -> int:
+        while True:
+            line2 = f.readline()
+            count += 1
+            if line2 == "":
+                raise EOFError("EOF while reading options")
+            if self._is_empty_or_comment(line2):
+                continue
+
+            line2s = line2.lower().strip()
+            if line2s.startswith("begin"):
+                raise Exception("a new begin block found while parsing options")
+            if line2s.startswith("end options"):
+                break
+
+            parts = line2s.split()
+            if parts[0] == "hdf5_name":
+                self._hdf5_name = pl.Path(line2.strip().split()[1])
+            else:
+                raise Exception("unrecognized option line:" + line2.strip())
+        return count
+
+    def _parse_performance_measure_block(
+        self,
+        f,
+        line: str,
+        count: int,
+        nuser: np.ndarray,
+        nstp: np.ndarray,
+        nper: int,
+        ncpl: Optional[int],
+    ) -> tuple[int, str, list[PerfMeasRecord]]:
+        raw = line.lower().strip().split()
+        if len(raw) != 3:
+            raise Exception(
+                (
+                    f"'begin' line {count} has wrong number of items, "
+                    + f"should be 3, not {len(raw)}"
+                )
+            )
+
+        pm_name = raw[2].strip().lower()
+        pm_entries = []
+        while True:
+            line2 = f.readline()
+            count += 1
+            if line2 == "":
+                raise EOFError(f"EOF while reading performance_measure block '{line}'")
+            if self._is_empty_or_comment(line2):
+                continue
+
+            line2s = line2.lower().strip()
+            if line2s.startswith("begin"):
+                raise Exception(
+                    (
+                        "a new begin block found while parsing "
+                        + f"performance_measure block '{line}'"
+                    )
+                )
+            if line2s.startswith("end performance_measure"):
+                break
+            if line2s.startswith("open"):
+                fname = line2.split()[1]
+                if not pl.Path(fname).exists():
+                    raise Exception(f"External file '{fname}' not found")
+                raise NotImplementedError()
+
+            raw = line2s.split()
+            self._validate_pm_entry_length(raw, count)
+
+            kper = int(raw[0]) - 1
+            kstp = int(raw[1]) - 1
+            self._validate_pm_time_indices(kper, kstp, nper, nstp, count)
+
+            inode, k, i, j = self._parse_pm_location(raw, count, line2, nuser, ncpl)
+
+            obsval = float(raw[-1])
+            weight = float(raw[-2])
+            pm_form = raw[-3].strip().lower()
+            pm_type = raw[-4].strip().lower()
+            self._validate_pm_type(pm_type)
+
+            pm_entries.append(
+                PerfMeasRecord(
+                    kper,
+                    kstp,
+                    inode,
+                    pm_type,
+                    pm_form,
+                    weight,
+                    obsval,
+                    k,
+                    i,
+                    j,
+                )
+            )
+        return count, pm_name, pm_entries
+
+    def _add_performance_measure(
+        self, pm_name: str, pm_entries: list[PerfMeasRecord]
+    ) -> None:
+        if len(pm_entries) == 0:
+            raise Exception(f"no entries found for PM {pm_name}")
+        pm_types = {entry.pm_type for entry in pm_entries}
+
+        pm_forms = {entry.pm_form for entry in pm_entries}
+        if len(pm_forms) > 1:
+            raise Exception(
+                "performance measure"
+                + f"{pm_name} has mixed 'pm_forms' ({pm_forms}), "
+                + "this is not supported"
+            )
+        if next(iter(pm_types)) != "head" and next(iter(pm_forms)) != "direct":
+            raise Exception(
+                "performance measure"
+                + pm_name
+                + " has a flux 'pm_form' and is a "
+                + "residual 'pm_type', this is not supported"
+            )
+        if pm_name in [pm._name for pm in self._performance_measures]:
+            raise Exception(f"PM {pm_name} multiply defined")
+
+        self._performance_measures.append(
+            PerfMeas(
+                pm_name,
+                pm_entries,
+                self.logger.level,
+                self.logger,
+            )
+        )
+
     def _read_adj_file(self) -> None:
         """Read and parse the adjoint input file.
 
@@ -191,6 +465,7 @@ class Mf6Adj:
         # clear any existing PMs
         self._performance_measures = []
         self.logger.logger.info(f"Processing adjoint file: {self.adj_filename}")
+
         addr = ["NODEUSER", self._gwf_name.upper(), "DIS"]
         wbaddr = self._gwf.get_var_address(*addr)
         nuser = self._gwf.get_value(wbaddr) - 1
@@ -203,274 +478,67 @@ class Mf6Adj:
             if self.unstructured_type == "disv":
                 addr = ["NCPL", self._gwf_name.upper(), "DIS"]
                 wbaddr = self._gwf.get_var_address(*addr)
-                ncpl = self._gwf.get_value(wbaddr)
-                addr = ["NLAY", self._gwf_name.upper(), "DIS"]
-                wbaddr = self._gwf.get_var_address(*addr)
+                ncpl = int(np.asarray(self._gwf.get_value(wbaddr)).ravel()[0])
             elif self.unstructured_type == "disu":
                 addr = ["NODES", self._gwf_name.upper(), "DIS"]
                 wbaddr = self._gwf.get_var_address(*addr)
-                ncpl = self._gwf.get_value(wbaddr)
+                ncpl = int(np.asarray(self._gwf.get_value(wbaddr)).ravel()[0])
 
         with self.adj_filename.open("r") as f:
             count = 0
             while True:
                 line = f.readline()
                 count += 1
-                # eof
                 if line == "":
                     break
 
-                # skip empty lines or comment lines
-                if len(line.strip()) == 0 or line.strip()[0] == "#":
+                if self._is_empty_or_comment(line):
                     continue
 
-                # read the options block
-                if line.lower().strip().startswith("begin options"):
-                    while True:
-                        line2 = f.readline()
-                        count += 1
-
-                        if line2 == "":
-                            raise EOFError("EOF while reading options")
-                        elif len(line2.strip()) == 0 or line2.strip()[0] == "#":
-                            continue
-                        elif line2.lower().strip().startswith("begin"):
-                            raise Exception(
-                                "a new begin block found while parsing options"
-                            )
-                        elif line2.lower().strip().startswith("end options"):
-                            break
-                        elif line2.lower().strip().split()[0] == "hdf5_name":
-                            self._hdf5_name = pl.Path(line2.strip().split()[1])
-                        else:
-                            raise Exception("unrecognized option line:" + line2.strip())
-
-                # parse a new performance measure block
-
-                elif line.lower().strip().startswith("begin performance_measure"):
-                    raw = line.lower().strip().split()
-
-                    if len(raw) != 3:
-                        raise Exception(
-                            (
-                                f"'begin' line {count} has wrong number of items, "
-                                + f"should be 3, not {len(raw)}"
-                            )
-                        )
-
-                    pm_name = raw[2].strip().lower()
-
-                    pm_entries = []
-                    while True:
-                        line2 = f.readline()
-                        count += 1
-                        if line2 == "":
-                            raise EOFError(
-                                f"EOF while reading performance_measure block '{line}'"
-                            )
-                        elif len(line2.strip()) == 0 or line2.strip()[0] == "#":
-                            continue
-                        elif line2.lower().strip().startswith("begin"):
-                            raise Exception(
-                                (
-                                    "a new begin block found while parsing "
-                                    + f"performance_measure block '{line}'"
-                                )
-                            )
-                        elif (
-                            line2.lower().strip().startswith("end performance_measure")
-                        ):
-                            break
-                        elif line2.lower().strip().startswith("open"):
-                            fname = line2.split()[1]
-                            if not pl.Path(fname).exists():
-                                raise Exception(f"External file '{fname}' not found")
-                            # df = pd.read_csv()
-                            raise NotImplementedError()
-
-                        raw = line2.lower().strip().split()
-                        if self.is_structured and len(raw) != 9:
-                            self.logger.logger.info(f"Parsed line: {raw}")
-                            raise Exception(
-                                (
-                                    f"performance measure entry on line {count} has "
-                                    + f"the wrong number of items, found {len(raw)}, "
-                                    + "should have 9"
-                                )
-                            )
-                        elif not self.is_structured:
-                            if self.unstructured_type == "disv" and len(raw) != 8:
-                                self.logger.logger.info(f"Parsed line: {raw}")
-                                raise Exception(
-                                    (
-                                        "performance measure entry on line "
-                                        + f"{count} has the wrong number of items, "
-                                        + f"found {len(raw)}, should have 8"
-                                    )
-                                )
-                            elif self.unstructured_type == "disu" and len(raw) != 7:
-                                self.logger.logger.info(f"Parsed line: {raw}")
-                                raise Exception(
-                                    (
-                                        "performance measure entry on line "
-                                        + f"{count} has the wrong number of items, "
-                                        + f"found {len(raw)}, should have 7"
-                                    )
-                                )
-
-                        kper = int(raw[0]) - 1
-                        kstp = int(raw[1]) - 1
-                        if kper > nper - 1:
-                            raise Exception(f"kper > nper -1 on line number {count}")
-                        if kstp > nstp[kper] - 1:
-                            raise Exception(
-                                f"kstp > nstp[kper] -1 on line number {count}"
-                            )
-
-                        i, j, k = None, None, None
-                        if self.is_structured:
-                            kij = []
-                            for i in range(3):
-                                try:
-                                    kij.append(int(raw[i + 2]) - 1)
-                                except Exception as e:
-                                    print(
-                                        f"{e}\n\nerror casting k-i-j info on "
-                                        + f"line {count}: '{line2}'"
-                                    )
-                            k, i, j = kij[0], kij[1], kij[2]
-                            # convert to node number
-                            inode = PerfMeas.get_node(self._shape, [kij])[0]
-                            # if there is a reduced node scheme
-                            if len(nuser) > 1:
-                                nn = np.where(nuser == inode)[0]
-                                if nn.shape[0] != 1:
-                                    self.logger.logger.info(f"{nuser} {nn}")
-                                    if self.is_structured:
-                                        self.logger.logger.info(f"{kij}")
-                                    raise Exception(
-                                        f"node num {nuser} not in reduced node num"
-                                    )
-
-                                inode = nn[0]
-
-                        else:
-                            if self.unstructured_type == "disv":
-                                try:
-                                    lay = int(raw[2])
-                                except Exception as e:
-                                    print(
-                                        f"{e}\n\nerror casting layer info info on "
-                                        + f"line {count}: '{line2}'"
-                                    )
-                                k = lay - 1
-                                try:
-                                    node = int(raw[3])
-                                except Exception as e:
-                                    print(
-                                        f"{e}\n\nerror casting layer info info on "
-                                        + f"line {count}: '{line2}'"
-                                    )
-
-                                inode = ((ncpl * (lay - 1)) + node) - 1
-
-                                # if there is a reduced node scheme
-                                if len(nuser) > 1:
-                                    nn = np.where(nuser == inode)[0]
-                                    if nn.shape[0] != 1:
-                                        raise Exception(
-                                            f"node num {nuser} not in reduced node num"
-                                        )
-                                    inode = nn[0]
-                            elif self.unstructured_type == "disu":
-                                try:
-                                    inode = int(raw[2]) - 1
-                                except Exception as e:
-                                    print(
-                                        f"{e}\n\nerror casting node info on "
-                                        + f"line {count}: '{line2}'"
-                                    )
-
-                                # if there is a reduced node scheme
-                                if len(nuser) > 1:
-                                    nn = np.where(nuser == inode)[0]
-                                    if nn.shape[0] != 1:
-                                        raise Exception(
-                                            f"node num {nuser} not in reduced node num"
-                                        )
-                                    inode = nn[0]
-
-                        obsval = float(raw[-1])
-                        weight = float(raw[-2])
-                        pm_form = raw[-3].strip().lower()
-                        pm_type = raw[-4].strip().lower()
-                        if pm_type != "head":
-                            found = False
-                            ppnames = []
-                            for ptype, pnames in self._gwf_package_dict.items():
-                                if pm_type in pnames:
-                                    found = True
-                                    break
-                                ppnames.extend(pnames)
-                            if not found:
-                                self.logger.logger.info(f"{ppnames}")
-                                raise Exception(
-                                    f"`pm_type` {pm_type} names a GWF package "
-                                    + "instance that was not found"
-                                )
-
-                        pm_entries.append(
-                            PerfMeasRecord(
-                                kper,
-                                kstp,
-                                inode,
-                                pm_type,
-                                pm_form,
-                                weight,
-                                obsval,
-                                k,
-                                i,
-                                j,
-                            )
-                        )
-                    if len(pm_entries) == 0:
-                        raise Exception(f"no entries found for PM {pm_name}")
-                    pm_types = {entry.pm_type for entry in pm_entries}
-
-                    pm_forms = {entry.pm_form for entry in pm_entries}
-                    if len(pm_forms) > 1:
-                        raise Exception(
-                            "performance measure"
-                            + f"{pm_name} has mixed 'pm_forms' ({pm_forms}), "
-                            + "this is not supported"
-                        )
-                    if (
-                        next(iter(pm_types)) != "head"
-                        and next(iter(pm_forms)) != "direct"
-                    ):
-                        raise Exception(
-                            "performance measure"
-                            + pm_name
-                            + " has a flux 'pm_form' and is a "
-                            + "residual 'pm_type', this is not supported"
-                        )
-                    if pm_name in [pm._name for pm in self._performance_measures]:
-                        raise Exception(f"PM {pm_name} multiply defined")
-                    self._performance_measures.append(
-                        PerfMeas(
-                            pm_name,
-                            pm_entries,
-                            self.logger.level,
-                            self.logger,
-                        )
+                line_strip = line.lower().strip()
+                if line_strip.startswith("begin options"):
+                    count = self._parse_adj_options_block(f, count)
+                elif line_strip.startswith("begin performance_measure"):
+                    count, pm_name, pm_entries = self._parse_performance_measure_block(
+                        f,
+                        line,
+                        count,
+                        nuser,
+                        nstp,
+                        nper,
+                        ncpl,
                     )
-
+                    self._add_performance_measure(pm_name, pm_entries)
                 else:
                     raise Exception(
                         f"unrecognized adj file input on line {count}: '{line}'"
                     )
         if len(self._performance_measures) == 0:
             raise Exception("no PMs found in adj file")
+
+    @staticmethod
+    def _parse_models_block(f) -> tuple[dict[str, str], dict[str, str]]:
+        model_dict: dict[str, str] = {}
+        namfile_dict: dict[str, str] = {}
+        while True:
+            line = f.readline()
+            if line == "":
+                raise EOFError("EOF when reading 'models' block")
+
+            line_strip = line.strip().lower()
+            if line_strip.startswith("end") and "models" in line_strip:
+                break
+            if line_strip == "" or line_strip.startswith("#"):
+                continue
+
+            raw = line_strip.split()
+            if len(raw) < 3:
+                raise Exception(f"wrong number of items on line: {line.strip()}")
+            if raw[2] in model_dict:
+                raise Exception(f"duplicate model name found: '{raw[2]}'")
+            model_dict[raw[2]] = raw[0]
+            namfile_dict[raw[2]] = raw[1]
+        return model_dict, namfile_dict
 
     @staticmethod
     def get_model_names_from_mfsim(
@@ -492,33 +560,56 @@ class Mf6Adj:
         sim_nam = pl.Path(sim_ws) / "mfsim.nam"
         if not sim_nam.exists():
             raise Exception(f"simulation nam file '{sim_nam}' not found")
-        model_dict = {}
-        namfile_dict = {}
+
         with sim_nam.open("r") as f:
-            while True:
-                line = f.readline()
-                if line == "":
-                    raise EOFError("EOF when looking for 'models' block")
-                if (
-                    line.strip().lower().startswith("begin")
-                    and "models" in line.lower()
-                ):
-                    while True:
-                        line2 = f.readline()
-                        if line2 == "":
-                            raise EOFError("EOF when reading 'models' block")
-                        elif (
-                            line2.strip().lower().startswith("end")
-                            and "models" in line2.lower()
-                        ):
-                            break
-                        raw = line2.strip().lower().split()
-                        if raw[-1] in model_dict:
-                            raise Exception(f"duplicate model name found: '{raw[-1]}'")
-                        model_dict[raw[2]] = raw[0]
-                        namfile_dict[raw[2]] = raw[1]
-                    break
-        return model_dict, namfile_dict
+            for line in f:
+                line_strip = line.strip().lower()
+                if line_strip.startswith("begin") and "models" in line_strip:
+                    return Mf6Adj._parse_models_block(f)
+
+        raise EOFError("EOF when looking for 'models' block")
+
+    @staticmethod
+    def _parse_packages_block(f) -> dict[str, list[str]]:
+        package_dict: dict[str, list[str]] = {}
+        count_dict: dict[str, int] = {}
+
+        while True:
+            line = f.readline()
+            if line == "":
+                raise EOFError("EOF when reading 'packages' block")
+
+            line_strip = line.strip().lower()
+            if line_strip.startswith("end") and "packages" in line_strip:
+                break
+            if line_strip == "" or line_strip.startswith("#"):
+                continue
+
+            data = line.split("#", 1)[0].strip().lower()
+            if data == "":
+                continue
+
+            raw = data.split()
+            if len(raw) < 2:
+                raise Exception(f"wrong number of items on line: {line}")
+
+            package_type = raw[0]
+            tag_name = raw[2] if len(raw) > 2 else None
+
+            if package_type not in count_dict:
+                count_dict[package_type] = 1
+            if package_type not in package_dict:
+                package_dict[package_type] = []
+
+            if tag_name is None:
+                tag_name = (
+                    package_type.replace("6", "") + f"-{count_dict[package_type]}"
+                )
+
+            package_dict[package_type].append(tag_name)
+            count_dict[package_type] += 1
+
+        return package_dict
 
     @staticmethod
     def get_package_names_from_gwfname(
@@ -539,52 +630,14 @@ class Mf6Adj:
         gwf_nam_file = pl.Path(gwf_nam_file)
         if not gwf_nam_file.exists():
             raise Exception(f"gwf nam file '{gwf_nam_file}' not found")
-        package_dict = {}
-        count_dict = {}
+
         with gwf_nam_file.open("r") as f:
-            while True:
-                line = f.readline()
-                if line == "":
-                    raise EOFError("EOF when looking for 'packages' block")
-                if (
-                    line.strip().lower().startswith("begin")
-                    and "packages" in line.lower()
-                ):
-                    while True:
-                        line2 = f.readline()
-                        if line2 == "":
-                            raise EOFError("EOF when reading 'packages' block")
-                        elif (
-                            line2.strip().lower().startswith("end")
-                            and "packages" in line2.lower()
-                        ):
-                            break
-                        raw = line2.strip().lower().split()
-                        if raw[0].startswith("#"):
-                            continue
-                        if "#" in line2:
-                            raw = line2.split("#")[0].lower().split()
-                        if len(raw) < 2:
-                            raise Exception(f"wrong number of items on line: {line2}")
-                        tag_name = None
-                        if len(raw) > 2:
-                            tag_name = raw[2]
-                        package_type = raw[0]
-                        if package_type not in count_dict:
-                            count_dict[package_type] = 1
+            for line in f:
+                line_strip = line.strip().lower()
+                if line_strip.startswith("begin") and "packages" in line_strip:
+                    return Mf6Adj._parse_packages_block(f)
 
-                        if package_type not in package_dict:
-                            package_dict[package_type] = []
-                        if tag_name is None:
-                            tag_name = (
-                                package_type.replace("6", "")
-                                + f"-{count_dict[package_type]}"
-                            )
-                        package_dict[package_type].append(tag_name)
-                        count_dict[package_type] += 1
-
-                    break
-        return package_dict
+        raise EOFError("EOF when looking for 'packages' block")
 
     @staticmethod
     def write_group_to_hdf(

@@ -92,3 +92,14 @@ jobs:
         with:
           name: docs-htmlzip
           path: docs/_build/htmlzip/mf6adj.zip
+
+  trigger_rtd:
+    runs-on: ubuntu-latest
+    needs: build-docs
+    steps:
+      # ... steps to download artifact if needed for the trigger script ...
+      - name: Trigger Read the Docs build
+        # Use a community action or curl command to trigger a webhook
+        # Example using curl to call the RtD API
+        run: |
+          curl -X POST -d '{"trigger_id": "..."}' https://api.readthedocs.com

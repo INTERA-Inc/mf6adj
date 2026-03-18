@@ -75,15 +75,18 @@ def test_sagehen():
         f.write("end performance_measure\n")
 
     start = datetime.now()
-    os.chdir(new_d)
 
     print("calculating adjoint...")
-    adj = mf6adj.Mf6Adj(adj_file.name, lib_name, logging_level="INFO")
-
+    adj = mf6adj.Mf6Adj(
+        adj_file.name,
+        lib_name,
+        logging_level="INFO",
+        working_directory=new_d,
+    )
     adj.solve_gwf()
     adj.solve_adjoint()
     adj.finalize()
-    os.chdir("..")
+
     duration = (datetime.now() - start).total_seconds()
     print("took:", duration)
 

@@ -68,18 +68,24 @@ def test_sanpedro():
         f.write("end performance_measure\n\n")
 
     start = datetime.now()
-    os.chdir(new_d)
 
-    adj = mf6adj.Mf6Adj(adj_file.name, lib_name, logging_level="INFO")
+    adj = mf6adj.Mf6Adj(
+        adj_file.name,
+        lib_name,
+        logging_level="INFO",
+        working_directory=new_d,
+    )
 
     adj.solve_gwf()
+
     adj.solve_adjoint(
         linear_solver="bicgstab",
         linear_solver_kwargs={"maxiter": 50, "rtol": 0.1, "atol": 0.1},
         use_precon=False,
     )
+
     adj.finalize()
-    os.chdir("..")
+
     duration = (datetime.now() - start).total_seconds()
     print("took:", duration)
 

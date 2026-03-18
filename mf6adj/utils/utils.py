@@ -5,7 +5,7 @@ from typing import Generator
 
 
 @contextmanager
-def context_cd(newdir: pl.Path) -> Generator[None, None, None]:
+def utils_cd(newdir: pl.Path) -> Generator[None, None, None]:
     prevdir = pl.Path().cwd()
     os.chdir(newdir)
     try:

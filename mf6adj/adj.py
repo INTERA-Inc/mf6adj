@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from .pm import PerfMeas, PerfMeasRecord
-from .utils.utils import context_cd
+from .utils.utils import utils_cd
 from .utils.utils_logger import LoggerUtil
 
 DT_FMT = "%Y-%m-%d %H:%M:%S"
@@ -49,7 +49,7 @@ class Mf6Adj:
             working_directory = pl.Path(".").resolve()
         self.working_directory = pl.Path(working_directory).resolve()
 
-        with context_cd(self.working_directory):
+        with utils_cd(self.working_directory):
             adj_filename = pl.Path(adj_filename)
             if not adj_filename.is_file():
                 raise Exception(f"adj_filename '{adj_filename}' not found")
@@ -872,7 +872,7 @@ class Mf6Adj:
         pert_results (dict) : information for the perturbation testing.
 
         """
-        with context_cd(self.working_directory):
+        with utils_cd(self.working_directory):
             if self._gwf is None:
                 raise Exception("gwf is None")
             if hdf5_name is not None:
@@ -1320,7 +1320,7 @@ class Mf6Adj:
         generate_name = hdf5_adjoint_solution_fname is None
 
         dfs = {}
-        with context_cd(self.working_directory):
+        with utils_cd(self.working_directory):
             if self._hdf5_name is None or not pl.Path(self._hdf5_name).exists():
                 raise Exception("need to call solve_gwf() first")
 
@@ -1396,7 +1396,8 @@ class Mf6Adj:
     def _perturbation_test(self, pert_mult: float = 1.01) -> pd.DataFrame:
         """Run perturbation testing for development and verification."""
 
-        self._gwf = self._initialize_gwf(self._lib_name, self._flow_dir)
+        working_directory = pl.Path(self.working_directory)
+        self._gwf = self._initialize_gwf(self._lib_name, working_directory)
         self._gwf_version = self._get_gwf_version()
 
         gwf_name = self._gwf_name.upper()
@@ -1418,12 +1419,8 @@ class Mf6Adj:
         if len(nuser) == 1:
             nuser = np.arange(org_head[next(iter(org_head.keys()))].shape[0], dtype=int)
 
-        addr = ["NODES", gwf_name, "DIS"]
-        wbaddr = self._gwf.get_var_address(*addr)
-        nodes = self._gwf.get_value(wbaddr)[0]
-
         kijs = None
-        nlay = None
+        nlay = 1
         if self.is_structured or self.unstructured_type == "disv":
             addr = ["NLAY", gwf_name, "DIS"]
             wbaddr = self._gwf.get_var_address(*addr)
@@ -1432,6 +1429,25 @@ class Mf6Adj:
         if self.is_structured:
             kijs = PerfMeas.get_lrc(self._shape, list(nuser))
             kijs = dict(zip(nuser, kijs))
+
+        def _compute_perturbation_results(
+            pert_head: dict,
+            pert_sp_dict: dict,
+            epsilon: float,
+        ) -> dict[str, float]:
+            return {
+                pm.name: (
+                    pm.solve_forward(pert_head, pert_sp_dict) - base_results[pm.name]
+                )
+                / epsilon
+                for pm in self._performance_measures
+            }
+
+        def _add_spatial_labels(df: pd.DataFrame) -> pd.DataFrame:
+            if kijs is not None:
+                for idx, lab in zip([0, 1, 2], ["k", "i", "j"]):
+                    df.loc[:, lab] = df.index.map(lambda x: kijs[x][idx])
+            return df
 
         dfs = []
 
@@ -1443,21 +1459,17 @@ class Mf6Adj:
                 continue
             pert_items = self._gwf_boundary_attr_dict[paktype]
             epsilons = []
-            bound_idx = []
-            nodes = []
+            node_ids = []
             names = []
             pert_results_dict = {pm.name: [] for pm in self._performance_measures}
             self.logger.logger.info(f"Running perturbations for {paktype}")
             for kk, infolist in pdict.items():
                 for ibnd, infodict in enumerate(infolist):
-                    # bnd_items = infodict["bound"].shape[0]
-
-                    # for ibnd in range(min(bnd_items,2)):
                     for pert_item in pert_items:
                         new_bound = infodict[pert_item].copy()
-                        org = new_bound
-                        delt = org * pert_mult
-                        epsilons.append(delt - new_bound)
+                        delt = new_bound * pert_mult
+                        epsilon = delt - new_bound
+                        epsilons.append(epsilon)
                         new_bound = delt
                         pakname = infodict["packagename"]
                         pert_dict = {
@@ -1467,67 +1479,68 @@ class Mf6Adj:
                             pert_item: new_bound,
                             "packagetype": paktype,
                         }
-                        # print("...",pakname,pert_item,kk,org,delt,infodict["node"])
-
-                        self._gwf = self._initialize_gwf(self._lib_name, self._flow_dir)
+                        self._gwf = self._initialize_gwf(
+                            self._lib_name,
+                            working_directory,
+                        )
                         pert_head, pert_sp_dict = self.solve_gwf(
                             verbose=False, _sp_pert_dict=pert_dict, pert_save=True
                         )
-                        pert_results = {
-                            pm.name: (
-                                pm.solve_forward(pert_head, pert_sp_dict)
-                                - base_results[pm.name]
-                            )
-                            / epsilons[-1]
-                            for pm in self._performance_measures
-                        }
-                        for pm, result in pert_results.items():
-                            pert_results_dict[pm].append(result)
-                        bound_idx.append(ibnd)
-                        nodes.append(infodict["node"])
+                        pert_results = _compute_perturbation_results(
+                            pert_head,
+                            pert_sp_dict,
+                            epsilon,
+                        )
+                        for pm_name, result in pert_results.items():
+                            pert_results_dict[pm_name].append(result)
+                        node_ids.append(infodict["node"])
                         if paktype == "wel6":
                             names.append("wel6_q")
                         elif paktype == "rch6":
                             names.append("rch6_recharge")
                         else:
                             names.append(pakname + "_" + pert_item + f"_{ibnd}")
+
+            if not epsilons:
+                continue
+
             df = pd.DataFrame(pert_results_dict)
-            df.loc[:, "node"] = nodes
+            df.loc[:, "node"] = node_ids
             df.loc[:, "epsilon"] = epsilons
             df.loc[:, "addr"] = names
             df.index = df.pop("node") - 1
             df = df.loc[df.index != -1, :]
             df.index = df.index.map(lambda x: nuser[x])
+            df.index.name = "node"
 
-            if kijs is not None:
-                for idx, lab in zip([0, 1, 2], ["k", "i", "j"]):
-                    df.loc[:, lab] = df.index.map(lambda x: kijs[x][idx])
-            col_dict = {col: df.loc[:, col].to_dict() for col in df.columns}
-            gdf = df.groupby(["node", "addr"]).sum()
-            gdf["node"] = gdf.index.get_level_values(0)
-            gdf["addr"] = gdf.index.get_level_values(1)
-            gdf.index = gdf.pop("node")
-            for col in df.columns:
-                if col in pert_results_dict:
-                    continue
-                if col in ["addr", "node"]:
-                    continue
-                gdf.loc[:, col] = gdf.index.map(lambda x: col_dict[col][x])
+            df = _add_spatial_labels(df)
+
+            agg_map = dict.fromkeys(pert_results_dict, "sum")
+            for col in ["epsilon", "k", "i", "j"]:
+                if col in df.columns:
+                    agg_map[col] = "first"
+
+            gdf = (
+                df.reset_index()
+                .groupby(["node", "addr"], as_index=False)
+                .agg(agg_map)
+                .set_index("node")
+            )
             dfs.append(gdf)
 
         # property perturbations
-        address = [["K11", gwf_name, "NPF"]]
+        addresses = [["K11", gwf_name, "NPF"]]
         if nlay > 1:
-            address.append(["K33", gwf_name, "NPF"])
+            addresses.append(["K33", gwf_name, "NPF"])
 
         has_sto = False
         if PerfMeas.has_sto_iconvert(self._gwf):
             has_sto = True
 
-        wbaddr = self._gwf.get_var_address(*address[0])
+        wbaddr = self._gwf.get_var_address(*addresses[0])
         inodes = self._gwf.get_value_ptr(wbaddr).shape[0]
 
-        for addr in address:
+        for addr in addresses:
             self.logger.logger.info(f"Running perturbations for {addr}")
             pert_results_dict = {pm.name: [] for pm in self._performance_measures}
             wbaddr = self._gwf.get_var_address(*addr)
@@ -1535,46 +1548,38 @@ class Mf6Adj:
             epsilons = []
 
             for inode in range(inodes):
-                self._gwf = self._initialize_gwf(self._lib_name, self._flow_dir)
+                self._gwf = self._initialize_gwf(self._lib_name, self.working_directory)
                 pert_arr = self._gwf.get_value_ptr(wbaddr)
                 org = pert_arr[inode]
                 delt = org * pert_mult
-                epsilons.append(delt - pert_arr[inode])
+                epsilon = delt - pert_arr[inode]
+                epsilons.append(epsilon)
                 pert_arr[inode] = delt
-                # print("...",addr,inode,org,delt)
                 pert_head, pert_sp_dict = self.solve_gwf(
                     verbose=False, _force_k_update=True, pert_save=True
                 )
-                pert_results = {
-                    pm.name: (
-                        pm.solve_forward(pert_head, pert_sp_dict)
-                        - base_results[pm.name]
-                    )
-                    / epsilons[-1]
-                    for pm in self._performance_measures
-                }
-                for pm, result in pert_results.items():
-                    pert_results_dict[pm].append(result)
+                pert_results = _compute_perturbation_results(
+                    pert_head,
+                    pert_sp_dict,
+                    epsilon,
+                )
+                for pm_name, result in pert_results.items():
+                    pert_results_dict[pm_name].append(result)
 
             df = pd.DataFrame(pert_results_dict)
             df.index = [nuser[inode] for inode in range(inodes)]
             df.index.name = "node"
             df.loc[:, "epsilon"] = epsilons
-            if kijs is not None:
-                for idx, lab in zip([0, 1, 2], ["k", "i", "j"]):
-                    df.loc[:, lab] = df.index.map(lambda x: kijs[x][idx])
+            df = _add_spatial_labels(df)
             tag = "_".join(addr).lower()
             df.loc[:, "addr"] = tag
             dfs.append(df)
 
         if has_sto:
-            if self._flow_dir != ".":
-                test_dir = self._flow_dir + "_pert_temp"
-            else:
-                test_dir = "pert_temp"
+            test_dir = working_directory / "_pert_temp"
             if pl.Path(test_dir).exists():
                 shutil.rmtree(test_dir)
-            sim = flopy.mf6.MFSimulation.load(sim_ws=self._flow_dir)
+            sim = flopy.mf6.MFSimulation.load(sim_ws=working_directory)
             gwf = sim.get_model()
             ss = gwf.sto.ss.array.copy().flatten()
             # this is an attempt to make sure we aren't using "layered"
@@ -1588,14 +1593,6 @@ class Mf6Adj:
                 raise Exception(
                     "couldn't find ss_arr_name '{0}' needed for BS super hack"
                 )
-            src = pl.Path(self._flow_dir) / self._lib_name
-            if src.exists():
-                dst = pl.Path(test_dir) / self._lib_name
-                if src != dst:
-                    shutil.copy2(
-                        src,
-                        dst,
-                    )
 
             self.logger.logger.info(
                 "Running manual flopy based perturbations for sto ss"
@@ -1608,8 +1605,8 @@ class Mf6Adj:
                 pert_arr = ss.copy()
                 org = ss[arr_node]
                 delt = org * pert_mult
-                epsilons.append(delt - pert_arr[arr_node])
-                # print("...ss", inode, arr_node, org, delt)
+                epsilon = delt - pert_arr[arr_node]
+                epsilons.append(epsilon)
                 pert_arr[arr_node] = delt
 
                 # reset the ss property
@@ -1619,23 +1616,18 @@ class Mf6Adj:
                 pert_head, pert_sp_dict = self.solve_gwf(
                     verbose=False, _force_k_update=True, pert_save=True
                 )
-                pert_results = {
-                    pm.name: (
-                        pm.solve_forward(pert_head, pert_sp_dict)
-                        - base_results[pm.name]
-                    )
-                    / epsilons[-1]
-                    for pm in self._performance_measures
-                }
-                for pm, result in pert_results.items():
-                    pert_results_dict[pm].append(result)
+                pert_results = _compute_perturbation_results(
+                    pert_head,
+                    pert_sp_dict,
+                    epsilon,
+                )
+                for pm_name, result in pert_results.items():
+                    pert_results_dict[pm_name].append(result)
             df = pd.DataFrame(pert_results_dict)
             df.index = [nuser[inode] for inode in range(inodes)]
             df.index.name = "node"
             df.loc[:, "epsilon"] = epsilons
-            if kijs is not None:
-                for idx, lab in zip([0, 1, 2], ["k", "i", "j"]):
-                    df.loc[:, lab] = df.index.map(lambda x: kijs[x][idx])
+            df = _add_spatial_labels(df)
             tag = "sto_ss"
             df.loc[:, "addr"] = tag
             dfs.append(df)
@@ -1644,5 +1636,5 @@ class Mf6Adj:
         df.index = df.index.values + 1
         df.index.name = "node"
         df.sort_index(inplace=True)
-        df.to_csv("pert_results.csv")
+        df.to_csv(working_directory / "pert_results.csv")
         return df

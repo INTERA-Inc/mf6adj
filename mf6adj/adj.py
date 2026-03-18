@@ -162,20 +162,27 @@ class Mf6Adj:
         For example, if the performance measure was for a head in a single cell located
         in layer 3, row 10, column 34 during the 4th timestep of the 25th stress period
         and it is a direct performance measure, the entry would be:
-           25 3 3 10 34 head direct 1.0 -999 # -999 is a null value for a unused obsval
-        Alternatively, if the same spatial temporal location was used for a sum-of-
+
+            25 3 3 10 34 head direct 1.0 -999
+
+        -999 in the entry is a null value for an unused obsval.
+
+        Alternatively, if the same spatial-temporal location was used for a sum-of-
         squared residual performance measure and the observed value is 123.45, the entry
         would be:
-           25 3 3 10 34 head residual 1.0 123.45
+
+            25 3 3 10 34 head residual 1.0 123.45
 
         If the performance measure is for the simulated flux exchanged with a GHB
         boundary in model layer 10, row 2, column 3 for stress periods 1 and 2 (assuming
         1 timestep per stress period and assuming the GHB package is named 'ghb_1' in
         the GWF nam file):
-           1 1 10 2 3 ghb_1 direct 1.0 -999
-           2 1 10 2 3 ghb_1 direct 1.0 -999
+
+            1 1 10 2 3 ghb_1 direct 1.0 -999
+            2 1 10 2 3 ghb_1 direct 1.0 -999
+
         The resulting adjoint sensitivities will be with respect to the ghb flux in
-        model cell (10,2,3) for both stress periods 1 and 2
+        model cell (10,2,3) for both stress periods 1 and 2.
 
         At present, performance measure forms (`direct` or `residual`) cannot be
         mixed within a single performance measure, and performance types (`head`
@@ -873,7 +880,7 @@ class Mf6Adj:
         Parameters
         ----------
         verbose : bool, optional
-            Flag controlling stdout reporting.
+            Whether to report progress to stdout.
         _force_k_update : bool, optional
             Force MODFLOW 6 to reprocess the `K` and `K33` arrays. Used only
             during perturbation testing.
@@ -1290,7 +1297,7 @@ class Mf6Adj:
             entries.
         csv_summary : bool, optional
             Write a CSV summary of the sensitivity information.
-        linear_solver : varies, optional
+        linear_solver : str or callable, optional
             Sparse linear solver to use. If `None`, either a direct solver or
             `bicgstab` is selected based on model size. If a string, supported
             values are `"direct"` and `"bicgstab"`. A compatible solver

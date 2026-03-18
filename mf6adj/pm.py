@@ -371,7 +371,7 @@ class PerfMeas:
             entries.
         csv_summary : bool, optional
             Write a CSV summary of the sensitivity information.
-        linear_solver : varies, optional
+        linear_solver : str or callable, optional
             Sparse linear solver to use. Supported string values are
             `"direct"`, `"bicgstab"`, `"cg"`, `"gmres"`, `"lgmres"`, and
             `"lsqr"`.
@@ -1207,7 +1207,7 @@ class PerfMeas:
         Parameters
         ----------
         ihighcellsat : int
-            Flag for using the highest cell bottom when calculating saturation.
+            Whether to use the highest cell bottom when calculating saturation.
         top1 : float
             Top elevation of node 1.
         top2 : float
@@ -1294,9 +1294,9 @@ class PerfMeas:
         Parameters
         ----------
         is_newton : bool
-            Flag indicating whether Newton terms are active.
+            Whether Newton terms are active.
         ihighcellsat : int
-            Flag for using the highest cell bottom when calculating saturation.
+            Whether to use the highest cell bottom when calculating saturation.
         lamb : ndarray
             Adjoint state array.
         sat : ndarray

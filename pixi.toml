@@ -42,9 +42,18 @@ nbstripout = "*"
 ruff = "*"
 jupyterlab_code_formatter = "*"
 
+# docs
+myst-parser = "*"
+nbconvert = "<7.14.0"
+nbsphinx = "*"
+PyYAML = "*"
+sphinx = "==7.1.2"
+sphinx-rtd-theme = ">=1"
+
 [pypi-dependencies]
 modflow-devtools = { git = "https://github.com/MODFLOW-ORG/modflow-devtools.git", extras = ["dfn"] }
 hatch-fancy-pypi-readme = "*"
+rtds-action = "*"
 
 [tasks]
 pre-commit-install = { cmd = "pre-commit install" }

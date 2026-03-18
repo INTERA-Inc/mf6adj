@@ -243,20 +243,20 @@ def build_model(ws, name="disv"):
 
 
 def solve_adjoint(ws, pm_fname):
-    bd = pl.Path.cwd()
-    os.chdir(ws)
-
     forward_hdf5_name = "test_unstructured_forward.hdf5"
     start = datetime.now()
 
-    adj = mf6adj.Mf6Adj(pm_fname, lib_name, logging_level="INFO")
+    adj = mf6adj.Mf6Adj(
+        pm_fname,
+        lib_name,
+        logging_level="INFO",
+        working_directory=ws,
+    )
     adj.solve_gwf(hdf5_name=forward_hdf5_name)
     dfsum = adj.solve_adjoint()
     adj.finalize()  # release components
     duration = (datetime.now() - start).total_seconds()
     print("adjoint took:", duration)
-
-    os.chdir(bd)
 
 
 def get_sensitivities(ws):

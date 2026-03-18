@@ -38,29 +38,33 @@ def test_ie_nomaw_1sp():
 
     org_d = pl.Path("ie_nomaw_1sp")
     new_d = "ie_nomaw_1sp_test"
+    new_dir = pl.Path(new_d)
 
-    adj_file = pl.Path(new_d) / "test.adj"
+    adj_file = new_dir / "test.adj"
     if prep:
-        if pl.Path(new_d).exists():
-            shutil.rmtree(new_d)
-        shutil.copytree(org_d, new_d)
+        if new_dir.exists():
+            shutil.rmtree(new_dir)
+        shutil.copytree(org_d, new_dir)
 
-        pyemu.os_utils.run("mf6", cwd=new_d)
+        pyemu.os_utils.run("mf6", cwd=new_dir)
 
-    sim = flopy.mf6.MFSimulation.load(sim_ws=new_d, load_only=["dis", "sfr"])
+    sim = flopy.mf6.MFSimulation.load(sim_ws=new_dir, load_only=["dis", "sfr"])
+    nstp = sim.tdis.perioddata.array[0][1]
 
     with open(adj_file, "w") as f:
         f.write("begin performance_measure single_all_times\n")
         for kper in range(sim.tdis.nper.data):
-            nstp = sim.tdis.perioddata.array[0][1]
-            print(nstp)
             f.write(f"{kper + 1} {nstp} {32} {1808} head direct 1.0 -1.0e+30\n")
         f.write("end performance_measure\n\n")
 
     start = datetime.now()
-    os.chdir(new_d)
 
-    adj = mf6adj.Mf6Adj(adj_file.name, lib_name, logging_level="INFO")
+    adj = mf6adj.Mf6Adj(
+        adj_file.name,
+        lib_name,
+        logging_level="INFO",
+        working_directory=new_dir,
+    )
 
     adj.solve_gwf()
     adj.solve_adjoint(
@@ -69,7 +73,7 @@ def test_ie_nomaw_1sp():
         use_precon=True,
     )
     adj.finalize()
-    os.chdir("..")
+
     duration = (datetime.now() - start).total_seconds()
     print("took:", duration)
 
@@ -79,29 +83,33 @@ def test_ie_1sp():
 
     org_d = pl.Path("ie_1sp")
     new_d = "ie_1sp_test"
+    new_dir = pl.Path(new_d)
 
-    adj_file = pl.Path(new_d) / "test.adj"
+    adj_file = new_dir / "test.adj"
     if prep:
-        if pl.Path(new_d).exists():
-            shutil.rmtree(new_d)
-        shutil.copytree(org_d, new_d)
+        if new_dir.exists():
+            shutil.rmtree(new_dir)
+        shutil.copytree(org_d, new_dir)
 
-        pyemu.os_utils.run("mf6", cwd=new_d)
+        pyemu.os_utils.run("mf6", cwd=new_dir)
 
-    sim = flopy.mf6.MFSimulation.load(sim_ws=new_d, load_only=["dis", "sfr"])
+    sim = flopy.mf6.MFSimulation.load(sim_ws=new_dir, load_only=["dis", "sfr"])
+    nstp = sim.tdis.perioddata.array[0][1]
 
     with open(adj_file, "w") as f:
         f.write("begin performance_measure single_all_times\n")
         for kper in range(sim.tdis.nper.data):
-            nstp = sim.tdis.perioddata.array[0][1]
-            print(nstp)
             f.write(f"{kper + 1} {nstp} {32} {1808} head direct 1.0 -1.0e+30\n")
         f.write("end performance_measure\n\n")
 
     start = datetime.now()
-    os.chdir(new_d)
 
-    adj = mf6adj.Mf6Adj(adj_file.name, lib_name, logging_level="INFO")
+    adj = mf6adj.Mf6Adj(
+        adj_file.name,
+        lib_name,
+        logging_level="INFO",
+        working_directory=new_dir,
+    )
 
     adj.solve_gwf()
     adj.solve_adjoint(
@@ -110,7 +118,7 @@ def test_ie_1sp():
         use_precon=False,
     )
     adj.finalize()
-    os.chdir("..")
+
     duration = (datetime.now() - start).total_seconds()
     print("took:", duration)
 

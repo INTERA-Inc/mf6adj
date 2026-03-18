@@ -2,7 +2,7 @@ import logging
 import pathlib as pl
 import types
 from datetime import datetime
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 import h5py
 import numpy as np
@@ -22,9 +22,28 @@ from scipy.sparse.linalg import (
 
 from .utils.utils_logger import LoggerUtil
 
+PathLike = Union[str, pl.Path]
 
-class solver_callback(object):
+
+class SolverCallback:
+    """Iterative-solver callback with optional custom convergence checks."""
+
     def __init__(self, logger, A, b, dvclose=None, rclose=None):
+        """Initialize the solver callback.
+
+        Parameters
+        ----------
+        logger : LoggerUtil
+            Logger utility used to report iteration progress.
+        A : scipy.sparse.spmatrix or LinearOperator
+            Linear system matrix.
+        b : ndarray
+            Right-hand side vector.
+        dvclose : float, optional
+            Maximum allowed change in consecutive iterates.
+        rclose : float, optional
+            Maximum allowed residual.
+        """
         self.logger = logger
         self.A = A
         self.b = b
@@ -42,7 +61,14 @@ class solver_callback(object):
             self.custom_convergence = True
             self.logger.logger.info(f"Solver rclose value: {self.rclose}")
 
-    def __call__(self, xk):
+    def __call__(self, xk) -> None:
+        """Evaluate custom convergence criteria for the current iterate.
+
+        Parameters
+        ----------
+        xk : ndarray
+            Current solver iterate.
+        """
         self.niter += 1
         if self.dvclose is not None or self.rclose is not None:
             if self.dvclose is not None and self.niter == 1:
@@ -75,7 +101,8 @@ class solver_callback(object):
                 raise StopIteration(convergence_msg.strip())
 
     @property
-    def _is_converged(self):
+    def _is_converged(self) -> bool:
+        """Return whether the custom solver convergence criteria are met."""
         dv_converged = 1
         if self.dvmax is not None:
             if self.dvmax > self.dvclose:
@@ -89,24 +116,34 @@ class solver_callback(object):
         return bool(int(dv_converged * dr_converged))
 
 
-class PerfMeasRecord(object):
-    """A performance measure record class - an instance for each row in the
-    performance measure block
+solver_callback = SolverCallback
+
+
+class PerfMeasRecord:
+    """Single record from a performance-measure block.
 
     Parameters
     ----------
-    kper (int) : zero-based stress period
-    kstp (int) : zero-based time step
-    inode (int) : zero-based node number
-    pm_type (str) : either 'head' or boundary package name as shown in the GWF nam file
-    pm_form (str) : either 'direct' or 'residual'
-    weight (float) : weight value
-    obsval (float) : optional observed counterpart.  only used if 'pm_form' is residual
-    k (int) : optional zero-based layer (for structured grids - only for reporting)
-    i (int) : optional zero-based row (for structured grids - only for reporting)
-    j (int) : optional zero-based column (for structured grids - only for reporting)
-
-
+    kper : int
+        Zero-based stress period.
+    kstp : int
+        Zero-based time step.
+    inode : int
+        Zero-based node number.
+    pm_type : str
+        Either `head` or a boundary package name from the GWF name file.
+    pm_form : str
+        Either `direct` or `residual`.
+    weight : float
+        Weight value.
+    obsval : float
+        Observed counterpart; used only for `residual` form.
+    k : int, optional
+        Zero-based layer index for structured-grid reporting.
+    i : int, optional
+        Zero-based row index for structured-grid reporting.
+    j : int, optional
+        Zero-based column index for structured-grid reporting.
     """
 
     def __init__(
@@ -122,6 +159,31 @@ class PerfMeasRecord(object):
         i: Optional[int] = None,
         j: Optional[int] = None,
     ):
+        """Initialize a performance-measure record.
+
+        Parameters
+        ----------
+        kper : int
+            Zero-based stress period.
+        kstp : int
+            Zero-based time step.
+        inode : int
+            Zero-based node number.
+        pm_type : str
+            Performance-measure type.
+        pm_form : str
+            Performance-measure form.
+        weight : float
+            Weight value.
+        obsval : float
+            Observed value used for residual measures.
+        k : int, optional
+            Zero-based layer index for structured-grid reporting.
+        i : int, optional
+            Zero-based row index for structured-grid reporting.
+        j : int, optional
+            Zero-based column index for structured-grid reporting.
+        """
         self._kper = int(kper)
         self._kstp = int(kstp)
         self.kperkstp = (self._kper, self._kstp)
@@ -150,7 +212,8 @@ class PerfMeasRecord(object):
                 + f"not '{self.pm_form}'"
             )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """Return a string representation of the performance-measure record."""
         s = (
             f"kperkstp:{self.kperkstp}, inode:{self.inode}, "
             + f"k:{self._k}, type:{self.pm_type}, form:{self.pm_form}"
@@ -162,29 +225,19 @@ class PerfMeasRecord(object):
         return s
 
 
-class PerfMeas(object):
-    """Performance measures for adjoint solves
+class PerfMeas:
+    """Performance-measure container and adjoint-solve helper.
 
     Parameters
     ----------
-    pm_name (str) : name of the performance measure
-    pm_entries (list(PerfMeasRec)) : container of performance measure entries
-    logging_level (str) : logging levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    logger (logging) : logger instance. Default is None
-
-
-    todo: preprocess all the connectivity in to faster look dict containers,
-        including nnode to kij info for structured grids
-
-        todo: convert several class methods to static methods - this might make
-              testing easier
-
-        todo: add a no-data value var to fill empty spots in output arrays.
-              Currently using zero :(
-
-        todo: check that each entry's kperkstp is in the dicts being passed to
-              solve_adjoint()
-
+    pm_name : str
+        Name of the performance measure.
+    pm_entries : list[PerfMeasRecord]
+        Performance-measure entries.
+    logging_level : str or int, optional
+        Logging level.
+    logger : logging.Logger or LoggerUtil, optional
+        Logger instance. If omitted, a new logger is created.
     """
 
     def __init__(
@@ -194,6 +247,19 @@ class PerfMeas(object):
         logging_level: Union[int, str] = "INFO",
         logger: Optional[LoggerUtil] = None,
     ):
+        """Initialize a performance-measure container.
+
+        Parameters
+        ----------
+        pm_name : str
+            Name of the performance measure.
+        pm_entries : list[PerfMeasRecord]
+            Performance-measure entries.
+        logging_level : int or str, optional
+            Logging level to use when creating a new logger.
+        logger : LoggerUtil, optional
+            Existing logger utility. If omitted, a new logger is created.
+        """
         self._name = pm_name.lower().strip()
         self._entries = pm_entries
 
@@ -210,25 +276,27 @@ class PerfMeas(object):
             self.logger = logger
 
     @property
-    def name(self):
-        """get self._name
+    def name(self) -> str:
+        """Return the performance measure name.
 
         Returns
         -------
-        name (str) : performance measure name
-
+        str
+            Performance-measure name.
         """
         return str(self._name)
 
     @staticmethod
-    def get_mf6_bound_dict():
-        """get a container of information about which axes of the 'bound'
-        array from MODFLOW6 has the quantities for calculating the sensitivity to
+    def get_mf6_bound_dict() -> dict[str, dict[int, str]]:
+        """Return MODFLOW 6 boundary-array index metadata.
+
+        The returned mapping identifies which axes of a boundary `bound` array
+        correspond to quantities used in sensitivity calculations.
 
         Returns
         -------
-        d (dict) : dict of boundary info
-
+        dict[str, dict[int, str]]
+            Boundary metadata used in sensitivity calculations.
         """
         d = {
             "ghb6": {0: "bhead", 1: "cond"},
@@ -239,11 +307,10 @@ class PerfMeas(object):
         # "chd6":{0:"head"}}
         return d
 
-    def solve_forward(self, head_dict, sp_package_dict):
-        """calculate forward solution for the performance measure.
-        Thjs is only for the perturbation testing process
+    def solve_forward(self, head_dict, sp_package_dict) -> float:
+        """Calculate the forward value of the performance measure.
 
-
+        This method is used only during perturbation testing.
         """
         result = 0.0
         for pfr in self._entries:
@@ -275,74 +342,63 @@ class PerfMeas(object):
 
     def solve_adjoint(
         self,
-        hdf5_forward_solution_fname,
-        hdf5_adjoint_solution_fname: Optional[str] = None,
+        hdf5_forward_solution_fname: PathLike,
+        hdf5_adjoint_solution_fname: Optional[PathLike] = None,
         skip_solve: bool = False,
-        csv_summary=False,
+        csv_summary: bool = False,
         linear_solver=None,
-        linear_solver_kwargs: dict = {},
+        linear_solver_kwargs: Optional[dict] = None,
         use_precon: bool = True,
-        precon_kwargs: dict = {},
+        precon_kwargs: Optional[dict] = None,
         singular_test: bool = False,
         tikhonov: float = 0.0,
         dvclose: Optional[float] = 1e-6,
         rclose: Optional[float] = 1e-3,
-        dvscale: Optional[bool] = False,
-    ):
+        dvscale: bool = False,
+    ) -> pd.DataFrame:
         """Solve for the adjoint state for the performance measure.
 
         Parameters
         ----------
-        hdf5_forward_solution_fname (str) : the HDF5 file created by solve_gwf() that
-            contains the forward solution information needed to solve the adjoint.
-            hdf5_adjoint_solution_fname (str) : the HDF5 file to write the
-            adjoint solution. If None, a default name based on the performance
-            measure name is used.
-        skip_solve (bool) : flag to skip the adjoint solve for time steps with no
-            performance measure entries. This can be used to significantly speed up
-            the solve for cases with many time steps but only a few with performance
-            measure entries. One possible use case is to calculate individual
-            sensitivities for a single time step. Default is False, which means the
-            adjoint solve is performed for all time steps, even those with no
-            performance measure entries.
-        csv_summary (bool) : flag to write a summary CSV file with the sensitivity
-            information.  If False, no CSV file is written.
-        linear_solver (varies) : the scipy sparse linear alg solver to use.  If None,
-            a choice is made between direct and bicgstab, depending if the number of
-            nodes is less than 50,000.  If `str`, can be "direct", "bicgstab", "cg",
-            "gmres", "lgmres", or "lsqr". Otherwise, can be a function pointer to a
-            solver function in which the first two args are the CSR amat matrix and
-            the dense RHS vector, respectively.
-        linear_solver_kwargs (dict): dictionary of keyword args to pass to
-            `linear_solver`.  Default is {}
-        use_precon (bool): flag to use an ILU preconditioner with iterative
-            linear solver.
-        precon_kwargs (dict): dictionary of keyword args to pass to the ilu
-            preconditioner.  Default is {}
-        singular_test (bool): flag to test for a singular matrix and if the matrix
-            is determined to be singular apply Tikhonov regularization.
-            Default is False since there is a non-significant cost to test if a
-            matrix is singular.
-        tikhonov (float) : Tikhonov regularization value. This can be used to stabilize
-            the adjoint solve but introduces an approximation and should
-            be used cautiously. Small values (for example, 1e-6) have been found to
-            be effective. Default is 0.0
-        dvclose (float): custom convergence criterion for iterative solvers based on the
-            maximum absolute solution vector change between consecutive iterations.
-            If None and rclose is also None, the standard scipy.sparse.linalg
-            convergence check that uses atol and btol will be used. Default is 1e-6.
-        rclose (float): custom convergence criterion for iterative solvers based on the
-            maximum absolute residual for a iteration. If None and dvclose is also None,
-            the standard scipy.sparse.linalg convergence check that uses atol and btol
-            will be used. Default is 1e-3.
-        dvscale (float): scale lambda and the rhs to improve iterative solver
-            convergence for large lambda values. dvscale is not used if the direct
-            solver is used. Default is False
+        hdf5_forward_solution_fname : PathLike
+            HDF5 file created by `solve_gwf()` containing the forward-solution
+            information needed for the adjoint solve.
+        hdf5_adjoint_solution_fname : PathLike, optional
+            HDF5 file to write the adjoint solution. If omitted, a default
+            name based on the performance-measure name is used.
+        skip_solve : bool, optional
+            Skip the adjoint solve for time steps with no performance-measure
+            entries.
+        csv_summary : bool, optional
+            Write a CSV summary of the sensitivity information.
+        linear_solver : str or callable, optional
+            Sparse linear solver to use. Supported string values are
+            `"direct"`, `"bicgstab"`, `"cg"`, `"gmres"`, `"lgmres"`, and
+            `"lsqr"`.
+        linear_solver_kwargs : dict, optional
+            Keyword arguments passed to `linear_solver`.
+        use_precon : bool, optional
+            Use an ILU preconditioner with an iterative linear solver.
+        precon_kwargs : dict, optional
+            Keyword arguments passed to the ILU preconditioner.
+        singular_test : bool, optional
+            Test for a singular matrix and apply Tikhonov regularization when
+            needed.
+        tikhonov : float, optional
+            Tikhonov regularization value.
+        dvclose : float, optional
+            Custom convergence criterion based on the maximum absolute change
+            between consecutive iterates.
+        rclose : float, optional
+            Custom convergence criterion based on the maximum absolute residual.
+        dvscale : bool, optional
+            Scale lambda and the right-hand side to improve iterative solver
+            convergence for large lambda values.
 
         Returns
         -------
-        dfs (DataFrame) : summary of composite sensitivity information
-
+        DataFrame
+            Summary of composite sensitivity information.
         """
         supported_iterative_solvers = (
             "bicgstab",
@@ -351,6 +407,10 @@ class PerfMeas(object):
             "lgmres",
             "lsqr",
         )
+        linear_solver_kwargs = (
+            {} if linear_solver_kwargs is None else dict(linear_solver_kwargs)
+        )
+        precon_kwargs = {} if precon_kwargs is None else dict(precon_kwargs)
 
         adj_start = datetime.now()
         self.logger.logger.info(f"Starting solve_adjoint at {adj_start}")
@@ -548,12 +608,12 @@ class PerfMeas(object):
 
             if linear_solver == "direct":
                 _linear_solver = spsolve
-                if len(linear_solver_kwargs) == 0:
+                if not linear_solver_kwargs:
                     _linear_solver_kwargs = {"use_umfpack": True}
                 else:
                     _linear_solver_kwargs = linear_solver_kwargs
             elif linear_solver in supported_iterative_solvers:
-                if len(linear_solver_kwargs) == 0:
+                if not linear_solver_kwargs:
                     if linear_solver == "lsqr":
                         _linear_solver_kwargs = {
                             "btol": 1e-6,
@@ -628,7 +688,7 @@ class PerfMeas(object):
             if linear_solver not in ("direct", "lsqr"):
                 if use_precon:
                     self.logger.logger.debug("Setup preconditioner")
-                    if len(precon_kwargs) == 0:
+                    if not precon_kwargs:
                         _precon_kwargs = {
                             "drop_tol": 1e-4,
                             "fill_factor": 10,
@@ -643,7 +703,7 @@ class PerfMeas(object):
                             amat_ilu.solve,
                         )
                     except Exception as e:
-                        if "maxiter" in _linear_solver_kwargs.keys():
+                        if "maxiter" in _linear_solver_kwargs:
                             _linear_solver_kwargs["maxiter"] += 1000
                         else:
                             _linear_solver_kwargs["maxiter"] = 1000
@@ -686,7 +746,7 @@ class PerfMeas(object):
                         lamb /= scale
                         rhs /= scale
                 try:
-                    solver_cb = solver_callback(
+                    solver_cb = SolverCallback(
                         logger=self.logger,
                         A=amat,
                         b=rhs,
@@ -942,26 +1002,35 @@ class PerfMeas(object):
 
     @staticmethod
     def write_group_to_hdf(
-        hdf,
-        group_name,
-        data_dict,
-        attr_dict={},
-        grid_shape=None,
-        nodeuser=None,
-        nodereduced=None,
-    ):
-        """write a group in data to an open HDF5 file
+        hdf: h5py.File,
+        group_name: str,
+        data_dict: dict,
+        attr_dict: Optional[dict] = None,
+        grid_shape: Optional[tuple[int, int, int]] = None,
+        nodeuser: Optional[np.ndarray] = None,
+        nodereduced: Optional[np.ndarray] = None,
+    ) -> None:
+        """Write a group of datasets to an open HDF5 file.
 
         Parameters
         ----------
-        hdf (h5py.File) : an open HDF5 filehandle
-        group_name (str) : the group name for the dataset
-        data_dict (dict) : datasets to write to the HDF5 file
-        attr_dict (dict) : optional dict of attributes to write for the group
-        nodeuser (ndarray) : optional `nodeuser` array from MODFLOW6
-        nodereduced (ndarray) : optional `nodereduced` array from MODFLOW6
-
+        hdf : h5py.File
+            Open HDF5 file handle.
+        group_name : str
+            Group name.
+        data_dict : dict
+            Datasets to write.
+        attr_dict : dict, optional
+            Group attributes to write.
+        grid_shape : tuple[int, int, int], optional
+            Structured-grid shape.
+        nodeuser : ndarray, optional
+            `nodeuser` array from MODFLOW 6.
+        nodereduced : ndarray, optional
+            `nodereduced` array from MODFLOW 6.
         """
+        if attr_dict is None:
+            attr_dict = {}
         if group_name in hdf:
             raise Exception(f"group_name {group_name} already in hdf file")
         grp = hdf.create_group(group_name)
@@ -1016,23 +1085,30 @@ class PerfMeas(object):
                 _ = grp.create_dataset(name, arr.shape, dtype=arr.dtype, data=arr)
 
     @staticmethod
-    def _dconddhk(k1, k2, cl1, cl2, width, height1, height2):
-        """Partial of conductance with respect to K
+    def _dconddhk(k1, k2, cl1, cl2, width, height1, height2) -> float:
+        """Return the derivative of conductance with respect to `K`.
 
         Parameters
         ----------
-        k1 (float) : K of connection 1
-        k2 (float) : K of connection 2
-        cl1 (float) : length of connection 1
-        cl2 (float) : length of connection 2
-        width (float) : connection width
-        height1 (float) : height of connection 1
-        height2 (float) : height of connmection 2
+        k1 : float
+            Hydraulic conductivity for connection 1.
+        k2 : float
+            Hydraulic conductivity for connection 2.
+        cl1 : float
+            Length of connection 1.
+        cl2 : float
+            Length of connection 2.
+        width : float
+            Connection width.
+        height1 : float
+            Saturated height of connection 1.
+        height2 : float
+            Saturated height of connection 2.
 
         Returns
         -------
-        d (float) : partial of conductance WRT K
-
+        float
+            Derivative of conductance with respect to `K`.
         """
 
         # todo: upstream weighting - could use height1 and height2 to check...
@@ -1043,17 +1119,18 @@ class PerfMeas(object):
         return d
 
     @staticmethod
-    def smooth_sat(sat):
-        """Saturation smoother using sigmoid function from MODFLOW6
+    def smooth_sat(sat) -> float:
+        """Smooth saturation using the MODFLOW 6 sigmoid-style function.
 
         Parameters
         ----------
-        sat (ndarray) : saturation array
+        sat : float
+            Saturation value.
 
         Returns
         -------
-        s_sat (ndarray) : smoothed saturation
-
+        float
+            Smoothed saturation.
         """
         satomega = 1.0e-6
         A_omega = 1 / (1 - satomega)
@@ -1069,19 +1146,22 @@ class PerfMeas(object):
         return s_sat
 
     @staticmethod
-    def d_smooth_sat_dh(sat, top, bot):
-        """Partial of smoother saturation with respect to head
+    def d_smooth_sat_dh(sat, top, bot) -> float:
+        """Return the derivative of smoothed saturation with respect to head.
 
         Parameters
         ----------
-        sat (ndarray) : saturation
-        top (ndarray) : cell top
-        bot (ndarray) : cell bottom
+        sat : float
+            Saturation.
+        top : float
+            Cell top elevation.
+        bot : float
+            Cell bottom elevation.
 
         Returns
         -------
-        d_s_sat_dh (ndarray) : partial of smoothed saturation WRT head
-
+        float
+            Derivative of smoothed saturation with respect to head.
         """
         satomega = 1.0e-6
         A_omega = 1 / (1 - satomega)
@@ -1095,7 +1175,23 @@ class PerfMeas(object):
         return d_s_sat_dh
 
     @staticmethod
-    def _cell_sat(top, bot, h):
+    def _cell_sat(top, bot, h) -> float:
+        """Return cell saturation from cell top, bottom, and head.
+
+        Parameters
+        ----------
+        top : float
+            Cell top elevation.
+        bot : float
+            Cell bottom elevation.
+        h : float
+            Cell head.
+
+        Returns
+        -------
+        float
+            Cell saturation.
+        """
         if h > top:
             sat = 1.0
         elif h < bot:
@@ -1105,23 +1201,30 @@ class PerfMeas(object):
         return sat
 
     @staticmethod
-    def _smooth_sat(ihighcellsat, top1, top2, bot1, bot2, h1, h2):
-        """Private method for upstream smoothing
+    def _smooth_sat(ihighcellsat, top1, top2, bot1, bot2, h1, h2) -> float:
+        """Return smoothed saturation for the upstream cell.
 
         Parameters
         ----------
-        ihighcellsat (int) : flag for using highest cell bottom to calculate saturation
-        top1 (float) : top of node 1
-        top2 (float) : top of node 2
-        bot1 (float) : bottom of node 1
-        bot2 (float) : bottom of node 2
-        h1 (float) : head of node 1
-        h2 (float) : head of node 2
+        ihighcellsat : int
+            Whether to use the highest cell bottom when calculating saturation.
+        top1 : float
+            Top elevation of node 1.
+        top2 : float
+            Top elevation of node 2.
+        bot1 : float
+            Bottom elevation of node 1.
+        bot2 : float
+            Bottom elevation of node 2.
+        h1 : float
+            Head of node 1.
+        h2 : float
+            Head of node 2.
 
         Returns
         -------
-        value (float) smoothed saturation of the upstream node
-
+        float
+            Smoothed saturation of the upstream node.
         """
         bot = None
         if ihighcellsat != 0:
@@ -1140,22 +1243,26 @@ class PerfMeas(object):
         return PerfMeas.smooth_sat(sat)
 
     @staticmethod
-    def _d_smooth_sat_dh(sat, h1, h2, top, bot):
-        """Private method of partial of smoothed saturation
-           with respect to upstream head
+    def _d_smooth_sat_dh(sat, h1, h2, top, bot) -> float:
+        """Return the derivative of smoothed saturation with respect to upstream head.
 
         Parameters
         ----------
-        sat (float) : saturation
-        h1 (float) : head of node 1
-        h2 (float) : head of node 2
-        top (float): top
+        sat : float
+            Saturation.
+        h1 : float
+            Head of node 1.
+        h2 : float
+            Head of node 2.
+        top : float
+            Upstream cell top elevation.
+        bot : float
+            Upstream cell bottom elevation.
 
         Returns
         -------
-
-        value (float) : partial of smoothed saturation WRT upstream head
-
+        float
+            Derivative of smoothed saturation with respect to upstream head.
         """
         value = 0.0
         if h1 >= h2:
@@ -1181,33 +1288,50 @@ class PerfMeas(object):
         icelltype,
         k11,
         k33,
-    ):
-        """adjoint state times the partial of residual with respect to k times head
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return adjoint-weighted residual derivatives with respect to `k` and `k33`.
 
         Parameters
         ----------
-        is_newton (bool) : flag for newton solution
-        ihighcellsat (int) : flag for using highest cell bottom to calculate saturation
-        lamb (ndarray) : adjoint state array
-        sat (ndarray) : saturation array
-        head (ndarray) : head array
-        ihc (ndarray) : horizontal connection indicator array
-        ia (ndarray) : the index of connection array in the compressed sparse row format
-        ja (ndarray) : the connection array in the compressed sparse row format
-        jas (ndarray) : the full connectivity array
-        cl1 (ndarray) : the connection length array for conn 1
-        cl2 (ndarray) : the connection length array for conn 2
-        hwva (ndarray) : the horizontal width vertical area array
-        top (ndarray) : the top array
-        bot (ndarray) : the bottom array
-        icelltype (ndarray) : the convertible cell type indicator array
-        k11 (ndarray) : the k11 array
-        k33 (ndarray) : the k33 array
+        is_newton : bool
+            Whether Newton terms are active.
+        ihighcellsat : int
+            Whether to use the highest cell bottom when calculating saturation.
+        lamb : ndarray
+            Adjoint state array.
+        sat : ndarray
+            Saturation array.
+        head : ndarray
+            Head array.
+        ihc : ndarray
+            Horizontal connection indicator array.
+        ia : ndarray
+            Connection index array in compressed sparse row format.
+        ja : ndarray
+            Connection array in compressed sparse row format.
+        jas : ndarray
+            Full connectivity array.
+        cl1 : ndarray
+            Connection length array for connection 1.
+        cl2 : ndarray
+            Connection length array for connection 2.
+        hwva : ndarray
+            Horizontal-width/vertical-area array.
+        top : ndarray
+            Top elevations.
+        bot : ndarray
+            Bottom elevations.
+        icelltype : ndarray
+            Convertible-cell type indicator array.
+        k11 : ndarray
+            Horizontal hydraulic conductivity array.
+        k33 : ndarray
+            Vertical hydraulic conductivity array.
 
         Returns
         -------
-        result_k, result_k33 (ndarray) : the adjoint state times the partial of
-                                         residual with respect to k and k33 times head
+        tuple[ndarray, ndarray]
+            Adjoint-weighted residual derivatives with respect to `k` and `k33`.
         """
         iac = np.array([ia[i + 1] - ia[i] for i in range(len(ia) - 1)])
         # array of number of connections per node (size nodes)
@@ -1297,7 +1421,32 @@ class PerfMeas(object):
             result[node] = sum2
         return result, result33
 
-    def lam_drhs_dbnd(self, lamb, head, sp_dict, has_flux_pm):
+    def lam_drhs_dbnd(
+        self,
+        lamb: np.ndarray,
+        head: np.ndarray,
+        sp_dict: dict,
+        has_flux_pm: bool,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return adjoint-weighted derivatives with respect to boundary values.
+
+        Parameters
+        ----------
+        lamb : ndarray
+            Adjoint state array.
+        head : ndarray
+            Head array.
+        sp_dict : dict
+            Stress-package data for a single time step.
+        has_flux_pm : bool
+            Whether a flux performance measure is active.
+
+        Returns
+        -------
+        tuple[ndarray, ndarray]
+            Adjoint-weighted derivatives with respect to boundary head-like
+            terms and conductance terms.
+        """
         result_head = np.zeros_like(lamb)
         result_cond = np.zeros_like(lamb)
 
@@ -1322,36 +1471,37 @@ class PerfMeas(object):
 
         return result_head, result_cond
 
-    def _pm_available(self, kk):
-        """
-        Determine if a performance measure is available for a given stress
-        period and time step.
+    def _pm_available(self, kk) -> bool:
+        """Return whether a performance measure entry exists for a given time.
 
         Parameters
         ----------
-        kk (tuple) : zero-based stress period and time step
+        kk : tuple
+            Zero-based stress period and time step.
 
         Returns
         -------
         bool
-            True if a performance measure is available, False otherwise
+            True if a performance measure entry exists, otherwise False.
         """
 
         relevant_entries = [p for p in self._entries if p.kperkstp == kk]
         return len(relevant_entries) > 0
 
-    def _dfdh(self, kk, sol_dataset):
-        """partial of the performance measure with respect to head
+    def _dfdh(self, kk, sol_dataset) -> np.ndarray:
+        """Return the derivative of the performance measure with respect to head.
 
         Parameters
         ----------
-        kk (tuple) : zero-based stress period and time step
-        sol_dataset(h5py.Dataset): the forward solution dataset
+        kk : tuple
+            Zero-based stress period and time step.
+        sol_dataset : h5py.Dataset
+            Forward-solution dataset.
 
         Returns
         -------
-        result (ndarray) : partial of performance measure WRT head
-
+        ndarray
+            Derivative of the performance measure with respect to head.
         """
 
         # 1. Load data once. Avoid [:] if sol_dataset is already in memory,
@@ -1393,55 +1543,66 @@ class PerfMeas(object):
         return dfdh
 
     @staticmethod
-    def get_value_from_gwf(gwf_name, pak_name, prop_name, gwf):
-        """get a copy of a quantity from the MODFLOW6 API
+    def get_value_from_gwf(gwf_name, pak_name, prop_name, gwf) -> Any:
+        """Return a copy of a quantity from the MODFLOW 6 API.
 
         Parameters
         ----------
-        gwf_name (str): name of the GWF instance
-        pak_name (str): name of the package in the GWF nam file
-        prop_name (str): name of the property in the 'pak_name' package
-        gwf (MODFLOW6 API): a MODFLOW6 GWF instance
+        gwf_name : str
+            Name of the groundwater-flow instance.
+        pak_name : str
+            Package name from the GWF name file.
+        prop_name : str
+            Property name in `pak_name`.
+        gwf : modflowapi.ModflowApi
+            MODFLOW 6 groundwater-flow API instance.
 
         Returns
         -------
-        value (varies): the quantity of interest
-
+        Any
+            Requested quantity.
         """
         addr = gwf.get_var_address(prop_name, gwf_name, pak_name)
         return gwf.get_value(addr)
 
     @staticmethod
-    def get_ptr_from_gwf(gwf_name, pak_name, prop_name, gwf):
-        """get a pointer (well reference anyway) to a quantity from the MODFLOW6 API
+    def get_ptr_from_gwf(gwf_name, pak_name, prop_name, gwf) -> Any:
+        """Return a mutable reference to a quantity from the MODFLOW 6 API.
 
         Parameters
         ----------
-        gwf_name (str): name of the GWF instance
-        pak_name (str): name of the package in the GWF nam file
-        prop_name (str): name of the property in the 'pak_name' package
-        gwf (MODFLOW6 API): a MODFLOW6 GWF instance
+        gwf_name : str
+            Name of the groundwater-flow instance.
+        pak_name : str
+            Package name from the GWF name file.
+        prop_name : str
+            Property name in `pak_name`.
+        gwf : modflowapi.ModflowApi
+            MODFLOW 6 groundwater-flow API instance.
 
         Returns
         -------
-        value (varies): a mutable reference to the quantity of interest
-
+        Any
+            Mutable reference to the requested quantity.
         """
         addr = gwf.get_var_address(prop_name, gwf_name, pak_name)
         return gwf.get_value_ptr(addr)
 
     @staticmethod
-    def get_node(shape, lrc_list):
-        """get the node numbers for a given list of lrc values. stolen from flopy
+    def get_node(shape, lrc_list) -> list[int]:
+        """Return node numbers for a list of layer-row-column indices.
 
         Parameters
         ----------
-        lrc_list (list): list of layer row column values
+        shape : tuple[int, ...]
+            Model grid shape.
+        lrc_list : list
+            Layer-row-column indices.
 
         Returns
         -------
-        values (ndarray): node numbers
-
+        list[int]
+            Node numbers.
         """
 
         if not isinstance(lrc_list, list):
@@ -1450,35 +1611,38 @@ class PerfMeas(object):
         return np.ravel_multi_index(multi_index, shape).tolist()
 
     @staticmethod
-    def get_lrc(shape, nodes):
-        """get layer row column values from node numbers.  Also stolen from flopy
+    def get_lrc(shape, nodes) -> list[tuple[int, ...]]:
+        """Return layer-row-column indices for a list of node numbers.
 
         Parameters
         ----------
-        nodes (list) : list of node numbers
+        shape : tuple[int, ...]
+            Model grid shape.
+        nodes : list
+            Node numbers.
 
         Returns
         -------
-        values (list): list of layer-row-column values
-
-
+        list[tuple[int, ...]]
+            Layer-row-column indices.
         """
         if isinstance(nodes, int):
             nodes = [nodes]
         return list(zip(*np.unravel_index(nodes, shape)))
 
     @staticmethod
-    def has_sto_iconvert(gwf):
-        """does the forward model has an sto package with iconvert
+    def has_sto_iconvert(gwf) -> bool:
+        """Return whether the forward model has an STO package with `ICONVERT`.
 
         Parameters
         ----------
-        gwf (MODFLOW6 API): a MODFLOW6 GWF API instance
+        gwf : modflowapi.ModflowApi
+            MODFLOW 6 groundwater-flow API instance.
 
         Returns
         -------
-            flag (bool) : has sto iconvert?
-
+        bool
+            True if the model has STO `ICONVERT`.
         """
         names = [
             n for n in list(gwf.get_input_var_names()) if "STO" in n and "ICONVERT" in n
@@ -1488,7 +1652,21 @@ class PerfMeas(object):
         return True
 
     @staticmethod
-    def _is_singular(A, tol=1e-10):
+    def _is_singular(A, tol=1e-10) -> bool:
+        """Return whether a matrix is singular or numerically ill-conditioned.
+
+        Parameters
+        ----------
+        A : scipy.sparse.spmatrix or LinearOperator
+            Matrix to evaluate.
+        tol : float, optional
+            Absolute tolerance used to test the smallest singular value.
+
+        Returns
+        -------
+        bool
+            True if the matrix is singular or effectively singular.
+        """
         # svds computes the k largest or smallest singular values.
         # To check for singularity, we need the smallest ones.
         # 'SM' specifies "smallest magnitude".

@@ -43,7 +43,8 @@ gg_bin = env_path / f"{bin_path}/gridgen{exe_ext}"
 def test_freyberg_structured():
     org_d = "freyberg_structured"
     new_d = "freyberg_structured_test"
-    if pl.Path(new_d).exists():
+    new_dir = pl.Path(new_d)
+    if new_dir.exists():
         shutil.rmtree(new_d)
     shutil.copytree(org_d, new_d)
 
@@ -51,27 +52,19 @@ def test_freyberg_structured():
 
     sim = flopy.mf6.MFSimulation.load(sim_ws=new_d)
     gwf = sim.get_model()
-    sfr_data = pd.DataFrame.from_records(gwf.sfr.packagedata.array)
 
     lrcs = []
-    k_dict = {}
-    with open(pl.Path(new_d) / "head.obs", "r") as f:
+    with open(new_dir / "head.obs", "r") as f:
         f.readline()
         for line in f:
             if line.strip().lower().startswith("end"):
                 break
             raw = line.strip().split()
             lrcs.append(" ".join(raw[2:]))
-            k = int(raw[2]) - 1
-            i = int(raw[3]) - 1
-            j = int(raw[4]) - 1
-            if k not in k_dict:
-                k_dict[k] = []
-            k_dict[k].append([i, j])
 
     np.random.seed(11111)
     rvals = np.random.random(len(lrcs)) + 36
-    with open(pl.Path(new_d) / "test.adj", "w") as f:
+    with open(new_dir / "test.adj", "w") as f:
         f.write("begin performance_measure pm1\n")
         for rval, lrc in zip(rvals, lrcs):
             for kper in range(sim.tdis.nper.data):
@@ -108,12 +101,17 @@ def test_freyberg_structured():
         f.write("end performance_measure\n\n")
 
     start = datetime.now()
-    os.chdir(new_d)
-    adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="INFO")
+
+    adj = mf6adj.Mf6Adj(
+        "test.adj",
+        lib_name,
+        logging_level="INFO",
+        working_directory=new_d,
+    )
     adj.solve_gwf()
     adj.solve_adjoint()
     adj.finalize()
-    os.chdir("..")
+
     duration = (datetime.now() - start).total_seconds()
     print("took:", duration)
 
@@ -126,36 +124,40 @@ def test_freyberg_structured():
     for result_hdf in result_hdfs:
         print(result_hdf)
 
-        hdf = h5py.File(pl.Path(new_d) / result_hdf, "r")
-        keys = list(hdf.keys())
-        keys.sort()
-        print(keys)
+        with h5py.File(new_dir / result_hdf, "r") as hdf:
+            keys = list(hdf.keys())
+            keys.sort()
+            print(keys)
 
-        idomain = np.loadtxt(pl.Path(new_d) / "freyberg6.dis_idomain_layer1.txt")
-        with PdfPages(pl.Path(new_d) / (result_hdf + ".pdf")) as pdf:
-            for key in keys:
-                if key != "composite":
-                    continue
+            idomain = np.loadtxt(new_dir / "freyberg6.dis_idomain_layer1.txt")
+            with PdfPages(new_dir / (result_hdf + ".pdf")) as pdf:
+                for key in keys:
+                    if key != "composite":
+                        continue
 
-                grp = hdf[key]
-                plot_keys = [i for i in grp.keys() if len(grp[i].shape) == 3]
-                for pkey in plot_keys:
-                    arr = grp[pkey][:]
-                    for k, karr in enumerate(arr):
-                        karr[idomain < 1] = np.nan
-                        fig, ax = plt.subplots(1, 1, figsize=(6, 5))
-                        cb = ax.imshow(karr, cmap="gist_stern")
-                        plt.colorbar(cb, ax=ax, label="composite sensitivity")
-                        ax.set_title(key + ", " + pkey + f", layer:{k + 1}", loc="left")
-                        plt.tight_layout()
-                        pdf.savefig()
-                        plt.close(fig)
-                        print("...", key, pkey, k + 1)
+                    grp = hdf[key]
+                    plot_keys = [i for i in grp.keys() if len(grp[i].shape) == 3]
+                    for pkey in plot_keys:
+                        arr = grp[pkey][:]
+                        for k, karr in enumerate(arr):
+                            karr[idomain < 1] = np.nan
+                            fig, ax = plt.subplots(1, 1, figsize=(6, 5))
+                            cb = ax.imshow(karr, cmap="gist_stern")
+                            plt.colorbar(cb, ax=ax, label="composite sensitivity")
+                            ax.set_title(
+                                key + ", " + pkey + f", layer:{k + 1}",
+                                loc="left",
+                            )
+                            plt.tight_layout()
+                            pdf.savefig()
+                            plt.close(fig)
+                            print("...", key, pkey, k + 1)
 
 
 def test_freyberg_quadtree():
     org_d = "freyberg_quadtree"
     new_d = "freyberg_quadtree_test"
+    new_dir = pl.Path(new_d)
     prep_run = True
     run_adj = True
 
@@ -163,14 +165,14 @@ def test_freyberg_quadtree():
     m = sim.get_model()
 
     if prep_run:
-        if pl.Path(new_d).exists():
+        if new_dir.exists():
             shutil.rmtree(new_d)
         shutil.copytree(org_d, new_d)
         pyemu.os_utils.run("mf6", cwd=new_d)
 
     if run_adj:
         df = pd.read_csv(
-            pl.Path(new_d) / "freyberg6.obs_continuous_heads.csv.txt",
+            new_dir / "freyberg6.obs_continuous_heads.csv.txt",
             header=None,
             names=["site", "otype", "layer", "node"],
         )
@@ -179,7 +181,7 @@ def test_freyberg_quadtree():
 
         np.random.seed(11111)
         rvals = np.random.random(df.shape[0]) + 36
-        with open(pl.Path(new_d) / "test.adj", "w") as f:
+        with open(new_dir / "test.adj", "w") as f:
             f.write("begin performance_measure pm1\n")
             for rval, lay, node in zip(rvals, df.layer, df.node):
                 for kper in range(25):
@@ -204,12 +206,17 @@ def test_freyberg_quadtree():
                 f.write("end performance_measure\n\n")
 
         start = datetime.now()
-        os.chdir(new_d)
-        adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="INFO")
+
+        adj = mf6adj.Mf6Adj(
+            "test.adj",
+            lib_name,
+            logging_level="INFO",
+            working_directory=new_d,
+        )
         adj.solve_gwf()
         adj.solve_adjoint()
         adj.finalize()
-        os.chdir("..")
+
         duration = (datetime.now() - start).total_seconds()
         print("took:", duration)
 
@@ -224,56 +231,54 @@ def test_freyberg_quadtree():
     result_hdf = result_hdf[-1]
     print("using hdf", result_hdf)
 
-    hdf = h5py.File(pl.Path(new_d) / result_hdf, "r")
-    keys = list(hdf.keys())
-    keys.sort()
-    print(keys)
+    with h5py.File(new_dir / result_hdf, "r") as hdf:
+        keys = list(hdf.keys())
+        keys.sort()
+        print(keys)
 
-    nplc = m.dis.top.array.shape[0]
-    head = hdf["solution_kper:00000_kstp:00000"]["head"][:]
-    nlay = int(head.shape[0] / nplc)
-    head = head.reshape((nlay, nplc))
-    idomain = m.dis.idomain.array.copy()
-    idomain = idomain.reshape((nlay, nplc))
+        nplc = m.dis.top.array.shape[0]
+        head = hdf["solution_kper:00000_kstp:00000"]["head"][:]
+        nlay = int(head.shape[0] / nplc)
+        head = head.reshape((nlay, nplc))
+        idomain = m.dis.idomain.array.copy()
+        idomain = idomain.reshape((nlay, nplc))
 
-    with PdfPages(pl.Path(new_d) / "results.pdf") as _:
-        for key in keys:
-            print(key)
-            if key != "composite":
-                continue
-            grp = hdf[key]
-            plot_keys = list(grp.keys())
+        with PdfPages(new_dir / "results.pdf") as _:
+            for key in keys:
+                print(key)
+                if key != "composite":
+                    continue
+                grp = hdf[key]
+                plot_keys = list(grp.keys())
 
-            for pkey in plot_keys:
-                print(pkey)
-                # if "k11" not in pkey:
-                #    continue
+                for pkey in plot_keys:
+                    print(pkey)
+                    arr = grp[pkey][:]
+                    nlay = int(arr.shape[0] / nplc)
+                    arr = arr.reshape((nlay, nplc))
+                    for k, karr in enumerate(arr):
+                        print(karr)
+                        karr[idomain[k] == 0] = np.nan
+                        print(np.nanmin(karr), np.nanmax(karr))
 
-                arr = grp[pkey][:]
-                nlay = int(arr.shape[0] / nplc)
-                arr = arr.reshape((nlay, nplc))  # .transpose()
-                for k, karr in enumerate(arr):
-                    print(karr)
-                    karr[idomain[k] == 0] = np.nan
-                    print(np.nanmin(karr), np.nanmax(karr))
+                        m.dis.top = karr
+                        m.dis.top.plot(colorbar=True)
+                        h = head[k].copy()
+                        h[idomain[k] == 0] = np.nan
+                        m.dis.top = h
+                        print(np.nanmin(h), np.nanmax(h))
 
-                    m.dis.top = karr  # np.log10(np.abs(karr))
-                    m.dis.top.plot(colorbar=True)
-                    h = head[k].copy()
-                    h[idomain[k] == 0] = np.nan
-                    m.dis.top = h
-                    print(np.nanmin(h), np.nanmax(h))
-
-                    m.dis.top.plot(colorbar=True)
-                    print(h)
-                    return
+                        m.dis.top.plot(colorbar=True)
+                        print(h)
+                        return
 
 
 def freyberg_structured_highres():
     org_d = "freyberg_highres"
     new_d = "freyberg_highres_test"
+    new_dir = pl.Path(new_d)
 
-    if pl.Path(new_d).exists():
+    if new_dir.exists():
         shutil.rmtree(new_d)
     shutil.copytree(org_d, new_d)
 
@@ -282,7 +287,7 @@ def freyberg_structured_highres():
     sim = flopy.mf6.MFSimulation.load(sim_ws=new_d)
     gwf = sim.get_model()
     df = pd.read_csv(
-        pl.Path(new_d) / "freyberg6.obs_continuous_heads.csv.txt",
+        new_dir / "freyberg6.obs_continuous_heads.csv.txt",
         header=None,
         names=["site", "otype", "layer", "row", "col"],
         sep=r"\s+",
@@ -293,7 +298,7 @@ def freyberg_structured_highres():
 
     np.random.seed(11111)
     rvals = np.random.random(df.shape[0]) + 36
-    with open(pl.Path(new_d) / "test.adj", "w") as f:
+    with open(new_dir / "test.adj", "w") as f:
         f.write("begin performance_measure pm1\n")
         for rval, lay, row, col in zip(rvals, df.layer, df.row, df.col):
             for kper in range(25):
@@ -316,12 +321,17 @@ def freyberg_structured_highres():
             f.write("end performance_measure\n\n")
 
     start = datetime.now()
-    os.chdir(new_d)
-    adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="INFO")
+
+    adj = mf6adj.Mf6Adj(
+        "test.adj",
+        lib_name,
+        logging_level="INFO",
+        working_directory=new_d,
+    )
     adj.solve_gwf()
     adj.solve_adjoint()
     adj.finalize()
-    os.chdir("..")
+
     duration = (datetime.now() - start).total_seconds()
     print("took:", duration)
 
@@ -334,38 +344,42 @@ def freyberg_structured_highres():
     assert len(result_hdf) == 1
     result_hdf = result_hdf[0]
 
-    hdf = h5py.File(pl.Path(new_d) / result_hdf, "r")
-    keys = list(hdf.keys())
-    keys.sort()
-    print(keys)
+    with h5py.File(new_dir / result_hdf, "r") as hdf:
+        keys = list(hdf.keys())
+        keys.sort()
+        print(keys)
 
-    idomain = np.loadtxt(pl.Path(new_d) / "freyberg6.dis_idomain_layer1.txt")
-    with PdfPages(pl.Path(new_d) / "results.pdf") as pdf:
-        for key in keys:
-            if key != "composite":
-                continue
+        idomain = np.loadtxt(new_dir / "freyberg6.dis_idomain_layer1.txt")
+        with PdfPages(new_dir / "results.pdf") as pdf:
+            for key in keys:
+                if key != "composite":
+                    continue
 
-            grp = hdf[key]
-            plot_keys = [i for i in grp.keys() if len(grp[i].shape) == 3]
-            for pkey in plot_keys:
-                arr = grp[pkey][:]
-                for k, karr in enumerate(arr):
-                    karr[idomain < 1] = np.nan
-                    fig, ax = plt.subplots(1, 1, figsize=(6, 5))
-                    mx = np.nanmax(np.abs(karr))
-                    cb = ax.imshow(karr, vmax=mx, vmin=-mx, cmap="bwr")
-                    plt.colorbar(cb, ax=ax, label="composite sensitivity")
-                    ax.set_title(key + ", " + pkey + f", layer:{k + 1}", loc="left")
-                    plt.tight_layout()
-                    pdf.savefig()
-                    plt.close(fig)
-                    print("...", key, pkey, k + 1)
+                grp = hdf[key]
+                plot_keys = [i for i in grp.keys() if len(grp[i].shape) == 3]
+                for pkey in plot_keys:
+                    arr = grp[pkey][:]
+                    for k, karr in enumerate(arr):
+                        karr[idomain < 1] = np.nan
+                        fig, ax = plt.subplots(1, 1, figsize=(6, 5))
+                        mx = np.nanmax(np.abs(karr))
+                        cb = ax.imshow(karr, vmax=mx, vmin=-mx, cmap="bwr")
+                        plt.colorbar(cb, ax=ax, label="composite sensitivity")
+                        ax.set_title(
+                            key + ", " + pkey + f", layer:{k + 1}",
+                            loc="left",
+                        )
+                        plt.tight_layout()
+                        pdf.savefig()
+                        plt.close(fig)
+                        print("...", key, pkey, k + 1)
 
 
 def test_freyberg_notional_unstruct():
     org_d = "freyberg_structured"
     new_d = "freyberg_notional_unstructured_test"
-    if pl.Path(new_d).exists():
+    new_dir = pl.Path(new_d)
+    if new_dir.exists():
         shutil.rmtree(new_d)
     shutil.copytree(org_d, new_d)
 
@@ -407,80 +421,72 @@ def test_freyberg_notional_unstruct():
 
     wel = gwf.get_package("wel")
     if wel is not None:
-        f_wel = open(pl.Path(new_d) / "freyberg6_disv.wel", "w")
-        f_wel.write(
-            "begin options\nprint_input\nprint_flows\nsave_flows\nend options\n\n"
-        )
+        with open(new_dir / "freyberg6_disv.wel", "w") as f_wel:
+            f_wel.write(
+                "begin options\nprint_input\nprint_flows\nsave_flows\nend options\n\n"
+            )
 
-        f_wel.write(
-            "begin dimensions\nmaxbound "
-            + f"{wel.stress_period_data.data[0].shape[0]}\nend dimensions\n\n"
-        )
+            f_wel.write(
+                "begin dimensions\nmaxbound "
+                + f"{wel.stress_period_data.data[0].shape[0]}\nend dimensions\n\n"
+            )
 
-        for kper in range(sim.tdis.nper.data):
-            if kper not in wel.stress_period_data.data:
-                continue
-            rarray = wel.stress_period_data.data[kper]
-            print(rarray.dtype)
-            xs = [xcc[cid[1], cid[2]] for cid in rarray.cellid]
-            ys = [ycc[cid[1], cid[2]] for cid in rarray.cellid]
-            ilay = [cid[0] for cid in rarray.cellid]
-            xys = [(x, y) for x, y in zip(xs, ys)]
+            for kper in range(sim.tdis.nper.data):
+                if kper not in wel.stress_period_data.data:
+                    continue
+                rarray = wel.stress_period_data.data[kper]
+                print(rarray.dtype)
+                xs = [xcc[cid[1], cid[2]] for cid in rarray.cellid]
+                ys = [ycc[cid[1], cid[2]] for cid in rarray.cellid]
+                ilay = [cid[0] for cid in rarray.cellid]
+                xys = [(x, y) for x, y in zip(xs, ys)]
 
-            # use zero for the layer so that we get the cell2d value back
-            inodes = [g.intersect([xy], "point", 0)[0][0] for xy, il in zip(xys, ilay)]
-            f_wel.write(f"begin period {kper + 1}\n")
-            [
-                f_wel.write(f"{il + 1:9d} {inode + 1:9d} {q:15.6E}\n")
-                for il, inode, q in zip(ilay, inodes, rarray.q)
-            ]
-            f_wel.write(f"end period {kper + 1}\n\n")
-        f_wel.close()
+                # use zero for the layer so that we get the cell2d value back
+                inodes = [
+                    g.intersect([xy], "point", 0)[0][0] for xy, il in zip(xys, ilay)
+                ]
+                f_wel.write(f"begin period {kper + 1}\n")
+                for il, inode, q in zip(ilay, inodes, rarray.q):
+                    f_wel.write(f"{il + 1:9d} {inode + 1:9d} {q:15.6E}\n")
+                f_wel.write(f"end period {kper + 1}\n\n")
 
     ghb = gwf.get_package("ghb")
     if ghb is not None:
-        f_ghb = open(pl.Path(new_d) / "freyberg6_disv.ghb", "w")
-        f_ghb.write(
-            "begin options\nprint_input\nprint_flows\nsave_flows\nend options\n\n"
-        )
+        with open(new_dir / "freyberg6_disv.ghb", "w") as f_ghb:
+            f_ghb.write(
+                "begin options\nprint_input\nprint_flows\nsave_flows\nend options\n\n"
+            )
 
-        f_ghb.write(
-            "begin dimensions\nmaxbound "
-            + f"{ghb.stress_period_data.data[0].shape[0]}\nend dimensions\n\n"
-        )
+            f_ghb.write(
+                "begin dimensions\nmaxbound "
+                + f"{ghb.stress_period_data.data[0].shape[0]}\nend dimensions\n\n"
+            )
 
-        ghb_spd = {}
-        for kper in range(sim.tdis.nper.data):
-            if kper not in ghb.stress_period_data.data:
-                continue
-            rarray = ghb.stress_period_data.data[kper]
+            for kper in range(sim.tdis.nper.data):
+                if kper not in ghb.stress_period_data.data:
+                    continue
+                rarray = ghb.stress_period_data.data[kper]
 
-            xs = [xcc[cid[1], cid[2]] for cid in rarray.cellid]
-            ys = [ycc[cid[1], cid[2]] for cid in rarray.cellid]
-            ilay = [cid[0] for cid in rarray.cellid]
-            xys = [(x, y) for x, y in zip(xs, ys)]
+                xs = [xcc[cid[1], cid[2]] for cid in rarray.cellid]
+                ys = [ycc[cid[1], cid[2]] for cid in rarray.cellid]
+                ilay = [cid[0] for cid in rarray.cellid]
+                xys = [(x, y) for x, y in zip(xs, ys)]
 
-            # use zero for the layer so that we get the cell2d value back
-            inodes = [g.intersect([xy], "point", 0)[0][0] for xy, il in zip(xys, ilay)]
-            data = [
-                [(il, inode), bhead, cond]
+                # use zero for the layer so that we get the cell2d value back
+                inodes = [
+                    g.intersect([xy], "point", 0)[0][0] for xy, il in zip(xys, ilay)
+                ]
+                f_ghb.write(f"begin period {kper + 1}\n")
                 for il, inode, bhead, cond in zip(
                     ilay, inodes, rarray.bhead, rarray.cond
-                )
-            ]
-            ghb_spd[kper] = data
-            f_ghb.write(f"begin period {kper + 1}\n")
-            [
-                f_ghb.write(f"{il + 1:9d} {inode + 1:9d} {bhead:15.6E} {cond:15.6E}\n")
-                for il, inode, bhead, cond in zip(
-                    ilay, inodes, rarray.bhead, rarray.cond
-                )
-            ]
-            f_ghb.write(f"end period {kper + 1}\n\n")
-        f_ghb.close()
+                ):
+                    f_ghb.write(
+                        f"{il + 1:9d} {inode + 1:9d} {bhead:15.6E} {cond:15.6E}\n"
+                    )
+                f_ghb.write(f"end period {kper + 1}\n\n")
 
     df = pd.read_csv(
-        pl.Path(new_d) / "head.obs",
+        new_dir / "head.obs",
         skipfooter=1,
         skiprows=1,
         header=None,
@@ -489,15 +495,16 @@ def test_freyberg_notional_unstruct():
         engine="python",
     )
     df.loc[:, "node"] = df.apply(lambda x: (int(x.r) * ncol) + int(x.c), axis=1)
-    with open(pl.Path(new_d) / "head.obs", "w") as f:
+    with open(new_dir / "head.obs", "w") as f:
         f.write("BEGIN CONTINUOUS FILEOUT heads.csv\n")
         for site, otype, lay, node in zip(df.site, df.otype, df.l, df.node):
             f.write(f"{site} {otype} {lay} {node}\n")
         f.write("END CONTINUOUS")
 
     # now hack the nam file
-    nam_file = pl.Path(new_d) / "freyberg6.nam"
-    lines = open(nam_file, "r").readlines()
+    nam_file = new_dir / "freyberg6.nam"
+    with open(nam_file, "r") as f:
+        lines = f.readlines()
 
     with open(nam_file, "w") as f:
         for line in lines:
@@ -512,8 +519,7 @@ def test_freyberg_notional_unstruct():
     pyemu.os_utils.run("mf6", cwd=new_d)
 
     laynode = []
-    k_dict = {}
-    with open(pl.Path(new_d) / "head.obs", "r") as f:
+    with open(new_dir / "head.obs", "r") as f:
         f.readline()
         for line in f:
             if line.strip().lower().startswith("end"):
@@ -521,15 +527,9 @@ def test_freyberg_notional_unstruct():
             raw = line.strip().split()
             laynode.append(" ".join(raw[2:]))
 
-            k = int(raw[2]) - 1
-            inode = int(raw[3]) - 1
-            if k not in k_dict:
-                k_dict[k] = []
-            k_dict[k].append([inode])
-
     np.random.seed(11111)
     rvals = np.random.random(len(laynode)) + 36
-    with open(pl.Path(new_d) / "test.adj", "w") as f:
+    with open(new_dir / "test.adj", "w") as f:
         f.write("begin performance_measure pm1\n")
         for rval, ln in zip(rvals, laynode):
             for kper in range(25):
@@ -537,12 +537,17 @@ def test_freyberg_notional_unstruct():
         f.write("end performance_measure\n\n")
 
     start = datetime.now()
-    os.chdir(new_d)
-    adj = mf6adj.Mf6Adj("test.adj", lib_name, logging_level="INFO")
+
+    adj = mf6adj.Mf6Adj(
+        "test.adj",
+        lib_name,
+        logging_level="INFO",
+        working_directory=new_d,
+    )
     adj.solve_gwf()
     adj.solve_adjoint()
     adj.finalize()
-    os.chdir("..")
+
     duration = (datetime.now() - start).total_seconds()
     print("took:", duration)
 
@@ -555,28 +560,31 @@ def test_freyberg_notional_unstruct():
     assert len(result_hdf) == 1
     result_hdf = result_hdf[0]
 
-    hdf = h5py.File(pl.Path(new_d) / result_hdf, "r")
-    keys = list(hdf.keys())
-    keys.sort()
-    print(keys)
+    with h5py.File(new_dir / result_hdf, "r") as hdf:
+        keys = list(hdf.keys())
+        keys.sort()
+        print(keys)
 
-    idomain = np.loadtxt(pl.Path(new_d) / "freyberg6.dis_idomain_layer1.txt")
-    with PdfPages(pl.Path(new_d) / "results.pdf") as pdf:
-        for key in keys:
-            if key != "composite":
-                continue
+        idomain = np.loadtxt(new_dir / "freyberg6.dis_idomain_layer1.txt")
+        with PdfPages(new_dir / "results.pdf") as pdf:
+            for key in keys:
+                if key != "composite":
+                    continue
 
-            grp = hdf[key]
-            plot_keys = [i for i in grp.keys() if len(grp[i]) == nlay * nrow * ncol]
-            for pkey in plot_keys:
-                arr = grp[pkey][:].reshape((nlay, nrow, ncol))
-                for k, karr in enumerate(arr):
-                    karr[idomain < 1] = np.nan
-                    fig, ax = plt.subplots(1, 1, figsize=(6, 5))
-                    cb = ax.imshow(karr)
-                    plt.colorbar(cb, ax=ax)
-                    ax.set_title(key + ", " + pkey + f", layer:{k + 1}", loc="left")
-                    plt.tight_layout()
-                    pdf.savefig()
-                    plt.close(fig)
-                    print("...", key, pkey, k + 1)
+                grp = hdf[key]
+                plot_keys = [i for i in grp.keys() if len(grp[i]) == nlay * nrow * ncol]
+                for pkey in plot_keys:
+                    arr = grp[pkey][:].reshape((nlay, nrow, ncol))
+                    for k, karr in enumerate(arr):
+                        karr[idomain < 1] = np.nan
+                        fig, ax = plt.subplots(1, 1, figsize=(6, 5))
+                        cb = ax.imshow(karr)
+                        plt.colorbar(cb, ax=ax)
+                        ax.set_title(
+                            key + ", " + pkey + f", layer:{k + 1}",
+                            loc="left",
+                        )
+                        plt.tight_layout()
+                        pdf.savefig()
+                        plt.close(fig)
+                        print("...", key, pkey, k + 1)

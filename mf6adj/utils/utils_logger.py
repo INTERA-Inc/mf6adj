@@ -4,7 +4,20 @@ import uuid
 
 
 class LoggerUtil:
+    """Logger helper that configures console and optional file handlers."""
+
     def __init__(self, name, level, file_name=None):
+        """Initialize a logger helper.
+
+        Parameters
+        ----------
+        name : str
+            Base logger name.
+        level : str or int
+            Logging level.
+        file_name : str, optional
+            Optional log file path.
+        """
         instance_id = uuid.uuid4().hex[:8]
         name += f"-{instance_id}"
 
@@ -20,6 +33,13 @@ class LoggerUtil:
             self.logger.info(f"Logger output written to '{file_name}'")
 
     def _get_logger_level(self, logging_level):
+        """Normalize and apply the configured logging level.
+
+        Parameters
+        ----------
+        logging_level : str or int
+            Logging level to apply.
+        """
         if isinstance(logging_level, str):
             if logging_level.upper() == "INFO":
                 logging_level = logging.INFO
@@ -38,7 +58,13 @@ class LoggerUtil:
         self.logger.setLevel(self.level)
 
     def _setup_logger(self, level):
-        """Helper to ensure the logger has a handler and a format."""
+        """Configure logger handlers and formatters if needed.
+
+        Parameters
+        ----------
+        level : str or int
+            Logging level to apply when initializing handlers.
+        """
         if not self.logger.handlers:
             self._get_logger_level(level)
 
@@ -59,4 +85,5 @@ class LoggerUtil:
 
     @property
     def isDebugLogger(self):
+        """Return whether debug logging is enabled."""
         return self.logger.isEnabledFor(logging.DEBUG)

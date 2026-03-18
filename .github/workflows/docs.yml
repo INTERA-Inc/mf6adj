@@ -53,8 +53,42 @@ jobs:
       - name: Build HTML docs
         run: pixi run docs-build-exec
 
+      - name: Package HTML docs (htmlzip)
+        run: |
+          mkdir -p docs/_build/htmlzip
+          cd docs/_build/html
+          zip -r ../htmlzip/mf6adj.zip .
+
+      - name: Verify htmlzip artifact
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+
+          zip_path = Path("docs/_build/htmlzip/mf6adj.zip")
+          if not zip_path.exists():
+              raise SystemExit(f"Missing artifact: {zip_path}")
+          if zip_path.stat().st_size == 0:
+              raise SystemExit(f"Empty artifact: {zip_path}")
+
+          with zipfile.ZipFile(zip_path) as zf:
+              if not zf.namelist():
+                  raise SystemExit(f"No files in artifact: {zip_path}")
+              bad_file = zf.testzip()
+              if bad_file is not None:
+                  raise SystemExit(f"Corrupt zip entry: {bad_file}")
+
+          print(f"Verified artifact: {zip_path}")
+          PY
+
       - name: Upload docs artifact
         uses: actions/upload-artifact@v4
         with:
           name: docs-html
           path: docs/_build/html
+
+      - name: Upload docs htmlzip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-htmlzip
+          path: docs/_build/htmlzip/mf6adj.zip

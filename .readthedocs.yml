@@ -4,12 +4,17 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.11"
+  apt_packages:
+    - pandoc
   jobs:
     pre_build:
+      - python scripts/download_artifacts.py || echo "Could not download artifacts, will prepare notebooks locally"
+      - python scripts/sphinx_prepare_notebooks.py --skip-if-exist
       - python scripts/sphinx_apidoc.py
 
 sphinx:
   configuration: docs/source/conf.py
+  builder: html
   fail_on_warning: false
 
 python:

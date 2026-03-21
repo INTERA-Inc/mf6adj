@@ -9,6 +9,18 @@ on:
     branches:
       - main
       - develop
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'The tag, branch or commit hash to trigger an RTD build for. Branches and tags must be fully formed, e.g. refs/heads/<branch> or refs/tags/<tag> respectively.'
+        required: false
+        type: string
+        default: 'refs/heads/develop'
+      mf6_ref:
+        description: 'The tag, branch or commit hash to build MF6 from. Branches and tags must be fully formed, e.g. refs/heads/<branch> or refs/tags/<tag> respectively.'
+        required: false
+        type: string
+        default: 'refs/heads/develop'
 
 jobs:
   build-docs:
@@ -46,12 +58,28 @@ jobs:
           
       - name: Install executables
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}    
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          pixi run install-executables        
+          pixi run install-executables
+
+      - name: Run notebooks
+        run: |
+          pixi run docs-build-exec
+
+      - name: Package notebooks artifact
+        run: |
+          mkdir -p docs/_build/artifacts
+          cd examples
+          zip -r ../docs/_build/artifacts/notebooks.zip *.ipynb
+
+      - name: Upload notebooks artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: notebooks-for-${{ github.sha }}
+          path: docs/_build/artifacts/notebooks.zip
 
       - name: Build HTML docs
-        run: pixi run docs-build-exec
+        run: pixi run docs-build
 
       - name: Package HTML docs (htmlzip)
         run: |
@@ -94,12 +122,16 @@ jobs:
           path: docs/_build/htmlzip/mf6adj.zip
 
   trigger_rtd:
+    name: Trigger Read the Docs build
     runs-on: ubuntu-latest
     needs: build-docs
     steps:
-      # ... steps to download artifact if needed for the trigger script ...
-      - name: Trigger Read the Docs build
-        # Use a community action or curl command to trigger a webhook
-        # Example using curl to call the RtD API
-        run: |
-          curl -X POST -d '{"trigger_id": "..."}' https://api.readthedocs.com
+      - name: Checkout MODFLOW6 examples repo
+        uses: actions/checkout@v6
+
+      - name: Trigger RTD build
+        uses: dfm/rtds-action@v1
+        with:
+          webhook_url: ${{ secrets.RTDS_WEBHOOK_URL }}
+          webhook_token: ${{ secrets.RTDS_WEBHOOK_TOKEN }}
+          commit_ref: ${{ needs.build-docs.outputs.ref }}

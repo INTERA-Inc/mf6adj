@@ -8,7 +8,7 @@ build:
     - pandoc
   jobs:
     pre_build:
-      - python scripts/sphinx_prepare_notebooks.py --execute
+      - python scripts/sphinx_prepare_notebooks.py
       - python scripts/sphinx_apidoc.py
 
 sphinx:

@@ -1,11 +1,17 @@
-mf6adj documentation
-====================
+.. image:: _static/mf6adj.png
+   :align: center
+   :width: 400px
 
-``mf6adj`` is a Python package for adjoint sensitivity analysis with MODFLOW 6.
+Documentation
+=============
+
+mf6adj is a Python package for adjoint sensitivity analysis with MODFLOW 6.
+
+Contents:
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents
 
-   quickstart
+   installing
+   examples/index
    api

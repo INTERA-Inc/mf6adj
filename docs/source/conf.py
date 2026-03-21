@@ -47,7 +47,7 @@ if on_rtd:
     # with output, not clean ones from version control.
     rtds_action_path = "examples"
     rtds_action_artifact_prefix = "notebooks-for-"
-    rtds_action_github_token = os.environ.get("GITHUB_TOKEN", None)
+    rtds_action_github_token = os.environ.get("RTDS_GITHUB_TOKEN", None)
 
 autosummary_generate = True
 

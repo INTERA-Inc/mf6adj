@@ -26,6 +26,8 @@ jobs:
   build-docs:
     name: Build docs
     runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ github.ref }}
 
     steps:
       - name: Checkout repo
@@ -88,14 +90,16 @@ jobs:
   trigger_rtd:
     name: Trigger Read the Docs build
     runs-on: ubuntu-latest
+    if: github.repository_owner == 'INTERA-Inc' && github.event_name == 'push'
     needs: build-docs
+    if: success()
     steps:
-      - name: Checkout MODFLOW6 examples repo
-        uses: actions/checkout@v6
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - name: Trigger RTD build
+      - name: Trigger RTD build via webhook
         uses: dfm/rtds-action@v1
         with:
           webhook_url: ${{ secrets.RTDS_WEBHOOK_URL }}
           webhook_token: ${{ secrets.RTDS_WEBHOOK_TOKEN }}
-          commit_ref: ${{ needs.build-docs.outputs.ref }}
+          commit_ref: ${{ github.ref }}

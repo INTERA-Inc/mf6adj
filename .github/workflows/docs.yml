@@ -66,60 +66,24 @@ jobs:
         run: |
           pixi run docs-build-exec
 
-      - name: Package notebooks artifact
-        run: |
-          mkdir -p docs/_build/artifacts
-          cd examples
-          zip -r ../docs/_build/artifacts/notebooks.zip *.ipynb
-
-      - name: Upload notebooks artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: notebooks-for-${{ github.sha }}
-          path: docs/_build/artifacts/notebooks.zip
-
       - name: Build HTML docs
         run: pixi run docs-build
 
-      - name: Package HTML docs (htmlzip)
-        run: |
-          mkdir -p docs/_build/htmlzip
-          cd docs/_build/html
-          zip -r ../htmlzip/mf6adj.zip .
-
-      - name: Verify htmlzip artifact
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import zipfile
-
-          zip_path = Path("docs/_build/htmlzip/mf6adj.zip")
-          if not zip_path.exists():
-              raise SystemExit(f"Missing artifact: {zip_path}")
-          if zip_path.stat().st_size == 0:
-              raise SystemExit(f"Empty artifact: {zip_path}")
-
-          with zipfile.ZipFile(zip_path) as zf:
-              if not zf.namelist():
-                  raise SystemExit(f"No files in artifact: {zip_path}")
-              bad_file = zf.testzip()
-              if bad_file is not None:
-                  raise SystemExit(f"Corrupt zip entry: {bad_file}")
-
-          print(f"Verified artifact: {zip_path}")
-          PY
-
-      - name: Upload docs artifact
+      - name: Upload rendered notebooks
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: docs-html
-          path: docs/_build/html
+          name: rendered-notebooks
+          path: docs/source/examples/
+          retention-days: 7
 
-      - name: Upload docs htmlzip artifact
+      - name: Upload built documentation
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: docs-htmlzip
-          path: docs/_build/htmlzip/mf6adj.zip
+          name: built-docs
+          path: docs/_build/html/
+          retention-days: 7
 
   trigger_rtd:
     name: Trigger Read the Docs build

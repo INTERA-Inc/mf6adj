@@ -90,7 +90,7 @@ jobs:
   trigger_rtd:
     name: Trigger Read the Docs build
     runs-on: ubuntu-latest
-    if: success() && github.repository_owner == 'INTERA-Inc' && github.event_name == 'push'
+    if: success() && github.repository_owner == 'INTERA-Inc' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: build-docs
     steps:
       - name: Checkout repo

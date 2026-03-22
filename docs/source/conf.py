@@ -41,13 +41,13 @@ extensions = [
 if on_rtd:
     extensions.append("rtds_action")
     rtds_action_github_repo = "INTERA-Inc/mf6adj"
-    # This will overwrite the .docs/Notebooks directory
+    # This will overwrite the docs/Notebooks directory
     # with the notebooks downloaded & extracted from CI
     # artifacts, which is fine. We want to render those
     # with output, not clean ones from version control.
     rtds_action_path = "examples"
-    rtds_action_artifact_prefix = "notebooks-for-"
-    rtds_action_github_token = os.environ.get("RTDS_GITHUB_TOKEN", None)
+    rtds_action_artifact_prefix = "rendered-notebooks"
+    rtds_action_github_token = os.environ.get("GITHUB_TOKEN", None)
 
 autosummary_generate = True
 

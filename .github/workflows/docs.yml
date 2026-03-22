@@ -69,7 +69,7 @@ jobs:
           pixi run docs-build-exec
 
       - name: Build HTML docs
-        run: pixi run docs-build
+        run: pixi run docs-build-exec
 
       - name: Upload rendered notebooks
         if: always()

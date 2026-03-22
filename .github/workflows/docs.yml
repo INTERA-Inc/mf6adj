@@ -64,12 +64,9 @@ jobs:
         run: |
           pixi run install-executables
 
-      - name: Run notebooks
+      - name: Run notebooks and build HTML docs
         run: |
           pixi run docs-build-exec
-
-      - name: Build HTML docs
-        run: pixi run docs-build
 
       - name: Upload rendered notebooks
         if: always()

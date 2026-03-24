@@ -18,3 +18,4 @@ Activate the environment and add the MODFLOW6 executables to the mamba environme
 ## Examples
 
 Several notebooks are provide that demonstrate how to use `mf6adj`
+

@@ -46,8 +46,8 @@ if on_rtd:
     # artifacts, which is fine. We want to render those
     # with output, not clean ones from version control.
     rtds_action_path = "examples"
-    rtds_action_artifact_prefix = "rendered-notebooks"
-    rtds_action_github_token = os.environ.get("GITHUB_TOKEN", None)
+    rtds_action_artifact_prefix = "rendered-notebooks-"
+    rtds_action_github_token = os.environ["GITHUB_TOKEN"]
 
 autosummary_generate = True
 

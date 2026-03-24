@@ -72,7 +72,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rendered-notebooks
+          name: rendered-notebooks-${{ github.sha }}
           path: docs/source/examples/
           retention-days: 7
 

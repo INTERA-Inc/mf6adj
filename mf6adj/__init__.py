@@ -3,7 +3,7 @@
 from .version import __version__  # isort:skip
 from .adj import Mf6Adj
 from .pm import PerfMeas, PerfMeasRecord
-from .utils.utils import utils_cd
+from .utils.utils import utils_cd, write_group_to_hdf
 from .utils.utils_logger import LoggerUtil
 
 __all__ = [
@@ -13,4 +13,5 @@ __all__ = [
     "PerfMeasRecord",
     "__version__",
     "utils_cd",
+    "write_group_to_hdf",
 ]

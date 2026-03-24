@@ -85,5 +85,11 @@ class LoggerUtil:
 
     @property
     def isDebugLogger(self):
-        """Return whether debug logging is enabled."""
+        """Return whether the logger is configured to emit debug messages.
+
+        Returns
+        -------
+        bool
+            ``True`` when the effective log level includes ``DEBUG``.
+        """
         return self.logger.isEnabledFor(logging.DEBUG)

@@ -610,7 +610,7 @@ def test_xd_box():
             )
         adj.solve_gwf()
         adj.solve_adjoint(csv_summary=True)
-        adj._perturbation_test(pert_mult=pert_mult)
+        adj.perturbation_method(pert_mult=pert_mult)
         adj.finalize()
 
         if plot_adj_results:
@@ -821,7 +821,7 @@ def test_xd_box_unstruct():
             )
         adj.solve_gwf()
         adj.solve_adjoint(csv_summary=True)
-        adj._perturbation_test(pert_mult=pert_mult)
+        adj.perturbation_method(pert_mult=pert_mult)
         adj.finalize()
 
         if plot_adj_results:
@@ -966,7 +966,7 @@ def test_xd_box_chd():
             )
         adj.solve_gwf()
         adj.solve_adjoint(csv_summary=True)
-        adj._perturbation_test(pert_mult=pert_mult)
+        adj.perturbation_method(pert_mult=pert_mult)
         adj.finalize()
 
         if plot_adj_results:
@@ -1265,7 +1265,7 @@ def test_xd_box_ss():
             )
         adj.solve_gwf()
         adj.solve_adjoint(csv_summary=True)
-        adj._perturbation_test(pert_mult=pert_mult)
+        adj.perturbation_method(pert_mult=pert_mult)
         adj.finalize()
 
         if plot_adj_results:
@@ -1414,7 +1414,7 @@ def test_xd_box_drn():
             )
         adj.solve_gwf()
         adj.solve_adjoint(csv_summary=True)
-        adj._perturbation_test(pert_mult=pert_mult)
+        adj.perturbation_method(pert_mult=pert_mult)
         adj.finalize()
 
         if plot_adj_results:
@@ -1606,7 +1606,7 @@ def test_xd_box_maw():
             )
         adj.solve_gwf()
         adj.solve_adjoint(csv_summary=True)
-        adj._perturbation_test(pert_mult=pert_mult)
+        adj.perturbation_method(pert_mult=pert_mult)
         adj.finalize()
 
         if plot_adj_results:
@@ -1655,7 +1655,7 @@ def test_nested():
     )
     adj.solve_gwf()
     adjdf = adj.solve_adjoint(csv_summary=True)["pm1"]
-    pertdf1 = adj._perturbation_test(pert_mult=1.1)
+    pertdf1 = adj.perturbation_method(pert_mult=1.1)
     adj.finalize()
 
     pertssdf = pertdf1.loc[pertdf1.addr.str.contains("ss"), "pm1"]

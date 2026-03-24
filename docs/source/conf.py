@@ -50,11 +50,16 @@ if on_rtd:
     rtds_action_github_token = os.environ["GITHUB_TOKEN"]
 
 autosummary_generate = True
+autodoc_type_aliases = {
+    "LoggerUtil": "logging.Logger",
+}
+autodoc_typehints = "none"
 
 autodoc_default_options = {
     "members": True,
     "undoc-members": False,
     "show-inheritance": True,
+    "exclude-members": "LoggerUtil,SolverCallback,utils_cd,write_group_to_hdf",
 }
 
 autodoc_mock_imports = [
@@ -79,3 +84,29 @@ html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 
 nbsphinx_execute = "never"
+
+
+def _skip_selected_members(app, what, name, obj, skip, options):
+    """Exclude selected utility members from autodoc output."""
+    excluded = {
+        "LoggerUtil",
+        "SolverCallback",
+        "utils_cd",
+        "write_group_to_hdf",
+    }
+    short_name = name.split(".")[-1]
+    # Exclude only the PerfMeas.name property, not other ``name`` attributes.
+    fget_qualname = getattr(getattr(obj, "fget", None), "__qualname__", "")
+    is_perfmeas_name = short_name == "name" and (
+        name.endswith("PerfMeas.name") or fget_qualname.endswith("PerfMeas.name")
+    )
+    if is_perfmeas_name:
+        return True
+    if name in excluded or short_name in excluded:
+        return True
+    return skip
+
+
+def setup(app):
+    """Register Sphinx event hooks."""
+    app.connect("autodoc-skip-member", _skip_selected_members)

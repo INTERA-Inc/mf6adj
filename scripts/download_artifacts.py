@@ -300,10 +300,10 @@ def main() -> int:
     )
     parser.add_argument(
         "--workflow",
-        default=os.environ.get("DOWNLOAD_ARTIFACTS_WORKFLOW", "ci.yml"),
+        default=os.environ.get("DOWNLOAD_ARTIFACTS_WORKFLOW", "docs.yml"),
         help=(
             "Workflow file name or workflow id to query "
-            + "(default: env DOWNLOAD_ARTIFACTS_WORKFLOW or 'ci.yml')"
+            + "(default: env DOWNLOAD_ARTIFACTS_WORKFLOW or 'docs.yml')"
         ),
     )
     parser.add_argument(

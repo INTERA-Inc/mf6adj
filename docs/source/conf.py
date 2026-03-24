@@ -41,8 +41,8 @@ extensions = [
 if on_rtd:
     extensions.append("rtds_action")
     rtds_action_github_repo = "INTERA-Inc/mf6adj"
-    # This will overwrite the docs/Notebooks directory
-    # with the notebooks downloaded & extracted from CI
+    # This will overwrite the examples directory
+    # with the notebooks downloaded & extracted from docs.yml
     # artifacts, which is fine. We want to render those
     # with output, not clean ones from version control.
     rtds_action_path = "examples"

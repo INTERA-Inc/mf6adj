@@ -8,7 +8,15 @@ build:
     - pandoc
   jobs:
     pre_build:
-      - python scripts/download_artifacts.py || echo "Could not download artifacts, will prepare notebooks locally"
+      - |
+        python scripts/download_artifacts.py
+        rc=$?
+        if [ "$rc" -eq 20 ]; then
+          echo "Required GitHub Actions artifacts were missing; failing RTD build."
+          exit "$rc"
+        elif [ "$rc" -ne 0 ]; then
+          echo "Artifact download unavailable (non-fatal); preparing notebooks locally."
+        fi
       - python scripts/sphinx_prepare_notebooks.py --skip-if-exist
       - python scripts/sphinx_apidoc.py
 

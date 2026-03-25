@@ -49,9 +49,14 @@ test = [
     "ipykernel",
     "shapely",
     "modflow-devtools >=1.9.1",
+    "boltons",
+    "tomli-w",
     "pytest !=8.1.0",
     "pytest-cov",
+    "pytest-dotenv",
+    "pytest-order",
     "pytest-xdist",
+    "flaky",
 ]
 doc = [
     "mf6adj[test]",

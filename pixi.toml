@@ -24,6 +24,8 @@ numpy = ">=2.0"
 pandas = ">=2.0.0"
 pyemu = ">=1.4.0"
 geopandas = ">=1.0.0"
+boltons = "*"
+tomli-w = "*"
 modflow-devtools = ">=1.9.1"
 pyshp = "*"
 pytest = "!=8.1.0"
@@ -90,7 +92,7 @@ clean-tests = { cmd = "rm -rf *_test", cwd = "autotest" }
 coverage-report = { cmd = "coverage report", cwd = "autotest"}
 
 # docs
-docs-install = { cmd = "pip install --no-build-isolation --disable-pip-version-check -e '.[doc]'" }
+docs-install = { cmd = "pip install --no-deps --disable-pip-version-check -e '.[doc]'" }
 docs-apidoc = { cmd = "python scripts/sphinx_apidoc.py" }
 docs-build = { cmd = "pixi run docs-install; python scripts/sphinx_build.py" }
 docs-build-exec = { cmd = "pixi run docs-install; python scripts/sphinx_build.py --execute" }

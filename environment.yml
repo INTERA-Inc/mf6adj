@@ -24,6 +24,8 @@ dependencies:
   - pyemu>=1.4.0
   - geopandas>=1.0.0
   - modflow-devtools>=1.9.1
+  - boltons
+  - tomli-w
   - pyshp
   - ruff
   - codespell>=2.2.2

@@ -70,7 +70,7 @@ jobs:
 
       - name: Upload rendered notebooks
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rendered-notebooks-${{ github.sha }}
           path: docs/source/examples/
@@ -78,7 +78,7 @@ jobs:
 
       - name: Upload built documentation
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: built-docs
           path: docs/_build/html/

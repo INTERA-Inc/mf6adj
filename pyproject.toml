@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mf6adj"
-description = "FloPy is a Python package to create, run, and post-process MODFLOW-based models"
+description = "mf6adj is a Python package for adjoint-state sensitivity analysis with MODFLOW 6"
 authors = [
     {name = "INTERA Incorporated"},
 ]
@@ -12,7 +12,7 @@ maintainers = [
     {name = "INTERA Incorporated"},
 ]
 keywords = ["MODFLOW", "groundwater", "hydrogeology", "adjoint"]
-license = {text = "CC0"}
+license = {text = "CC0-1.0"}
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
@@ -21,19 +21,19 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Hydrology",
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "numpy>=1.20.3",
-    "matplotlib >=1.4.0",
+    "numpy>=2.0",
+    "matplotlib>=3.5.0",
     "pandas>=2.0.0",
-    "flopy",
-    "modflowapi",
-    "h5py",
-    "scipy",
-    "pyemu",
+    "flopy>=3.10.0",
+    "modflowapi>=0.2.0",
+    "h5py>=3.0.0",
+    "scipy>=1.7.0",
+    "pyemu>=1.4.0",
+    "geopandas>=1.0.0",
 ]
 dynamic = ["version", "readme"]
 
@@ -46,20 +46,25 @@ test = [
     "jupyter",
     "jupyter_client >=8.4.0", # avoid datetime.utcnow() deprecation warning
     "nbmake",
-    "ipython[kernel]",
+    "ipykernel",
     "shapely",
-    "pytest !=8.1.0",
+    "modflow-devtools >=1.9.1",
+    "boltons",
+    "tomli-w",
+    "pytest >=9.0.2",
     "pytest-cov",
+    "pytest-dotenv",
+    "pytest-order",
     "pytest-xdist",
+    "flaky",
 ]
 doc = [
     "mf6adj[test]",
     "myst-parser",
-    "nbconvert <7.14.0",
+    "nbconvert",
     "nbsphinx",
-    "PyYAML",
-    "rtds-action",
-    "sphinx ==7.1.2",
+    "pyyaml",
+    "sphinx>=7.1.2",
     "sphinx-rtd-theme >=1",
 ]
 
@@ -77,10 +82,6 @@ only-include = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["mf6adj"]
-
-[tool.hatch.metadata]
-# temporary, until new devtools release
-allow-direct-references = true
 
 [tool.hatch.metadata.hooks.fancy-pypi-readme]
 content-type = "text/markdown"

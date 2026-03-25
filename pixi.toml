@@ -6,34 +6,36 @@ version = "1.0.0"
 
 [dependencies]
 appdirs = "*"
-codespell = "*"
+codespell = ">=2.2.2"
 contextily = "*"
 coverage = "*"
 filelock = "*"
 flaky = "*"
-flopy = "*"
-hatchling = ">=1.27.0,<2"
-h5py = "*"
+flopy = ">=3.10.0"
+h5py = ">=3.0.0"
 ipykernel = "*"
 jupyter = "*"
 jupyter_client = ">=8.4.0"
 pandoc = "*"
-matplotlib = "*"
-modflowapi = "*"
+matplotlib = ">=3.5.0"
+modflowapi = ">=0.2.0"
 nbmake = "*"
-numpy = "*"
-pip = "*"
-pyemu = "*"
+numpy = ">=2.0"
+pandas = ">=2.0.0"
+pyemu = ">=1.4.0"
+geopandas = ">=1.0.0"
+boltons = "*"
+tomli-w = "*"
+modflow-devtools = ">=1.9.1"
 pyshp = "*"
-pytest = "*"
-pytest-benchmark = "*"
+pytest = ">=9.0.2"
 pytest-cov = "*"
 pytest-dotenv = "*"
 pytest-order = "*"
 pytest-xdist = "*"
 python = "3.10.*"
 requests = "*"
-scipy = "*"
+scipy = ">=1.7.0"
 shapely = "*"
 
 # pre-commit tools
@@ -44,20 +46,21 @@ jupyterlab_code_formatter = "*"
 
 # docs
 myst-parser = "*"
-nbconvert = "<7.14.0"
+nbconvert = "*"
 nbsphinx = "*"
-PyYAML = "*"
-sphinx = "==7.1.2"
+pyyaml = "*"
+sphinx = ">=7.1.2"
 sphinx-rtd-theme = ">=1"
 
+# docs/build tools (PyPI-only)
 [pypi-dependencies]
-modflow-devtools = { git = "https://github.com/MODFLOW-ORG/modflow-devtools.git", extras = ["dfn"] }
+hatchling = ">=1.27.0,<2"
 hatch-fancy-pypi-readme = "*"
 rtds-action = "*"
 
 [tasks]
 pre-commit-install = { cmd = "pre-commit install" }
-postinstall = "pip install --no-build-isolation --no-deps --disable-pip-version-check -e ."
+postinstall = "pip install --no-deps --disable-pip-version-check -e ."
 
 # jupyter
 jupyter = { cmd = "jupyter lab" }
@@ -89,7 +92,7 @@ clean-tests = { cmd = "rm -rf *_test", cwd = "autotest" }
 coverage-report = { cmd = "coverage report", cwd = "autotest"}
 
 # docs
-docs-install = { cmd = "pip install --no-build-isolation --disable-pip-version-check -e '.[doc]'" }
+docs-install = { cmd = "pip install --no-deps --disable-pip-version-check -e '.[doc]'" }
 docs-apidoc = { cmd = "python scripts/sphinx_apidoc.py" }
 docs-build = { cmd = "pixi run docs-install; python scripts/sphinx_build.py" }
 docs-build-exec = { cmd = "pixi run docs-install; python scripts/sphinx_build.py --execute" }

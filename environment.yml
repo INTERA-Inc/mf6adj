@@ -5,10 +5,10 @@ channels:
 dependencies:
   - python=3.10
   - filelock
-  - scipy
+  - scipy>=1.7.0
   - numpy>=2.0
-  - matplotlib
-  - pandas>2.0
+  - matplotlib>=3.5.0
+  - pandas>=2.0.0
   - jupyter
   - notebook
   - jupyterlab
@@ -17,15 +17,13 @@ dependencies:
   - pytest-xdist
   - nbmake
   - shapely
-  - h5py
-  - flopy
-  - modflowapi
+  - h5py>=3.0.0
+  - flopy>=3.10.0
+  - modflowapi>=0.2.0
   - modflow6
-  - pyemu
+  - pyemu>=1.4.0
+  - geopandas>=1.0.0
+  - modflow-devtools>=1.9.0
   - pyshp
   - ruff
-  - codespell
-  - pip
-  - pip:
-    - git+https://github.com/pypest/pyemu@develop
-    - git+https://github.com/MODFLOW-ORG/modflow-devtools.git
+  - codespell>=2.2.2

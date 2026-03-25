@@ -67,13 +67,13 @@ jobs:
         run: echo "${{ steps.version.outputs.version }}" > version.txt
 
       - name: Upload version artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: version
           path: version.txt
 
       - name: Upload changelog artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: changelog
           path: changelog/CHANGELOG.md

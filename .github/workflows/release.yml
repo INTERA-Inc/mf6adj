@@ -20,7 +20,7 @@ jobs:
     steps:
 
       - name: Checkout release branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -41,7 +41,7 @@ jobs:
 
           # update version files
           if [[ "$ver" == *"rc"* ]]; then
-            uv run scripts/update_version.py -v "${ver%"rc"}"
+            uv run scripts/update_version.py -v "${ver%%rc*}"
           else
             uv run scripts/update_version.py -v "$ver"
           fi
@@ -49,6 +49,34 @@ jobs:
           # show version and set output
           uv run python -c "import mf6adj; print(f'mf6adj version: {mf6adj.__version__}')"
           echo "version=${ver#"v"}" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv run scripts/generate_changelog.py --version ${{ steps.version.outputs.version }}
+
+      - name: Commit and push version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add mf6adj/version.py changelog/CHANGELOG.md
+          git diff --staged --quiet || git commit -m "bump version to ${{ steps.version.outputs.version }} [skip ci]"
+          git push origin ${{ github.ref_name }}
+
+      - name: Write version file
+        run: echo "${{ steps.version.outputs.version }}" > version.txt
+
+      - name: Upload version artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: version
+          path: version.txt
+
+      - name: Upload changelog artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: changelog/CHANGELOG.md
 
   pr:
     name: Draft release PR
@@ -64,7 +92,7 @@ jobs:
     steps:
 
       - name: Checkout release branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
 
@@ -93,13 +121,23 @@ jobs:
     steps:
 
       - name: Checkout master branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           ref: master
 
       # actions/download-artifact won't look at previous workflow runs but we need to in order to get changelog
-      - name: Download artifacts
+      - name: Download version artifact
         uses: dawidd6/action-download-artifact@v14
+        with:
+          workflow: release.yml
+          name: version
+
+      - name: Download changelog artifact
+        uses: dawidd6/action-download-artifact@v14
+        with:
+          workflow: release.yml
+          name: changelog
+          path: changelog/
 
       - name: Draft release
         env:
@@ -108,7 +146,7 @@ jobs:
           version=$(cat version.txt)
           title="mf6adj $version"
           notes=$(cat changelog/CHANGELOG.md)
-          gh release create "$version" \
+          gh release create "v$version" \
             --target master \
             --title "$title" \
             --notes "$notes" \
@@ -121,18 +159,16 @@ jobs:
     if: ${{ github.event_name == 'release' }}
     runs-on: ubuntu-22.04
     permissions:
-      contents: write
-      pull-requests: write
       id-token: write  # mandatory for trusted publishing
     environment:  # requires a 'release' environment in repo settings
       name: release
       url: https://pypi.org/p/mf6adj
     steps:
 
-      - name: Checkout master branch
-        uses: actions/checkout@v6
+      - name: Checkout release tag
+        uses: actions/checkout@v4
         with:
-          ref: master
+          ref: ${{ github.ref_name }}
 
       - name: Setup Python
         uses: astral-sh/setup-uv@v7

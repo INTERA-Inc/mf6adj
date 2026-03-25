@@ -51,7 +51,7 @@ test = [
     "modflow-devtools >=1.9.1",
     "boltons",
     "tomli-w",
-    "pytest !=8.1.0",
+    "pytest >=9.0.2",
     "pytest-cov",
     "pytest-dotenv",
     "pytest-order",

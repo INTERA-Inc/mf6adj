@@ -12,7 +12,7 @@ dependencies:
   - jupyter
   - notebook
   - jupyterlab
-  - pytest
+  - pytest>=9.0.2
   - pytest-cov
   - pytest-xdist
   - nbmake

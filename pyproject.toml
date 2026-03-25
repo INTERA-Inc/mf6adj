@@ -48,7 +48,7 @@ test = [
     "nbmake",
     "ipykernel",
     "shapely",
-    "modflow-devtools >=1.9.0",
+    "modflow-devtools >=1.9.1",
     "pytest !=8.1.0",
     "pytest-cov",
     "pytest-xdist",

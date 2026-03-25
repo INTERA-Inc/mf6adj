@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -91,7 +91,7 @@ jobs:
     needs: build-docs
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Trigger RTD build via webhook
         uses: dfm/rtds-action@v1

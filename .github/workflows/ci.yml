@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Python
         uses: astral-sh/setup-uv@v7
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
@@ -74,7 +74,7 @@ jobs:
     
     steps:
     - name: Checkout repo
-      uses:  actions/checkout@v4 
+      uses:  actions/checkout@v6 
 
     - name: Setup pixi
       uses: prefix-dev/setup-pixi@v0.9.4

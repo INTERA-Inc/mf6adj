@@ -58,7 +58,7 @@ rtds-action = "*"
 
 [tasks]
 pre-commit-install = { cmd = "pre-commit install" }
-postinstall = "pip install --no-build-isolation --no-deps --disable-pip-version-check -e ."
+postinstall = "pip install --no-deps --disable-pip-version-check -e ."
 
 # jupyter
 jupyter = { cmd = "jupyter lab" }

@@ -12,7 +12,6 @@ coverage = "*"
 filelock = "*"
 flaky = "*"
 flopy = ">=3.10.0"
-hatchling = ">=1.27.0,<2"
 h5py = ">=3.0.0"
 ipykernel = "*"
 jupyter = "*"
@@ -53,6 +52,7 @@ sphinx-rtd-theme = ">=1"
 
 # docs/build tools (PyPI-only)
 [pypi-dependencies]
+hatchling = ">=1.27.0,<2"
 hatch-fancy-pypi-readme = "*"
 rtds-action = "*"
 

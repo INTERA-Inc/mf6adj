@@ -13,5 +13,6 @@ Contents:
    :maxdepth: 2
 
    installing
+   usage
    examples/index
    api

@@ -15,6 +15,17 @@ Activate the environment and add the MODFLOW6 executables to the mamba environme
 
 `get-modflow --subset mf6,libmf6,gridgen :python`
 
+## VS Code
+
+When working in VS Code, use the repository-local pixi interpreter so editor
+diagnostics resolve project dependencies such as `modflowapi` correctly:
+
+`./.pixi/envs/default/bin/python`
+
+The workspace settings are already configured for this interpreter. If VS Code
+still shows unresolved imports, run `Python: Select Interpreter` and choose the
+pixi environment for this repository.
+
 ## Examples
 
 Several notebooks are provide that demonstrate how to use `mf6adj`

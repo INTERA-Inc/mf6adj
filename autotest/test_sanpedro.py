@@ -10,7 +10,6 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import pyemu
 from matplotlib.backends.backend_pdf import PdfPages
 
 try:
@@ -19,24 +18,7 @@ except ImportError:
     sys.path.insert(0, str(pl.Path("../").resolve()))
     import mf6adj
 
-env_path = pl.Path(os.environ.get("CONDA_PREFIX", None))
-assert env_path is not None, (
-    "autotest script must be run from the mf6adj Conda environment"
-)
-
-bin_path = "bin"
-exe_ext = ""
-if "linux" in platform.platform().lower():
-    lib_ext = ".so"
-elif "darwin" in platform.platform().lower() or "macos" in platform.platform().lower():
-    lib_ext = ".dylib"
-else:
-    bin_path = "Scripts"
-    lib_ext = ".dll"
-    exe_ext = ".exe"
-lib_name = env_path / f"{bin_path}/libmf6{lib_ext}"
-mf6_bin = env_path / f"{bin_path}/mf6{exe_ext}"
-gg_bin = env_path / f"{bin_path}/gridgen{exe_ext}"
+mf6_bin, lib_name = mf6adj.get_conda_mf6_paths()
 
 
 def test_sanpedro():
@@ -51,7 +33,7 @@ def test_sanpedro():
             shutil.rmtree(new_d)
         shutil.copytree(org_d, new_d)
 
-        pyemu.os_utils.run("mf6", cwd=new_d)
+        flopy.run_model(exe_name=mf6_bin, namefile=None, model_ws=new_d)
 
     sim = flopy.mf6.MFSimulation.load(sim_ws=new_d, load_only=["dis", "sfr"])
     gwf = sim.get_model()
@@ -76,7 +58,7 @@ def test_sanpedro():
         working_directory=new_d,
     )
 
-    adj.solve_gwf()
+    adj.solve_forward_model()
 
     adj.solve_adjoint(
         linear_solver="bicgstab",

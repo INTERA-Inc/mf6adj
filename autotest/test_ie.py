@@ -6,7 +6,6 @@ import sys
 from datetime import datetime
 
 import flopy
-import pyemu
 
 try:
     import mf6adj
@@ -19,18 +18,7 @@ assert env_path is not None, (
     "autotest script must be run from the mf6adj Conda environment"
 )
 
-bin_path = "bin"
-exe_ext = ""
-if "linux" in platform.platform().lower():
-    lib_ext = ".so"
-elif "darwin" in platform.platform().lower() or "macos" in platform.platform().lower():
-    lib_ext = ".dylib"
-else:
-    bin_path = "Scripts"
-    lib_ext = ".dll"
-    exe_ext = ".exe"
-lib_name = env_path / f"{bin_path}/libmf6{lib_ext}"
-mf6_bin = env_path / f"{bin_path}/mf6{exe_ext}"
+mf6_bin, lib_name = mf6adj.get_conda_mf6_paths()
 
 
 def test_ie_nomaw_1sp():
@@ -46,7 +34,7 @@ def test_ie_nomaw_1sp():
             shutil.rmtree(new_dir)
         shutil.copytree(org_d, new_dir)
 
-        pyemu.os_utils.run("mf6", cwd=new_dir)
+        flopy.run_model(exe_name=mf6_bin, namefile=None, model_ws=new_dir)
 
     sim = flopy.mf6.MFSimulation.load(sim_ws=new_dir, load_only=["dis", "sfr"])
     nstp = sim.tdis.perioddata.array[0][1]
@@ -66,7 +54,7 @@ def test_ie_nomaw_1sp():
         working_directory=new_dir,
     )
 
-    adj.solve_gwf()
+    adj.solve_forward_model()
     adj.solve_adjoint(
         linear_solver="bicgstab",
         linear_solver_kwargs={"maxiter": 500, "atol": 1e-5},
@@ -91,7 +79,7 @@ def test_ie_1sp():
             shutil.rmtree(new_dir)
         shutil.copytree(org_d, new_dir)
 
-        pyemu.os_utils.run("mf6", cwd=new_dir)
+        flopy.run_model(exe_name=mf6_bin, namefile=None, model_ws=new_dir)
 
     sim = flopy.mf6.MFSimulation.load(sim_ws=new_dir, load_only=["dis", "sfr"])
     nstp = sim.tdis.perioddata.array[0][1]
@@ -111,7 +99,7 @@ def test_ie_1sp():
         working_directory=new_dir,
     )
 
-    adj.solve_gwf()
+    adj.solve_forward_model()
     adj.solve_adjoint(
         linear_solver="bicgstab",
         linear_solver_kwargs={"maxiter": 500, "atol": 1e-5},

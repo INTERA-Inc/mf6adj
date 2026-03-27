@@ -236,7 +236,7 @@ def solve_adjoint(ws, pm_fname):
         logging_level="INFO",
         working_directory=ws,
     )
-    adj.solve_gwf(hdf5_name=forward_hdf5_name)
+    adj.solve_forward_model(hdf5_name=forward_hdf5_name)
     dfsum = adj.solve_adjoint()
     adj.finalize()  # release components
     duration = (datetime.now() - start).total_seconds()

@@ -94,7 +94,7 @@ def test_freyberg_structured():
         logging_level="INFO",
         working_directory=new_d,
     )
-    adj.solve_gwf()
+    adj.solve_forward_model()
     adj.solve_adjoint()
     adj.finalize()
 
@@ -199,7 +199,7 @@ def test_freyberg_quadtree():
             logging_level="INFO",
             working_directory=new_d,
         )
-        adj.solve_gwf()
+        adj.solve_forward_model()
         adj.solve_adjoint()
         adj.finalize()
 
@@ -314,7 +314,7 @@ def freyberg_structured_highres():
         logging_level="INFO",
         working_directory=new_d,
     )
-    adj.solve_gwf()
+    adj.solve_forward_model()
     adj.solve_adjoint()
     adj.finalize()
 
@@ -530,7 +530,7 @@ def test_freyberg_notional_unstruct():
         logging_level="INFO",
         working_directory=new_d,
     )
-    adj.solve_gwf()
+    adj.solve_forward_model()
     adj.solve_adjoint()
     adj.finalize()
 

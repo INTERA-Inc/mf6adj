@@ -66,7 +66,7 @@ def test_sagehen():
         logging_level="INFO",
         working_directory=new_d,
     )
-    adj.solve_gwf()
+    adj.solve_forward_model()
     adj.solve_adjoint()
     adj.finalize()
 

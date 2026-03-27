@@ -3,7 +3,7 @@ import os
 import uuid
 
 
-class LoggerUtil:
+class _LoggerUtil:
     """Logger helper that configures console and optional file handlers."""
 
     def __init__(self, name, level, file_name=None):

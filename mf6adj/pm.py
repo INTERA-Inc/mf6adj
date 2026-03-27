@@ -21,8 +21,8 @@ from scipy.sparse.linalg import (
 )
 
 from .utils.utils import SolverCallback
-from .utils.utils_fileio import write_group_to_hdf
-from .utils.utils_logger import LoggerUtil
+from .utils.utils_fileio import _write_group_to_hdf
+from .utils.utils_logger import _LoggerUtil
 from .utils.utils_modflow import (
     get_mf6_bound_dict,
 )
@@ -162,7 +162,7 @@ class PerfMeas:
         pm_name: str,
         pm_entries: List[PerfMeasRecord],
         logging_level: Union[int, str] = "INFO",
-        logger: Optional[LoggerUtil] = None,
+        logger: Optional[_LoggerUtil] = None,
     ):
         """Initialize a performance-measure container.
 
@@ -183,7 +183,7 @@ class PerfMeas:
         if logger is None:
             logger_name = f"{self.__class__.__name__}-{self.name}"
             logger_filename = f"{self.name}.log"
-            self.logger = LoggerUtil(
+            self.logger = _LoggerUtil(
                 logger_name,
                 logging_level,
                 logger_filename,
@@ -203,7 +203,7 @@ class PerfMeas:
         """
         return str(self._name)
 
-    def solve_forward(self, head_dict, sp_package_dict) -> float:
+    def _performance_measure_forward(self, head_dict, sp_package_dict) -> float:
         """Calculate the forward value of the performance measure.
 
         This helper is used during perturbation testing to evaluate the
@@ -215,7 +215,7 @@ class PerfMeas:
             Mapping from ``(kper, kstp)`` tuples to simulated head arrays.
         sp_package_dict : dict
             Nested mapping of stress-package results produced by
-            :meth:`Mf6Adj.solve_gwf` when ``pert_save=True``.
+            :meth:`Mf6Adj.solve_forward_model` when ``pert_save=True``.
 
         Returns
         -------
@@ -276,7 +276,7 @@ class PerfMeas:
         Parameters
         ----------
         hdf5_forward_solution_fname : PathLike
-            HDF5 file created by :meth:`Mf6Adj.solve_gwf` containing the
+            HDF5 file created by :meth:`Mf6Adj.solve_forward_model` containing the
             forward-solution
             information needed for the adjoint solve.
         hdf5_adjoint_solution_fname : PathLike, optional
@@ -855,7 +855,7 @@ class PerfMeas:
                 data["residual"] = residual
 
             self.logger.logger.info("Write group to hdf file")
-            write_group_to_hdf(
+            _write_group_to_hdf(
                 adf,
                 sol_key,
                 data,
@@ -876,7 +876,7 @@ class PerfMeas:
         for name, vals in comp_bnd_results.items():
             data[name] = vals
         self.logger.logger.info("Writing composite sensitivities")
-        write_group_to_hdf(
+        _write_group_to_hdf(
             adf,
             "composite",
             data,

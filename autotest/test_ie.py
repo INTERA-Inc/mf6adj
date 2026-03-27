@@ -54,7 +54,7 @@ def test_ie_nomaw_1sp():
         working_directory=new_dir,
     )
 
-    adj.solve_gwf()
+    adj.solve_forward_model()
     adj.solve_adjoint(
         linear_solver="bicgstab",
         linear_solver_kwargs={"maxiter": 500, "atol": 1e-5},
@@ -99,7 +99,7 @@ def test_ie_1sp():
         working_directory=new_dir,
     )
 
-    adj.solve_gwf()
+    adj.solve_forward_model()
     adj.solve_adjoint(
         linear_solver="bicgstab",
         linear_solver_kwargs={"maxiter": 500, "atol": 1e-5},

@@ -594,7 +594,7 @@ def test_xd_box():
             logging_level="WARNING",
             working_directory=new_d,
             )
-        adj.solve_gwf()
+        adj.solve_forward_model()
         adj.solve_adjoint(csv_summary=True)
         adj.perturbation_method(pert_mult=pert_mult)
         adj.finalize()
@@ -805,7 +805,7 @@ def test_xd_box_unstruct():
             logging_level="WARNING",
             working_directory=new_d,
             )
-        adj.solve_gwf()
+        adj.solve_forward_model()
         adj.solve_adjoint(csv_summary=True)
         adj.perturbation_method(pert_mult=pert_mult)
         adj.finalize()
@@ -950,7 +950,7 @@ def test_xd_box_chd():
             logging_level="WARNING",
             working_directory=new_d,
             )
-        adj.solve_gwf()
+        adj.solve_forward_model()
         adj.solve_adjoint(csv_summary=True)
         adj.perturbation_method(pert_mult=pert_mult)
         adj.finalize()
@@ -1071,7 +1071,7 @@ def test_xd_box_chd_ana():
             logging_level="WARNING",
             working_directory=new_d,
         )
-        adj.solve_gwf()
+        adj.solve_forward_model()
         df_dict = adj.solve_adjoint(csv_summary=True)
 
         lamb = df_dict[pm_name]["wel6_q"]
@@ -1249,7 +1249,7 @@ def test_xd_box_ss():
             logging_level="WARNING",
             working_directory=new_d,
             )
-        adj.solve_gwf()
+        adj.solve_forward_model()
         adj.solve_adjoint(csv_summary=True)
         adj.perturbation_method(pert_mult=pert_mult)
         adj.finalize()
@@ -1398,7 +1398,7 @@ def test_xd_box_drn():
             logging_level="WARNING",
             working_directory=new_d,
             )
-        adj.solve_gwf()
+        adj.solve_forward_model()
         adj.solve_adjoint(csv_summary=True)
         adj.perturbation_method(pert_mult=pert_mult)
         adj.finalize()
@@ -1591,7 +1591,7 @@ def test_xd_box_maw():
             logging_level="WARNING",
             working_directory=new_d,
             )
-        adj.solve_gwf()
+        adj.solve_forward_model()
         adj.solve_adjoint(csv_summary=True)
         adj.perturbation_method(pert_mult=pert_mult)
         adj.finalize()
@@ -1640,7 +1640,7 @@ def test_nested():
         logging_level="WARNING",
         working_directory=new_d,
     )
-    adj.solve_gwf()
+    adj.solve_forward_model()
     adjdf = adj.solve_adjoint(csv_summary=True)["pm1"]
     pertdf1 = adj.perturbation_method(pert_mult=1.1)
     adj.finalize()

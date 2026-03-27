@@ -13,9 +13,9 @@ import numpy as np
 import pandas as pd
 
 from .pm import PerfMeas, PerfMeasRecord
-from .utils.utils import utils_cd
-from .utils.utils_fileio import write_group_to_hdf
-from .utils.utils_logger import LoggerUtil
+from .utils.utils import _utils_cd
+from .utils.utils_fileio import _write_group_to_hdf
+from .utils.utils_logger import _LoggerUtil
 from .utils.utils_modflow import (
     get_lrc,
     get_mf6_bound_dict,
@@ -64,7 +64,7 @@ class Mf6Adj:
             working_directory = pl.Path(".").resolve()
         self.working_directory = pl.Path(working_directory).resolve()
 
-        with utils_cd(self.working_directory):
+        with _utils_cd(self.working_directory):
             adj_filename = pl.Path(adj_filename)
             if not adj_filename.is_file():
                 raise Exception(f"adj_filename '{adj_filename}' not found")
@@ -72,7 +72,7 @@ class Mf6Adj:
 
             # setup logger
             logger_name = f"{self.__class__.__name__}-{adj_filename.stem}"
-            self.logger = LoggerUtil(
+            self.logger = _LoggerUtil(
                 logger_name,
                 logging_level,
                 logging_filename,
@@ -364,7 +364,9 @@ class Mf6Adj:
             ncol = get_ptr_from_gwf(gwf_name, dis_pak, "NCOL", gwf)
             data_dict["ncol"] = ncol
 
-        write_group_to_hdf(hdf, "gwf_info", data_dict, attr_dict=self._gwf_package_dict)
+        _write_group_to_hdf(
+            hdf, "gwf_info", data_dict, attr_dict=self._gwf_package_dict
+        )
 
     def _dresdss_h(
         self,
@@ -470,7 +472,7 @@ class Mf6Adj:
 
         return drhsdh
 
-    def solve_gwf(
+    def solve_forward_model(
         self,
         verbose: bool = True,
         force_k_update: bool = False,
@@ -481,9 +483,9 @@ class Mf6Adj:
         presolve_func_ptr: Callable[[modflowapi.ModflowApi], None] | None = None,
         postsolve_func_ptr: Callable[[modflowapi.ModflowApi], None] | None = None,
     ) -> tuple[dict, dict] | None:
-        """Solve the forward-flow model and store adjoint inputs in HDF5.
+        """Solve the forward model and store adjoint inputs in HDF5.
 
-        The forward simulation is run across all MODFLOW 6 times, and the
+        The forward model is run for all MODFLOW 6 time steps, and the
         solution components needed for the adjoint solve are harvested and
         written to the HDF5 file.
 
@@ -508,7 +510,7 @@ class Mf6Adj:
             Perturbation-testing data when `pert_save` is `True`; otherwise
             `None`.
         """
-        with utils_cd(self.working_directory):
+        with _utils_cd(self.working_directory):
             if self._gwf is None:
                 raise Exception("gwf is None")
             if hdf5_name is not None:
@@ -852,7 +854,7 @@ class Mf6Adj:
                     "is_newton": is_newton,
                     "has_sto": has_sto,
                 }
-                write_group_to_hdf(
+                _write_group_to_hdf(
                     fhd,
                     group_name=f"solution_kper:{kper:05d}_kstp:{kstp:05d}",
                     data_dict=data_dict,
@@ -870,7 +872,7 @@ class Mf6Adj:
                         f"Flow solution failed to converge {num_fails} times"
                     )
 
-            write_group_to_hdf(
+            _write_group_to_hdf(
                 fhd, "aux", {"totime": ctimes, "dt": dts, "kper": kpers, "kstp": kstps}
             )
             self._add_gwf_info_to_hdf(fhd)
@@ -938,9 +940,9 @@ class Mf6Adj:
         generate_name = hdf5_adjoint_solution_fname is None
 
         dfs = {}
-        with utils_cd(self.working_directory):
+        with _utils_cd(self.working_directory):
             if self._hdf5_name is None or not pl.Path(self._hdf5_name).exists():
-                raise Exception("need to call solve_gwf() first")
+                raise Exception("need to call solve_forward_model() first")
 
             for pm in self._performance_measures:
                 if generate_name:
@@ -1047,13 +1049,13 @@ class Mf6Adj:
 
         gwf_name = self._gwf_name.upper()
 
-        org_head, org_sp_package_data = self.solve_gwf(pert_save=True)
+        org_head, org_sp_package_data = self.solve_forward_model(pert_save=True)
         # tot = 0
         # for d in org_sp_package_data["ghb6"][(0, 0)]:
         #     # print(d)
         #     tot += d["simval"]
         base_results = {
-            pm.name: pm.solve_forward(org_head, org_sp_package_data)
+            pm.name: pm._performance_measure_forward(org_head, org_sp_package_data)
             for pm in self._performance_measures
         }
         assert len(base_results) == len(self._performance_measures)
@@ -1098,7 +1100,8 @@ class Mf6Adj:
             """
             return {
                 pm.name: (
-                    pm.solve_forward(pert_head, pert_sp_dict) - base_results[pm.name]
+                    pm._performance_measure_forward(pert_head, pert_sp_dict)
+                    - base_results[pm.name]
                 )
                 / epsilon
                 for pm in self._performance_measures
@@ -1156,7 +1159,7 @@ class Mf6Adj:
                             self._lib_name,
                             working_directory,
                         )
-                        pert_head, pert_sp_dict = self.solve_gwf(
+                        pert_head, pert_sp_dict = self.solve_forward_model(
                             verbose=False, sp_pert_dict=pert_dict, pert_save=True
                         )
                         pert_results = _compute_perturbation_results(
@@ -1228,7 +1231,7 @@ class Mf6Adj:
                 epsilon = delt - pert_arr[inode]
                 epsilons.append(epsilon)
                 pert_arr[inode] = delt
-                pert_head, pert_sp_dict = self.solve_gwf(
+                pert_head, pert_sp_dict = self.solve_forward_model(
                     verbose=False, force_k_update=True, pert_save=True
                 )
                 pert_results = _compute_perturbation_results(
@@ -1286,7 +1289,7 @@ class Mf6Adj:
                 np.savetxt(ss_arr_name, pert_arr.flatten(), fmt="%15.6E")
 
                 self._gwf = self._initialize_gwf(self._lib_name, test_dir)
-                pert_head, pert_sp_dict = self.solve_gwf(
+                pert_head, pert_sp_dict = self.solve_forward_model(
                     verbose=False, force_k_update=True, pert_save=True
                 )
                 pert_results = _compute_perturbation_results(

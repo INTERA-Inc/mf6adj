@@ -15,7 +15,7 @@ class SolverCallback:
 
         Parameters
         ----------
-        logger : LoggerUtil
+        logger : _LoggerUtil
             Logger utility used to report iteration progress.
         A : scipy.sparse.spmatrix or LinearOperator
             Linear system matrix.
@@ -99,7 +99,7 @@ class SolverCallback:
 
 
 @contextmanager
-def utils_cd(newdir: pl.Path) -> Generator[None, None, None]:
+def _utils_cd(newdir: pl.Path) -> Generator[None, None, None]:
     """Temporarily change the current working directory.
 
     Parameters

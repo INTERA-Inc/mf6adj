@@ -58,7 +58,7 @@ def test_sanpedro():
         working_directory=new_d,
     )
 
-    adj.solve_gwf()
+    adj.solve_forward_model()
 
     adj.solve_adjoint(
         linear_solver="bicgstab",

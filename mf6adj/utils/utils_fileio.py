@@ -4,7 +4,7 @@ import h5py
 import numpy as np
 
 
-def write_group_to_hdf(
+def _write_group_to_hdf(
     hdf: h5py.File,
     group_name: str,
     data_dict: dict,
@@ -59,7 +59,7 @@ def write_group_to_hdf(
                     _ = grp.create_dataset(tag, grid_shape, dtype=item.dtype, data=arr)
                 else:
                     raise Exception(
-                        f"write_group_to_hdf: array length mismatch for '{tag}'"
+                        f"_write_group_to_hdf: array length mismatch for '{tag}'"
                     )
             elif nodeuser is not None and nodereduced is not None:
                 arr = np.zeros_like(nodereduced, dtype=item.dtype)
@@ -77,7 +77,7 @@ def write_group_to_hdf(
                     subgrp.attrs[k] = v
         else:
             raise Exception(
-                f"write_group_to_hdf: unrecognized data_dict entry '{tag}', "
+                f"_write_group_to_hdf: unrecognized data_dict entry '{tag}', "
                 f"type: {type(item)}"
             )
 

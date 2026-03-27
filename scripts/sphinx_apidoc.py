@@ -25,6 +25,7 @@ def main() -> None:
         str(PACKAGE_DIR),
         str(PACKAGE_DIR / "build"),
         str(PACKAGE_DIR / "__pycache__"),
+        str(PACKAGE_DIR / "version.py"),
     ]
     subprocess.run(command, check=True)
 

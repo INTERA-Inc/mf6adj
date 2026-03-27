@@ -2,6 +2,7 @@ from typing import Optional
 
 import h5py
 import numpy as np
+import scipy.sparse as sparse
 
 
 def _write_group_to_hdf(
@@ -96,7 +97,7 @@ def _write_group_to_hdf(
                     _ = subgrp.create_dataset(k, v.shape, dtype=v.dtype, data=v)
                 else:
                     subgrp.attrs[k] = v
-        elif tag == "amat":
+        elif isinstance(item, sparse.csc_matrix):
             subgrp = grp.create_group(tag)
             _ = subgrp.create_dataset("data", data=item.data)
             _ = subgrp.create_dataset("indices", data=item.indices)
@@ -104,7 +105,7 @@ def _write_group_to_hdf(
 
             # Save shape and format as attributes for reconstruction
             subgrp.attrs["shape"] = item.shape
-            subgrp.attrs["format"] = "csr"
+            subgrp.attrs["format"] = "csc"
         else:
             msg = (
                 f"_write_group_to_hdf: unrecognized data_dict entry '{tag}', "

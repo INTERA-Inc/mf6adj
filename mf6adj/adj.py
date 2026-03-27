@@ -13,10 +13,8 @@ import numpy as np
 import pandas as pd
 
 from .pm import PerfMeas, PerfMeasRecord
-from .utils.utils import (
-    utils_cd,
-    write_group_to_hdf,
-)
+from .utils.utils import utils_cd
+from .utils.utils_fileio import write_group_to_hdf
 from .utils.utils_logger import LoggerUtil
 from .utils.utils_modflow import (
     get_lrc,

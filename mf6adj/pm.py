@@ -20,7 +20,8 @@ from scipy.sparse.linalg import (
     svds,
 )
 
-from .utils.utils import SolverCallback, write_group_to_hdf
+from .utils.utils import SolverCallback
+from .utils.utils_fileio import write_group_to_hdf
 from .utils.utils_logger import LoggerUtil
 from .utils.utils_modflow import (
     get_mf6_bound_dict,

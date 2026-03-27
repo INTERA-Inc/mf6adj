@@ -16,23 +16,7 @@ except ImportError:
     sys.path.insert(0, str(pl.Path("../").resolve()))
     import mf6adj
 
-env_path = pl.Path(os.environ.get("CONDA_PREFIX", None))
-assert env_path is not None, (
-    "autotest script must be run from the mf6adj Conda environment"
-)
-
-bin_path = "bin"
-exe_ext = ""
-if "linux" in platform.platform().lower():
-    lib_ext = ".so"
-elif "darwin" in platform.platform().lower() or "macos" in platform.platform().lower():
-    lib_ext = ".dylib"
-else:
-    bin_path = "Scripts"
-    lib_ext = ".dll"
-    exe_ext = ".exe"
-lib_name = env_path / f"{bin_path}/libmf6{lib_ext}"
-mf6_bin = env_path / f"{bin_path}/mf6{exe_ext}"
+mf6_bin, lib_name = mf6adj.get_conda_mf6_paths()
 
 perioddata = [(1.0, 1, 1.0), (1.0, 1, 1.0)]
 nper = len(perioddata)

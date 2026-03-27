@@ -8,7 +8,6 @@ import flopy
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import pyemu
 from flopy.utils.gridgen import Gridgen
 from matplotlib.backends.backend_pdf import PdfPages
 
@@ -18,23 +17,10 @@ except ImportError:
     sys.path.insert(0, str(pl.Path("../").resolve()))
     import mf6adj
 
-env_path = pl.Path(os.environ.get("CONDA_PREFIX", None))
-assert env_path is not None, (
-    "autotest script must be run from the mf6adj Conda environment"
-)
-bin_path = "bin"
-exe_ext = ""
-if "linux" in platform.platform().lower():
-    lib_ext = ".so"
-elif "darwin" in platform.platform().lower() or "macos" in platform.platform().lower():
-    lib_ext = ".dylib"
-else:
-    bin_path = "Scripts"
-    lib_ext = ".dll"
-    exe_ext = ".exe"
-lib_name = env_path / f"{bin_path}/libmf6{lib_ext}"
-mf6_bin = env_path / f"{bin_path}/mf6{exe_ext}"
-gg_bin = env_path / f"{bin_path}/gridgen{exe_ext}"
+mf6_bin, lib_name = mf6adj.get_conda_mf6_paths()
+gg_bin = mf6_bin.parent / f"gridgen{mf6_bin.suffix}"
+if not gg_bin.is_file():
+    flopy.utils.get_modflow(":python", subset="gridgen")
 
 
 # fmt: off
@@ -268,7 +254,7 @@ def setup_xd_box_model(
     with open(new_d / "blank.tvk", "w") as f:
         f.write("\n")
 
-    pyemu.os_utils.run(mf6_bin.name, cwd=new_d)
+    sim.run_simulation()
     return sim
 
 
@@ -778,7 +764,7 @@ def test_xd_box_unstruct():
                 line = f"WEL6 {name}_disv.wel wel\n"
             f.write(line)
 
-    pyemu.os_utils.run("mf6", cwd=new_d)
+    sim.run_simulation
 
     pm_locs = []
     for k in [0, int(nlay / 2), nlay - 1]:
@@ -1529,7 +1515,8 @@ def test_xd_box_maw():
         perioddata=maw_perioddata,
     )
     sim.write_simulation()
-    pyemu.os_utils.run("mf6", cwd=new_d)
+    sim.run_simulation()
+    
     id = gwf.dis.idomain.array
     nlay, nrow, ncol = gwf.dis.nlay.data, gwf.dis.nrow.data, gwf.dis.ncol.data
     obsval = 1.0

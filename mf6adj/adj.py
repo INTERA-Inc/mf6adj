@@ -365,7 +365,11 @@ class Mf6Adj:
             data_dict["ncol"] = ncol
 
         _write_group_to_hdf(
-            hdf, "gwf_info", data_dict, attr_dict=self._gwf_package_dict
+            hdf,
+            "gwf_info",
+            data_dict,
+            attr_dict=self._gwf_package_dict,
+            logger=self.logger.logger,
         )
 
     def _dresdss_h(
@@ -859,6 +863,7 @@ class Mf6Adj:
                     group_name=f"solution_kper:{kper:05d}_kstp:{kstp:05d}",
                     data_dict=data_dict,
                     attr_dict=attr_dict,
+                    logger=self.logger.logger,
                 )
 
             sim_end = datetime.now()
@@ -873,7 +878,10 @@ class Mf6Adj:
                     )
 
             _write_group_to_hdf(
-                fhd, "aux", {"totime": ctimes, "dt": dts, "kper": kpers, "kstp": kstps}
+                fhd,
+                "aux",
+                {"totime": ctimes, "dt": dts, "kper": kpers, "kstp": kstps},
+                logger=self.logger.logger,
             )
             self._add_gwf_info_to_hdf(fhd)
             fhd.close()

@@ -12,28 +12,49 @@ def _write_group_to_hdf(
     grid_shape: Optional[tuple] = None,
     nodeuser: Optional[np.ndarray] = None,
     nodereduced: Optional[np.ndarray] = None,
+    logger: Optional[object] = None,
 ) -> None:
-    """Write a group of datasets to an open HDF5 file.
+    """Write a dictionary of arrays and metadata to a new group in an open HDF5 file.
+
+    Arrays in *data_dict* are assumed to be in reduced-node order (one value
+    per active cell). If *grid_shape* and *nodeuser* are given, each array is
+    mapped onto a full ``(nlay, nrow, ncol)`` grid and the ``nodeuser``, ``k``,
+    ``i``, and ``j`` index arrays are also saved. If only *nodeuser* and
+    *nodereduced* are given, each array is scattered into a full user-node-
+    length array using *nodeuser* as the index map and ``nodeuser`` is saved.
+    If no mapping arrays are given, arrays are written as-is.
+
+    Nested dicts in *data_dict* become HDF5 sub-groups (ndarray values as
+    datasets, scalars as attributes). A CSR sparse matrix keyed ``"amat"`` is
+    stored as a sub-group containing its ``data``, ``indices``, and ``indptr``
+    datasets plus ``shape`` and ``format`` attributes.
 
     Parameters
     ----------
     hdf : h5py.File
-        Open HDF5 file handle.
+        Open, writable HDF5 file handle.
     group_name : str
-        Group name.
+        Name of the new HDF5 group to create.
     data_dict : dict
-        Datasets to write. Lists are converted to ndarrays. Nested
-        dictionaries are written as sub-groups (ndarray values become
-        datasets; scalar values become group attributes).
+        Data to write. Keys become dataset or sub-group names.
     attr_dict : dict, optional
-        Group attributes to write.
-    grid_shape : tuple, optional
-        Structured-grid shape ``(nlay, nrow, ncol)``. When supplied together
-        with *nodeuser* the node-ordered arrays are mapped onto the full grid.
-    nodeuser : ndarray, optional
-        ``nodeuser`` array from MODFLOW 6 (zero-based).
-    nodereduced : ndarray, optional
-        ``nodereduced`` array from MODFLOW 6 (zero-based).
+        Metadata to attach as attributes on the top-level group.
+    grid_shape : tuple of int, optional
+        Structured-grid shape ``(nlay, nrow, ncol)`` for full-grid mapping.
+    nodeuser : ndarray of int, optional
+        Zero-based MODFLOW 6 ``nodeuser`` array (reduced node → user node).
+    nodereduced : ndarray of int, optional
+        Zero-based MODFLOW 6 ``nodereduced`` array (user node → reduced node).
+        Its length sets the output array size in unstructured mapping mode.
+    logger : object, optional
+        Logger for warnings about unrecognised data types; falls back to
+        ``print`` if not provided.
+
+    Raises
+    ------
+    Exception
+        If *group_name* already exists in *hdf*, or if an array length does
+        not match *nodeuser* during structured-grid mapping.
     """
     if attr_dict is None:
         attr_dict = {}
@@ -75,11 +96,24 @@ def _write_group_to_hdf(
                     _ = subgrp.create_dataset(k, v.shape, dtype=v.dtype, data=v)
                 else:
                     subgrp.attrs[k] = v
+        elif tag == "amat":
+            subgrp = grp.create_group(tag)
+            _ = subgrp.create_dataset("data", data=item.data)
+            _ = subgrp.create_dataset("indices", data=item.indices)
+            _ = subgrp.create_dataset("indptr", data=item.indptr)
+
+            # Save shape and format as attributes for reconstruction
+            subgrp.attrs["shape"] = item.shape
+            subgrp.attrs["format"] = "csr"
         else:
-            raise Exception(
+            msg = (
                 f"_write_group_to_hdf: unrecognized data_dict entry '{tag}', "
-                f"type: {type(item)}"
+                + f"type: {type(item)}"
             )
+            if logger is not None:
+                logger.warning(msg)
+            else:
+                print(msg)
 
     if nodeuser is not None:
         _ = grp.create_dataset(

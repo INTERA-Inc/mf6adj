@@ -862,6 +862,7 @@ class PerfMeas:
                 nodeuser=nodeuser,
                 grid_shape=grid_shape,
                 nodereduced=nodereduced,
+                logger=self.logger.logger,
             )
         self.logger.logger.info("Formulate composite sensitivities")
         data = {}
@@ -883,6 +884,7 @@ class PerfMeas:
             nodeuser=nodeuser,
             grid_shape=grid_shape,
             nodereduced=nodereduced,
+            logger=self.logger.logger,
         )
         adf.close()
         hdf.close()

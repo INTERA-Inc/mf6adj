@@ -1,4 +1,8 @@
 {
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/.pixi/envs/default/lib/python3.10/site-packages"
+    ],
+    "python.defaultInterpreterPath": "${workspaceFolder}/.pixi/envs/default/bin/python",
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda"
 }

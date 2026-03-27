@@ -30,7 +30,6 @@ release = version
 
 extensions = [
     "sphinx.ext.autodoc",
-    "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "myst_parser",
@@ -49,7 +48,8 @@ if on_rtd:
     rtds_action_artifact_prefix = "rendered-notebooks-"
     rtds_action_github_token = os.environ["GITHUB_TOKEN"]
 
-autosummary_generate = True
+autosummary_generate = False
+autodoc_typehints = "none"
 
 autodoc_default_options = {
     "members": True,
@@ -79,3 +79,19 @@ html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 
 nbsphinx_execute = "never"
+
+
+def _skip_selected_members(app, what, name, obj, skip, options):
+    """Exclude the PerfMeas.name property from autodoc output."""
+    short_name = name.split(".")[-1]
+    fget_qualname = getattr(getattr(obj, "fget", None), "__qualname__", "")
+    if short_name == "name" and (
+        name.endswith("PerfMeas.name") or fget_qualname.endswith("PerfMeas.name")
+    ):
+        return True
+    return skip
+
+
+def setup(app):
+    """Register Sphinx event hooks."""
+    app.connect("autodoc-skip-member", _skip_selected_members)

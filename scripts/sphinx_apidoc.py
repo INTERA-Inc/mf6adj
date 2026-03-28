@@ -20,6 +20,7 @@ def main() -> None:
         "-f",
         "-e",
         "-M",
+        "-T",
         "-o",
         str(API_DIR),
         str(PACKAGE_DIR),
@@ -28,6 +29,33 @@ def main() -> None:
         str(PACKAGE_DIR / "version.py"),
     ]
     subprocess.run(command, check=True)
+    _postprocess(API_DIR)
+
+
+def _postprocess(api_dir: Path) -> None:
+    """Fix up auto-generated RST files after sphinx-apidoc runs.
+
+    - Updates the mf6adj package heading.
+    - Removes the Submodules toctree so only the top-level public API is shown.
+    """
+    pkg_rst = api_dir / "mf6adj.rst"
+    if not pkg_rst.exists():
+        return
+
+    text = pkg_rst.read_text()
+
+    # Replace the auto-generated title with a friendlier one.
+    text = text.replace(
+        "mf6adj package\n==============\n",
+        "mf6adj classes and helper functions\n====================================\n",
+    )
+
+    # Strip the Submodules section (everything from that heading onward).
+    idx = text.find("\nSubmodules\n")
+    if idx != -1:
+        text = text[:idx] + "\n"
+
+    pkg_rst.write_text(text)
 
 
 if __name__ == "__main__":

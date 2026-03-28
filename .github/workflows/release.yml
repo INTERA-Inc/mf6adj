@@ -106,7 +106,16 @@ jobs:
           body='
           # mf6adj '$ver'
 
-          The release can be approved by merging this pull request into `master`. This will trigger a final job to publish the release to PyPI.
+          Merge this pull request into `master` to approve the release.
+          Merging triggers a final job that creates a draft GitHub release and publishes the package to PyPI.
+
+          ## Release checklist
+
+          - [ ] `changelog/CHANGELOG.md` reviewed and correct
+          - [ ] `mf6adj/version.py` shows the correct version
+          - [ ] This PR merged into `master`
+          - [ ] Draft GitHub release reviewed and published
+          - [ ] **Publish package** job completed successfully on PyPI
           '
           gh pr create -B "master" -H "$ref" --title "$title" --draft --body "$body"
 

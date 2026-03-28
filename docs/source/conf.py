@@ -71,7 +71,6 @@ autodoc_mock_imports = [
 napoleon_numpy_docstring = True
 napoleon_google_docstring = False
 
-templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 html_theme = "sphinx_rtd_theme"

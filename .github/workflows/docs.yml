@@ -1,14 +1,26 @@
 name: docs
 
 on:
+  schedule:
+    - cron: '0 8 * * *' # run at 8 AM UTC (12 AM PST, 8 PM NZST)
   push:
     branches:
       - main
       - develop
+    paths-ignore:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/ci.yml'
+      - '.gitignore'
+      - 'CITATION.cff'
   pull_request:
     branches:
       - main
       - develop
+    paths-ignore:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/ci.yml'
+      - '.gitignore'
+      - 'CITATION.cff'
   workflow_dispatch:
     inputs:
       ref:

@@ -4,11 +4,22 @@ on:
   schedule:
     - cron: '0 8 * * *' # run at 8 AM UTC (12 AM PST, 8 PM NZST)
   push:
+    paths-ignore:
+      - '**.md'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/docs.yml'
+      - '.gitignore'
+      - 'CITATION.cff'
   pull_request:
     branches:
       - main
       - develop
-
+    paths-ignore:
+      - '**.md'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/docs.yml'
+      - '.gitignore'
+      - 'CITATION.cff'
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

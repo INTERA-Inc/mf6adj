@@ -25,7 +25,7 @@ conda install -c conda-forge mf6adj
 
 mf6adj drives MODFLOW 6 through its shared library (`libmf6`).  The easiest
 way to get both is through the
-[`modflow-devtools`](https://github.com/MODFLOW-USGS/modflow-devtools) helper:
+[`flopy`](https://github.com/modflowpy/flopy) helper:
 
 ```bash
 get-modflow --subset mf6,libmf6 :python
@@ -61,7 +61,7 @@ print(sensitivity_dfs["head_obs"])
 ## Documentation
 
 Full documentation, including API reference and example notebooks, is available
-at [mf6adj.readthedocs.io](https://mf6adj.readthedocs.io).
+at [mf6adj.readthedocs.io](https://md6adj.readthedocs.io).
 
 ## How to cite
 

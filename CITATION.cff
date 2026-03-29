@@ -1,0 +1,59 @@
+cff-version: 1.2.0
+message: "If you use mf6adj in your work, please cite the following paper."
+title: "mf6adj"
+version: 1.0.0
+license: CC0-1.0
+repository-code: "https://github.com/INTERA-Inc/mf6adj"
+url: "https://mf6adj.readthedocs.io"
+
+authors:
+  - family-names: Hayek
+    given-names: Mohamed
+    orcid: "https://orcid.org/0000-0002-4431-1965"
+  - family-names: White
+    given-names: Jeremy T.
+    orcid: "https://orcid.org/0000-0002-4950-1469"
+    affiliation: "INTERA Incorporated, Fort Collins, CO"
+  - family-names: Markovich
+    given-names: Katherine H.
+    orcid: "https://orcid.org/0000-0002-4455-8255"
+    affiliation: "INTERA Incorporated, Albuquerque, NM"
+  - family-names: Hughes
+    given-names: Joseph D.
+    orcid: "https://orcid.org/0000-0003-1311-2354"
+    affiliation: "INTERA Incorporated, Chicago, IL"
+  - family-names: Lavenue
+    given-names: Marsh
+    orcid: "https://orcid.org/0000-0001-9647-9025"
+    affiliation: "INTERA Incorporated, Austin, TX"
+
+preferred-citation:
+  type: article
+  title: "MF6-ADJ: A Non-Intrusive Adjoint Sensitivity Capability for MODFLOW 6"
+  authors:
+    - family-names: Hayek
+      given-names: Mohamed
+      orcid: "https://orcid.org/0000-0002-4431-1965"
+    - family-names: White
+      given-names: Jeremy T.
+      orcid: "https://orcid.org/0000-0002-4950-1469"
+      affiliation: "INTERA Incorporated, Fort Collins, CO"
+    - family-names: Markovich
+      given-names: Katherine H.
+      orcid: "https://orcid.org/0000-0002-4455-8255"
+      affiliation: "INTERA Incorporated, Albuquerque, NM"
+    - family-names: Hughes
+      given-names: Joseph D.
+      affiliation: "INTERA Incorporated, Chicago, IL"
+    - family-names: Lavenue
+      given-names: Marsh
+      affiliation: "INTERA Incorporated, Austin, TX"
+  journal: "Groundwater"
+  volume: 63
+  issue: 6
+  pages: "874-888"
+  year: 2025
+  month: 11
+  doi: "10.1111/gwat.70025"
+  url: "https://doi.org/10.1111/gwat.70025"
+  license: CC-BY-4.0

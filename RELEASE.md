@@ -12,7 +12,7 @@ no local git commands are required.
 |------|-------------|--------------|
 | 1 | You (GitHub website) | Create a `v*.*.*` branch to start the workflow |
 | 2 | Workflow (automatic) | Version bump + changelog committed to branch |
-| 3 | You (GitHub website) | Review and merge the draft PR into `master` |
+| 3 | You (GitHub website) | Review and merge the draft PR into `main` |
 | 4 | Workflow (automatic) | Draft GitHub release created with changelog |
 | 5 | You (GitHub website) | Publish the draft release |
 | 6 | Workflow (automatic) | Package built and published to PyPI |
@@ -51,7 +51,7 @@ For **release candidates** (`rc` suffix) the workflow stops here — no PR is
 opened.
 
 For **full releases** a second job opens a **draft pull request** titled
-`Release <version>` targeting `master`.
+`Release <version>` targeting `main`.
 
 > **Previewing the changelog locally (optional)**
 >
@@ -75,9 +75,9 @@ For **full releases** a second job opens a **draft pull request** titled
    version and `changelog/CHANGELOG.md` looks correct.  You can edit either
    file directly on GitHub if corrections are needed (commit to the release
    branch).
-4. Click **Ready for review**, then merge the PR into `master`.
+4. Click **Ready for review**, then merge the PR into `main`.
 
-Merging into `master` triggers the **Draft release** job, which creates a
+Merging into `main` triggers the **Draft release** job, which creates a
 GitHub release (still in draft) tagged `v<version>` and populates the release
 notes from the changelog.
 
@@ -113,6 +113,6 @@ an environment named `release` with the appropriate protection rules.
 - [ ] Automated prep commit visible on the release branch
 - [ ] `changelog/CHANGELOG.md` reviewed and correct
 - [ ] `mf6adj/version.py` shows the correct version
-- [ ] Draft PR merged into `master`
+- [ ] Draft PR merged into `main`
 - [ ] Draft GitHub release published
 - [ ] **Publish package** job completed successfully on PyPI

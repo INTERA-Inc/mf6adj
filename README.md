@@ -1,32 +1,76 @@
-# mf6adj: a generic adjoint solver for MODFLOW-6
+# mf6adj
 
-![mf6adj](.images/mf6adj.png)
+![mf6adj](https://raw.githubusercontent.com/INTERA-Inc/mf6adj/master/.images/mf6adj.png)
 
-`mf6adj` is a python implementation of the adjoint sensitivity analysis approach.  It does not require modification to the MODFLOW-6, instead it uses the MODFLOW-6 API (Hughes and others, 2022) to access the requisite solution components.  `mf6adj` supports a wide range of performance measures and parameters.
-
+**mf6adj** is a Python package for adjoint-state sensitivity analysis with
+MODFLOW 6.  It uses the [MODFLOW 6 API](https://github.com/MODFLOW-USGS/modflowapi)
+to access the internal solution components at run time — no modifications to
+MODFLOW 6 are required.  Given one or more user-defined performance measures
+(heads, boundary fluxes, or composite objectives), mf6adj computes the
+sensitivity of each measure to model parameters across the full model domain.
 
 ## Installation
 
-`mamba env create -f environment.yml`
+**pip**
 
-Activate the environment and add the MODFLOW6 executables to the mamba environment bin with the following:
+```bash
+pip install mf6adj
+```
 
-`mamba activate mf6adj`
+**conda-forge**
 
-`get-modflow --subset mf6,libmf6,gridgen :python`
+```bash
+conda install -c conda-forge mf6adj
+```
 
-## VS Code
+mf6adj drives MODFLOW 6 through its shared library (`libmf6`).  The easiest
+way to get both is through the
+[`flopy`](https://github.com/modflowpy/flopy) helper:
 
-When working in VS Code, use the repository-local pixi interpreter so editor
-diagnostics resolve project dependencies such as `modflowapi` correctly:
+```bash
+get-modflow --subset mf6,libmf6 :python
+```
 
-`./.pixi/envs/default/bin/python`
+## Quick start
 
-The workspace settings are already configured for this interpreter. If VS Code
-still shows unresolved imports, run `Python: Select Interpreter` and choose the
-pixi environment for this repository.
+```python
+import flopy
+import mf6adj
 
-## Examples
+# locate the MF6 binary and shared library in the active conda environment
+mf6_bin, lib_name = mf6adj.get_conda_mf6_paths()
 
-Several notebooks are provide that demonstrate how to use `mf6adj`
+# run the baseline forward model
+flopy.run_model(exe_name=mf6_bin, namefile=None, model_ws="path/to/model")
 
+# write a performance-measure file
+with open("path/to/model/model.adj", "w") as f:
+    f.write("begin performance_measure head_obs\n")
+    f.write("1 1 1 5 5 head direct 1.0 -1.0e+30\n")
+    f.write("end performance_measure\n")
+
+# solve forward and adjoint
+adj = mf6adj.Mf6Adj("model.adj", str(lib_name), working_directory="path/to/model")
+adj.solve_forward_model()
+sensitivity_dfs = adj.solve_adjoint()
+adj.finalize()
+
+print(sensitivity_dfs["head_obs"])
+```
+
+## Documentation
+
+Full documentation, including API reference and example notebooks, is available
+at [mf6adj.readthedocs.io](https://md6adj.readthedocs.io).
+
+## How to cite
+
+If you use mf6adj in your work, please cite:
+
+> Hayek, M., White, J. T., Markovich, K. H., Hughes, J. D., & Lavenue, M. (2025).
+> MF6-ADJ: A Non-Intrusive Adjoint Sensitivity Capability for MODFLOW 6.
+> *Groundwater*, 63(6), 874–888. https://doi.org/10.1111/gwat.70025
+
+## License
+
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)

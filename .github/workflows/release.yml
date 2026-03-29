@@ -2,7 +2,7 @@ name: Release
 on:
   push:
     branches:
-      - master
+      - main
       - v[0-9]+.[0-9]+.[0-9]+*
   release:
     types:
@@ -11,7 +11,7 @@ jobs:
   prep:
     name: Prepare release
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && github.ref_name != 'master' }}
+    if: ${{ github.event_name == 'push' && github.ref_name != 'main' }}
     permissions:
       contents: write
     defaults:
@@ -106,33 +106,33 @@ jobs:
           body='
           # mf6adj '$ver'
 
-          Merge this pull request into `master` to approve the release.
+          Merge this pull request into `main` to approve the release.
           Merging triggers a final job that creates a draft GitHub release and publishes the package to PyPI.
 
           ## Release checklist
 
           - [ ] `changelog/CHANGELOG.md` reviewed and correct
           - [ ] `mf6adj/version.py` shows the correct version
-          - [ ] This PR merged into `master`
+          - [ ] This PR merged into `main`
           - [ ] Draft GitHub release reviewed and published
           - [ ] **Publish package** job completed successfully on PyPI
           '
-          gh pr create -B "master" -H "$ref" --title "$title" --draft --body "$body"
+          gh pr create -B "main" -H "$ref" --title "$title" --draft --body "$body"
 
   release:
     name: Draft release
-    # runs only when changes are merged to master
-    if: ${{ github.event_name == 'push' && github.ref_name == 'master' }}
+    # runs only when changes are merged to main
+    if: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
     steps:
 
-      - name: Checkout master branch
+      - name: Checkout main branch
         uses: actions/checkout@v6
         with:
-          ref: master
+          ref: main
 
       # actions/download-artifact won't look at previous workflow runs but we need to in order to get changelog
       - name: Download version artifact
@@ -156,7 +156,7 @@ jobs:
           title="mf6adj $version"
           notes=$(cat changelog/CHANGELOG.md)
           gh release create "v$version" \
-            --target master \
+            --target main \
             --title "$title" \
             --notes "$notes" \
             --draft \

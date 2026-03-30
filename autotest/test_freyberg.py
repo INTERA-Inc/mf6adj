@@ -7,6 +7,9 @@ from datetime import datetime
 
 import flopy
 import h5py
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd

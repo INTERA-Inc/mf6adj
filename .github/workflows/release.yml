@@ -136,13 +136,13 @@ jobs:
 
       # actions/download-artifact won't look at previous workflow runs but we need to in order to get changelog
       - name: Download version artifact
-        uses: dawidd6/action-download-artifact@v19
+        uses: dawidd6/action-download-artifact@v20
         with:
           workflow: release.yml
           name: version
 
       - name: Download changelog artifact
-        uses: dawidd6/action-download-artifact@v19
+        uses: dawidd6/action-download-artifact@v20
         with:
           workflow: release.yml
           name: changelog

@@ -43,7 +43,7 @@ class Mf6Adj:
     lib_name : str
         MODFLOW 6 shared library path.
     logging_level : str or int, optional
-        Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`).
+        Logging level (``DEBUG``, ``INFO``, ``WARNING``, ``ERROR``, or ``CRITICAL``).
     logging_filename : str or pl.Path, optional
         Optional log filename. If omitted, logging is limited to the console.
     working_directory : str or pl.Path, optional
@@ -498,7 +498,7 @@ class Mf6Adj:
         verbose : bool, optional
             Whether to report progress to stdout.
         force_k_update : bool, optional
-            Force MODFLOW 6 to reprocess the `K` and `K33` arrays. Used only
+            Force MODFLOW 6 to reprocess the ``K`` and ``K33`` arrays. Used only
             during perturbation testing.
         sp_pert_dict : dict, optional
             Perturbed boundary information used during perturbation testing.
@@ -507,12 +507,22 @@ class Mf6Adj:
         hdf5_name : PathLike, optional
             Output HDF5 filename for forward-solution components. If omitted,
             a generic time-stamped filename is created.
+        solve_func_ptr : callable, optional
+            Callback invoked with the ``modflowapi.ModflowApi`` instance before
+            each solver iteration. If omitted, no callback is run.
+        presolve_func_ptr : callable, optional
+            Callback invoked with the ``modflowapi.ModflowApi`` instance at the
+            start of each time step, before the solve loop begins. If omitted,
+            no callback is run.
+        postsolve_func_ptr : callable, optional
+            Callback invoked with the ``modflowapi.ModflowApi`` instance after
+            each time step is finalized. If omitted, no callback is run.
 
         Returns
         -------
         tuple[dict, dict] or None
-            Perturbation-testing data when `pert_save` is `True`; otherwise
-            `None`.
+            Perturbation-testing data when ``pert_save`` is ``True``; otherwise
+            ``None``.
         """
         with _utils_cd(self.working_directory):
             if self._gwf is None:
@@ -896,6 +906,7 @@ class Mf6Adj:
         linear_solver=None,
         linear_solver_kwargs: dict = {},
         use_precon: bool = True,
+        jacobi_preconditioner: Optional[str] = None,
         precon_kwargs: dict = {},
         singular_test: bool = False,
         tikhonov: float = 0.0,
@@ -916,16 +927,23 @@ class Mf6Adj:
         csv_summary : bool, optional
             Write a CSV summary of the sensitivity information.
         linear_solver : str or callable, optional
-            Sparse linear solver to use. If `None`, either a direct solver or
-            `bicgstab` is selected based on model size. If a string, supported
-            values are `"direct"` and `"bicgstab"`. A compatible solver
+            Sparse linear solver to use. If ``None``, either a direct solver or
+            ``bicgstab`` is selected based on model size. If a string, supported
+            values are ``"direct"`` and ``"bicgstab"``. A compatible solver
             callable may also be supplied.
         linear_solver_kwargs : dict, optional
-            Keyword arguments passed to `linear_solver`.
+            Keyword arguments passed to ``linear_solver``.
         use_precon : bool, optional
-            Use an ILU preconditioner with an iterative linear solver.
+            Use a preconditioner with the iterative linear solver.
+        jacobi_preconditioner : str, optional
+            Use Jacobi preconditioner with the iterative linear solver. If ``None``, the
+            ILU preconditioner will be used. If a string, supported values are
+            ``"point"`` and ``"block"``.
         precon_kwargs : dict, optional
-            Keyword arguments passed to the ILU preconditioner.
+            Keyword arguments passed to the preconditioner setup. For the default
+            ILU preconditioner, these are passed to ``spilu``. When
+            ``jacobi_preconditioner="block"``, the ``block_size`` key sets the
+            block size.
         singular_test : bool, optional
             Test for a singular matrix and apply Tikhonov regularization when
             needed.
@@ -968,6 +986,7 @@ class Mf6Adj:
                     csv_summary=csv_summary,
                     linear_solver=linear_solver,
                     linear_solver_kwargs=linear_solver_kwargs,
+                    jacobi_preconditioner=jacobi_preconditioner,
                     use_precon=use_precon,
                     precon_kwargs=precon_kwargs,
                     singular_test=singular_test,
@@ -1126,7 +1145,7 @@ class Mf6Adj:
             Returns
             -------
             DataFrame
-                Input summary with optional `k`, `i`, and `j` columns.
+                Input summary with optional ``k``, ``i``, and ``j`` columns.
             """
             if kijs is not None:
                 for idx, lab in zip([0, 1, 2], ["k", "i", "j"]):

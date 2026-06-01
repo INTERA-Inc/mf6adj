@@ -65,6 +65,9 @@ postinstall = "pip install --no-deps --disable-pip-version-check -e ."
 # jupyter
 jupyter = { cmd = "jupyter lab" }
 
+# vscode
+code = { cmd = "code ." }
+
 # flopy
 update-flopy = { cmd = "python -m flopy.mf6.utils.generate_classes --ref develop" }
 

@@ -8,6 +8,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import scipy.sparse as sparse
+from scipy.sparse.csgraph import reverse_cuthill_mckee
 from scipy.sparse.linalg import (
     LinearOperator,
     bicgstab,
@@ -42,13 +43,13 @@ class PerfMeasRecord:
     inode : int
         Zero-based node number.
     pm_type : str
-        Either `head` or a boundary package name from the GWF name file.
+        Either ``head`` or a boundary package name from the GWF name file.
     pm_form : str
-        Either `direct` or `residual`.
+        Either ``direct`` or ``residual``.
     weight : float
         Weight value.
     obsval : float
-        Observed counterpart; used only for `residual` form.
+        Observed counterpart; used only for ``residual`` form.
     k : int, optional
         Zero-based layer index for structured-grid reporting.
     i : int, optional
@@ -252,6 +253,140 @@ class PerfMeas:
                                         ) ** 2
         return result
 
+    def _setup_block_jacobi_preconditioner(self, amat, block_size=5000):
+        """Setup a block Jacobi preconditioner
+
+        Parameters
+        ----------
+        amat : scipy.sparse.spmatrix
+            Sparse matrix for which to create the block Jacobi preconditioner.
+        block_size : int
+            Size of the blocks for the block Jacobi preconditioner.
+
+        Returns
+        -------
+        scipy.sparse.linalg.LinearOperator
+            Linear operator representing the block Jacobi preconditioner.
+
+        """
+        n = amat.shape[0]
+        self.logger.logger.debug(
+            f"Setup block Jacobi preconditioner with {block_size:,} block size "
+            + f"for matrix with {n:,} rows"
+        )
+
+        # 1. Compute RCM permutation and reorder matrix
+        # This clusters non-zeros to make the diagonal blocks more "meaningful"
+        perm = reverse_cuthill_mckee(amat)
+        inv_perm = np.argsort(perm)  # Used to "undo" the permutation after solving
+        amat_rcm = amat[perm, :][:, perm].tocsc()
+
+        # 2. Define block boundaries
+        block_indices = []
+        for i in range(0, n, block_size):
+            end = min(i + block_size, n)
+            block_indices.append((i, end))
+
+        self.logger.logger.debug(
+            "Number of blocks for block Jacobi preconditioner: "
+            + f"{len(block_indices):,}"
+        )
+
+        # 3. Pre-factorize diagonal blocks using SPILU
+        ilu_solvers = []
+        for start, end in block_indices:
+            block = amat_rcm[start:end, start:end]
+            # spilu requires CSC format and usually benefits
+            # from fill_factor adjustments
+            try:
+                ilu_solvers.append(spilu(block, fill_factor=10.0))
+            except RuntimeError:
+                # Fallback if a block is singular or problematic
+                self.logger.logger.debug(
+                    f"Warning: Block {start}:{end} is singular, using simpler solve."
+                )
+                ilu_solvers.append(None)
+
+        # 4. Define M^-1 * v
+        def block_jacobi_solve(v):
+            # Reorder input vector to RCM space
+            v_rcm = v[perm]
+            res_rcm = np.zeros_like(v_rcm)
+
+            for i, (start, end) in enumerate(block_indices):
+                if ilu_solvers[i] is not None:
+                    res_rcm[start:end] = ilu_solvers[i].solve(v_rcm[start:end])
+                else:
+                    # Basic identity fallback for failed blocks
+                    res_rcm[start:end] = v_rcm[start:end]
+
+            # Return to original ordering
+            return res_rcm[inv_perm]
+
+        return LinearOperator((n, n), matvec=block_jacobi_solve)
+
+    def _setup_point_jacobi_preconditioner(self, amat):
+        """Setup the point Jacobi preconditioner
+
+        Parameters
+        ----------
+        amat : scipy.sparse.spmatrix
+            Sparse matrix for which to create the Jacobi preconditioner.
+
+        Returns
+        -------
+        scipy.sparse.linalg.LinearOperator
+            Linear operator representing the Jacobi preconditioner.
+
+        """
+        self.logger.logger.debug("Setup Jacobi preconditioner")
+        d = amat.diagonal()
+        d_inv = 1.0 / d
+
+        def point_jacobi_solve(v):
+            return d_inv * v
+
+        return LinearOperator(
+            amat.shape,
+            matvec=point_jacobi_solve,
+        )
+
+    def _setup_jacobi_preconditioner(
+        self,
+        amat,
+        jacobi_type="point",
+        precon_kwargs=None,
+    ):
+        """Setup a Jacobi preconditioner
+
+        Parameters
+        ----------
+        amat : scipy.sparse.spmatrix
+            Sparse matrix for which to create the Jacobi preconditioner.
+        jacobi_type : str, optional
+            Type of Jacobi preconditioner to use. Supported values are "point"
+            and "block".
+        precon_kwargs : dict, optional
+            Keyword arguments passed to the Jacobi preconditioner setup method.
+
+        Returns
+        -------
+        scipy.sparse.linalg.LinearOperator
+            Linear operator representing the Jacobi preconditioner.
+
+        """
+        if jacobi_type == "point":
+            return self._setup_point_jacobi_preconditioner(amat)
+        elif jacobi_type == "block":
+            block_size = (precon_kwargs or {}).get("block_size")
+            precon_kwargs = (
+                {"block_size": int(block_size)} if block_size is not None else {}
+            )
+            return self._setup_block_jacobi_preconditioner(
+                amat,
+                **precon_kwargs,
+            )
+
     def solve_adjoint(
         self,
         hdf5_forward_solution_fname: PathLike,
@@ -261,6 +396,7 @@ class PerfMeas:
         linear_solver=None,
         linear_solver_kwargs: Optional[dict] = None,
         use_precon: bool = True,
+        jacobi_preconditioner: Optional[str] = None,
         precon_kwargs: Optional[dict] = None,
         singular_test: bool = False,
         tikhonov: float = 0.0,
@@ -296,9 +432,16 @@ class PerfMeas:
         linear_solver_kwargs : dict, optional
             Keyword arguments passed to the configured linear solver callable.
         use_precon : bool, optional
-            Use an ILU preconditioner with an iterative linear solver.
+            Use a preconditioner with the iterative linear solver.
+        jacobi_preconditioner : str, optional
+            Use a Jacobi preconditioner with the iterative linear solver. If
+            ``None``, the ILU preconditioner is used. Supported string values
+            are ``"point"`` and ``"block"``.
         precon_kwargs : dict, optional
-            Keyword arguments passed to the ILU preconditioner.
+            Keyword arguments passed to the preconditioner setup. For the default
+            ILU preconditioner, these are passed to ``spilu``. When
+            ``jacobi_preconditioner="block"``, the ``block_size`` key sets the
+            block size.
         singular_test : bool, optional
             Test for a singular matrix and apply Tikhonov regularization when
             needed.
@@ -325,6 +468,25 @@ class PerfMeas:
             "lgmres",
             "lsqr",
         )
+        supported_jacobi_preconditioners = (
+            "point",
+            "block",
+        )
+        if jacobi_preconditioner is not None:
+            if jacobi_preconditioner not in supported_jacobi_preconditioners:
+                raise Exception(
+                    (
+                        "Invalid 'jacobi_preconditioner' value: "
+                        + f"{jacobi_preconditioner!r}. "
+                        + "Supported values are None, "
+                        + ", ".join(f"'{s}'" for s in supported_jacobi_preconditioners)
+                    )
+                )
+            else:
+                self.logger.logger.info(
+                    f"Using '{jacobi_preconditioner}' Jacobi preconditioner"
+                )
+                use_precon = True
         linear_solver_kwargs = (
             {} if linear_solver_kwargs is None else dict(linear_solver_kwargs)
         )
@@ -606,39 +768,55 @@ class PerfMeas:
             if linear_solver not in ("direct", "lsqr"):
                 if use_precon:
                     self.logger.logger.debug("Setup preconditioner")
-                    if not precon_kwargs:
-                        _precon_kwargs = {
-                            "drop_tol": 1e-4,
-                            "fill_factor": 10,
-                            "drop_rule": "basic,area",
-                        }
+                    if jacobi_preconditioner is not None:
+                        m = self._setup_jacobi_preconditioner(
+                            amat,
+                            jacobi_preconditioner,
+                            precon_kwargs,
+                        )
                     else:
-                        _precon_kwargs = precon_kwargs
-                    try:
-                        amat_ilu = spilu(amat, **_precon_kwargs)
-                        m = LinearOperator(
-                            (head.shape[0], head.shape[0]),
-                            amat_ilu.solve,
-                        )
-                    except Exception as e:
-                        if "maxiter" in _linear_solver_kwargs:
-                            _linear_solver_kwargs["maxiter"] += 1000
+                        if not precon_kwargs:
+                            _precon_kwargs = {
+                                "drop_tol": 1e-4,
+                                "fill_factor": 10,
+                                "drop_rule": "basic,area",
+                            }
                         else:
-                            _linear_solver_kwargs["maxiter"] = 1000
+                            _precon_kwargs = precon_kwargs
+                        try:
+                            amat_ilu = spilu(amat, **_precon_kwargs)
+                            m = LinearOperator(
+                                (head.shape[0], head.shape[0]),
+                                amat_ilu.solve,
+                            )
+                        except Exception as e:
+                            msg = (
+                                "Failed to form preconditioner - "
+                                + f"using Jacobi preconditioned {linear_solver} "
+                                + "solver and reset maxiter to "
+                                + f"{_linear_solver_kwargs['maxiter']}"
+                            )
+                            self.logger.logger.info(msg)
 
-                        msg = (
-                            "Failed to form preconditioner - "
-                            + f"using unpreconditioned {linear_solver} solver and "
-                            + f"reset maxiter to {_linear_solver_kwargs['maxiter']}"
-                        )
-                        self.logger.logger.info(msg)
+                            error_lines = str(e).splitlines()
+                            msg = ""
+                            for line in error_lines:
+                                msg += f" {line}."
+                            self.logger.logger.debug(msg)
 
-                        error_lines = str(e).splitlines()
-                        msg = ""
-                        for line in error_lines:
-                            msg += f" {line}."
-                        self.logger.logger.debug(msg)
-                        m = None
+                            # generate a simple Jacobi preconditioner
+                            # and increase maxiter
+                            if "maxiter" in _linear_solver_kwargs:
+                                _linear_solver_kwargs["maxiter"] += 10000
+                            else:
+                                _linear_solver_kwargs["maxiter"] = 10000
+
+                            m = self._setup_jacobi_preconditioner(
+                                amat,
+                                jacobi_type="block",
+                                precon_kwargs=_precon_kwargs,
+                            )
+
                     _linear_solver_kwargs["M"] = m
 
             if linear_solver != "direct" and (
@@ -648,7 +826,7 @@ class PerfMeas:
                 _linear_solver_kwargs["rtol"] = 0.0
 
             self.logger.logger.info(
-                f"Solving with {linear_solver}"
+                f"Solving with {linear_solver} "
                 + f"with solver options: {_linear_solver_kwargs}"
             )
 
@@ -1402,7 +1580,7 @@ class PerfMeas:
         pak_name : str
             Package name from the GWF name file.
         prop_name : str
-            Property name in `pak_name`.
+            Property name in ``pak_name``.
         gwf : modflowapi.ModflowApi
             MODFLOW 6 groundwater-flow API instance.
 

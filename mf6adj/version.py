@@ -1,4 +1,4 @@
 # mf6adj version file automatically created using
-# update_version.py on March 29, 2026 15:12:36
+# update_version.py on June 01, 2026 22:36:01
 
-__version__ = "1.1.0.dev0"
+__version__ = "1.2.0"

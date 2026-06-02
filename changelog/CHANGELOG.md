@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changes
 
+- Release 1.0.0 (#53) (@app/github-actions)
+- release: resync develop with main (#54) (@jdhughes-dev)
+- release: develop resync after release (#55) (@jdhughes-dev)
+- Bump prefix-dev/setup-pixi from 0.9.4 to 0.9.5 (#56) (@app/dependabot)
+- Bump dawidd6/action-download-artifact from 19 to 20 (#57) (@app/dependabot)
+- Bump dawidd6/action-download-artifact from 20 to 21 (#58) (@app/dependabot)
+- Bump prefix-dev/setup-pixi from 0.9.5 to 0.9.6 (#59) (@app/dependabot)
+- Add jacobi preconditioner (#60) (@jdhughes-dev)
+
+
+## [1.1.0] - 2026-06-02
+
+### Changes
+
 - ruff formatting (#7) (@jdhughes-dev)
 - remove use of local versions of python packages and executables (#8) (@jdhughes-dev)
 - Add pyproject.toml (#9) (@jdhughes-dev)

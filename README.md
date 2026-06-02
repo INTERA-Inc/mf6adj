@@ -1,6 +1,6 @@
 # mf6adj
 
-![mf6adj](https://raw.githubusercontent.com/INTERA-Inc/mf6adj/master/.images/mf6adj.png)
+![mf6adj](https://raw.githubusercontent.com/INTERA-Inc/mf6adj/main/.images/mf6adj.png)
 
 **mf6adj** is a Python package for adjoint-state sensitivity analysis with
 MODFLOW 6.  It uses the [MODFLOW 6 API](https://github.com/MODFLOW-USGS/modflowapi)

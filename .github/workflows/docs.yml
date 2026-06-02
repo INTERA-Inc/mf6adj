@@ -6,7 +6,6 @@ on:
   push:
     branches:
       - main
-      - develop
     paths-ignore:
       - '.github/workflows/release.yml'
       - '.github/workflows/ci.yml'
@@ -15,7 +14,6 @@ on:
   pull_request:
     branches:
       - main
-      - develop
     paths-ignore:
       - '.github/workflows/release.yml'
       - '.github/workflows/ci.yml'
@@ -27,7 +25,7 @@ on:
         description: 'The tag, branch or commit hash to trigger an RTD build for. Branches and tags must be fully formed, e.g. refs/heads/<branch> or refs/tags/<tag> respectively.'
         required: false
         type: string
-        default: 'refs/heads/develop'
+        default: 'refs/heads/main'
       mf6_ref:
         description: 'The tag, branch or commit hash to build MF6 from. Branches and tags must be fully formed, e.g. refs/heads/<branch> or refs/tags/<tag> respectively.'
         required: false

@@ -40,11 +40,11 @@ This triggers the `prep` job in `release.yml`, which:
 
 ### 3. Review and merge the pull request
 
-After the `prep` job completes, a draft pull request from `v1.2.3` into `master` is automatically created. Review the version bump and merge it.
+After the `prep` job completes, a draft pull request from `v1.2.3` into `main` is automatically created. Review the version bump and merge it.
 
 ### 4. Draft GitHub release is created automatically
 
-When the pull request is merged into `master`, the `release` job runs and creates a **draft** GitHub release tagged `v1.2.3` with the changelog as release notes.
+When the pull request is merged into `main`, the `release` job runs and creates a **draft** GitHub release tagged `v1.2.3` with the changelog as release notes.
 
 ### 5. Publish the GitHub release
 
@@ -69,10 +69,10 @@ Create branch v1.2.3
   prep job runs  ──► bumps version.py, creates artifacts
         │
         ▼
-   pr job runs   ──► opens draft PR to master
+   pr job runs   ──► opens draft PR to main
         │
         ▼
-   Merge PR to master
+   Merge PR to main
         │
         ▼
  release job runs ──► creates draft GitHub release (v1.2.3)

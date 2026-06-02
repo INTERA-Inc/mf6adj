@@ -26,7 +26,7 @@ no local git commands are required.
    current branch name).
 3. Type a new branch name in the format `v<major>.<minor>.<patch>` — for
    example `v1.2.0`.  For a release candidate use `v1.2.0rc1`.
-4. Select **Create branch: v1.2.0 from `develop`** (or whichever base branch
+4. Select **Create branch: v1.2.0 from `main`** (or whichever base branch
    you want to release from).
 
 Pushing the new branch triggers `release.yml` automatically.
@@ -109,7 +109,7 @@ an environment named `release` with the appropriate protection rules.
 
 ## Release checklist
 
-- [ ] Release branch named `v<major>.<minor>.<patch>` created from `develop`
+- [ ] Release branch named `v<major>.<minor>.<patch>` created from `main`
 - [ ] Automated prep commit visible on the release branch
 - [ ] `changelog/CHANGELOG.md` reviewed and correct
 - [ ] `mf6adj/version.py` shows the correct version

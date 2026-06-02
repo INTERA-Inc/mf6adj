@@ -2,8 +2,12 @@ name: Release
 on:
   push:
     branches:
-      - main
       - v[0-9]+.[0-9]+.[0-9]+*
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
   release:
     types:
       - published
@@ -11,7 +15,7 @@ jobs:
   prep:
     name: Prepare release
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && github.ref_name != 'main' }}
+    if: ${{ github.event_name == 'push' }}
     permissions:
       contents: write
     defaults:
@@ -121,8 +125,8 @@ jobs:
 
   release:
     name: Draft release
-    # runs only when changes are merged to main
-    if: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+    # runs only when a release PR (v* head branch) is merged into main
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

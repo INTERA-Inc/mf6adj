@@ -13,7 +13,6 @@ on:
   pull_request:
     branches:
       - main
-      - develop
     paths-ignore:
       - '**.md'
       - '.github/workflows/release.yml'

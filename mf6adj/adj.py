@@ -11,6 +11,7 @@ import h5py
 import modflowapi
 import numpy as np
 import pandas as pd
+from xmipy.errors import XMIError
 
 from .pm import PerfMeas, PerfMeasRecord
 from .utils.utils import _utils_cd
@@ -322,14 +323,15 @@ class Mf6Adj:
         data_dict["iac"] = iac
         icelltype = get_ptr_from_gwf(gwf_name, "NPF", "ICELLTYPE", gwf)
         data_dict["icelltype"] = icelltype
-        if self._gwf_version > "6.6.3":
+        # IHIGHCELLSAT is not registered by MODFLOW 6 6.6.3 and earlier
+        try:
             ihighcellsat = get_ptr_from_gwf(
                 gwf_name,
                 "NPF",
                 "IHIGHCELLSAT",
                 gwf,
             )
-        else:
+        except XMIError:
             ihighcellsat = np.array([0], dtype=int)
         ihighcellsat_value = int(np.asarray(ihighcellsat).ravel()[0])
         if ihighcellsat_value != 0:

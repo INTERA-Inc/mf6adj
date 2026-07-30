@@ -30,6 +30,7 @@ dependencies = [
     "pandas>=2.0.0",
     "flopy>=3.10.0",
     "modflowapi>=0.2.0",
+    "xmipy>=1.4.0",
     "h5py>=3.0.0",
     "scipy>=1.7.0",
     "pyemu>=1.4.0",

@@ -37,6 +37,7 @@ python = "3.10.*"
 requests = "*"
 scipy = ">=1.7.0"
 shapely = "*"
+xmipy = ">=1.4.0"
 
 # pre-commit tools
 pre-commit = "*"

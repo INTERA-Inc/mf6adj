@@ -1033,9 +1033,16 @@ class Mf6Adj:
         Returns
         -------
         str
-            MODFLOW 6 version string reported by the API.
+            MODFLOW 6 version string reported by the API, or an empty string
+            if the API call fails.
         """
-        version = self._gwf.get_version()
+        # get_version overruns the version buffer in MODFLOW 6 6.7.0 and
+        # earlier, which can raise an access violation on Windows
+        try:
+            version = self._gwf.get_version()
+        except OSError as e:
+            self.logger.logger.warning(f"Could not get the MODFLOW 6 version: {e}")
+            return ""
         self.logger.logger.info(f"MODFLOW 6 version: {version}")
         return version
 

@@ -289,7 +289,7 @@ jobs:
           # the release notes are this version's entry only, not the whole
           # changelog, so take everything from its heading up to the next one
           awk -v ver="$version" '
-            $0 ~ "^## \\[" ver "\\]" {inside = 1; print; next}
+            !inside && $0 ~ "^## \\[" ver "\\]" {inside = 1; print; next}
             inside && /^## \[/ {exit}
             inside {print}
           ' changelog/CHANGELOG.md > release-notes.md

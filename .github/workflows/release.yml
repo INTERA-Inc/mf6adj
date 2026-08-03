@@ -285,10 +285,24 @@ jobs:
           # are read from the repository rather than passed between runs
           version="${{ github.event.pull_request.head.ref }}"
           version="${version#v}"
+
+          # the release notes are this version's entry only, not the whole
+          # changelog, so take everything from its heading up to the next one
+          awk -v ver="$version" '
+            $0 ~ "^## \\[" ver "\\]" {inside = 1; print; next}
+            inside && /^## \[/ {exit}
+            inside {print}
+          ' changelog/CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No '## [$version]' entry found in changelog/CHANGELOG.md."
+            exit 1
+          fi
+          cat release-notes.md
+
           gh release create "v$version" \
             --target main \
             --title "mf6adj $version" \
-            --notes-file changelog/CHANGELOG.md \
+            --notes-file release-notes.md \
             --draft \
             --latest
 

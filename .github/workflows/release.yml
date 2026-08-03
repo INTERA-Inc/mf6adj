@@ -60,6 +60,14 @@ jobs:
         shell: bash
     steps:
 
+      - name: Check ref is main
+        if: ${{ github.ref_type != 'branch' || github.ref_name != 'main' }}
+        run: |
+          echo "A release must be cut from the main branch, not ${{ github.ref_type }} '${{ github.ref_name }}'."
+          echo "The release branch is created from the ref this workflow runs on, so"
+          echo "releasing from anywhere else would carry that ref's other changes into main."
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@v7
         with:

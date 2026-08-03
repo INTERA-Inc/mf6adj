@@ -103,8 +103,12 @@ jobs:
               n = cur.pre[1] + 1 if cur.pre and cur.pre[0] == 'rc' else 0
               out = f'{major}.{minor}.{micro}rc{n}'
           elif bump == 'dev':
-              n = cur.dev + 1 if cur.is_devrelease else 0
-              out = f'{major}.{minor}.{micro}.dev{n}'
+              # step the dev number of a development version, otherwise open
+              # the next cycle after a release, which is a minor bump
+              if cur.is_devrelease:
+                  out = f'{major}.{minor}.{micro}.dev{cur.dev + 1}'
+              else:
+                  out = f'{major}.{minor + 1}.0.dev0'
           else:
               raise SystemExit(f'unknown bump {bump}')
           print(out)

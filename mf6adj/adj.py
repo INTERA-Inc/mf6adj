@@ -14,6 +14,7 @@ import pandas as pd
 from xmipy.errors import XMIError
 
 from .advanced_packages import lake_forward_terms, sfr_forward_terms
+from .boundary import DRAIN_CORNER_TOL
 from .pm import PerfMeas, PerfMeasRecord
 from .utils.utils import _utils_cd
 from .utils.utils_fileio import _write_group_to_hdf
@@ -960,6 +961,7 @@ class Mf6Adj:
         dvclose: Optional[float] = 1e-6,
         rclose: Optional[float] = 1e-3,
         dvscale: bool = False,
+        drain_corner_tol: float = DRAIN_CORNER_TOL,
     ) -> dict[str, pd.DataFrame]:
         """Solve for the adjoint state, one performance measure at a time.
 
@@ -1001,6 +1003,11 @@ class Mf6Adj:
         dvscale : bool, optional
             Scale lambda and the right-hand side to improve iterative solver
             convergence for large lambda values.
+        drain_corner_tol : float, optional
+            Head above a drain elevation below which the entry is treated as
+            sitting on the corner of the drain flow function and dropped from
+            the performance-measure derivative. A value of zero disables the
+            check.
 
         Returns
         -------
@@ -1037,6 +1044,7 @@ class Mf6Adj:
                     dvclose=dvclose,
                     rclose=rclose,
                     dvscale=dvscale,
+                    drain_corner_tol=drain_corner_tol,
                 )
                 dfs[pm.name] = df
         return dfs

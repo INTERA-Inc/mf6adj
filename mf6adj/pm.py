@@ -22,6 +22,7 @@ from scipy.sparse.linalg import (
 )
 
 from .advanced_packages import LakeCoupling, SfrCoupling
+from .boundary import DRAIN_CORNER_TOL, drop_corner_entries
 from .utils.utils import SolverCallback
 from .utils.utils_fileio import _write_group_to_hdf
 from .utils.utils_logger import _LoggerUtil
@@ -433,6 +434,7 @@ class PerfMeas:
         dvclose: Optional[float] = 1e-6,
         rclose: Optional[float] = 1e-3,
         dvscale: bool = False,
+        drain_corner_tol: float = DRAIN_CORNER_TOL,
     ) -> pd.DataFrame:
         """Solve for the adjoint state for the performance measure.
 
@@ -482,6 +484,11 @@ class PerfMeas:
         dvscale : bool, optional
             Scale lambda and the right-hand side to improve iterative solver
             convergence for large lambda values.
+        drain_corner_tol : float, optional
+            Head above a drain elevation below which the entry is treated as
+            sitting on the corner of the drain flow function and dropped from
+            the performance-measure derivative. A value of zero disables the
+            check.
 
         Returns
         -------
@@ -675,7 +682,7 @@ class PerfMeas:
             self.logger.logger.debug("Forming rhs")
 
             self.logger.logger.debug("Calculate dfdh")
-            dfdh = self.__dfdh(kk, hdf[sol_key])
+            dfdh = self.__dfdh(kk, hdf[sol_key], tol=drain_corner_tol)
 
             self.logger.logger.debug(
                 "Calculating dfdh took: "
@@ -1656,7 +1663,7 @@ class PerfMeas:
         relevant_entries = [p for p in self._entries if p.kperkstp == kk]
         return len(relevant_entries) > 0
 
-    def __dfdh(self, kk, sol_dataset) -> np.ndarray:
+    def __dfdh(self, kk, sol_dataset, tol=DRAIN_CORNER_TOL) -> np.ndarray:
         """Return the derivative of the performance measure with respect to head.
 
         Parameters
@@ -1667,6 +1674,9 @@ class PerfMeas:
             Forward-solution HDF5 group for one time step. The group must
             contain a ``head`` dataset and, for flux performance measures,
             package subgroups with ``nodelist`` and ``hcof`` datasets.
+        tol : float, optional
+            Head above a drain elevation below which the entry is treated as
+            sitting on the corner and dropped from the derivative.
 
         Returns
         -------
@@ -1699,6 +1709,17 @@ class PerfMeas:
                 if pfr.pm_type not in cached_maps:
                     hcof = sol_dataset[pfr.pm_type]["hcof"][:]
                     nodes = sol_dataset[pfr.pm_type]["nodelist"][:] - 1
+                    # a drain on its corner has no defensible derivative, so
+                    # it contributes nothing to the measure
+                    hcof, ncorner = drop_corner_entries(
+                        sol_dataset[pfr.pm_type], hcof, head, tol
+                    )
+                    if ncorner > 0:
+                        self.logger.logger.warning(
+                            f"{pfr.pm_type}: dropped {ncorner} drain entries "
+                            + f"within {tol:g} of their elevation from the "
+                            + "performance measure derivative"
+                        )
                     # A cell can carry more than one boundary from the same
                     # package - a lake connected both vertically and
                     # horizontally to it - and the measure sums the flow through

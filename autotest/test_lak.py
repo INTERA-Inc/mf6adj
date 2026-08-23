@@ -36,6 +36,8 @@ Cases:
                       at a rate the head cannot change.
   - disv            : the same lake on a vertex grid gives the same answer as
                       on a structured one.
+  - disu            : a lake on an unstructured grid reproduces a
+                      finite-difference total derivative.
 """
 
 import pathlib as pl
@@ -1318,4 +1320,117 @@ def test_disv_lake_matches_structured(function_tmpdir):
     assert np.isclose(vertex, structured, rtol=1e-8), (
         f"the vertex grid gives {vertex:.6e} where the structured grid gives "
         f"{structured:.6e}"
+    )
+
+
+def test_disu_lake(function_tmpdir):
+    """A lake on an unstructured grid reproduces the total derivative.
+
+    An unstructured grid carries its own connectivity and node numbering, which
+    the lake terms have to follow just as they do on a structured grid.
+    """
+    dq = -5.0
+    nrow, ncol, delrc = 8, 8, 100.0
+    lake = [(2, 2), (2, 3), (3, 2), (3, 3)]
+    well = 6 * ncol + 6
+
+    def connectivity():
+        iac, ja, ihc, cl12, hwva = [], [], [], [], []
+        for i in range(nrow):
+            for j in range(ncol):
+                pairs = []
+                for di, dj in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    ii, jj = i + di, j + dj
+                    if 0 <= ii < nrow and 0 <= jj < ncol:
+                        pairs.append((ii * ncol + jj, (1, delrc / 2.0, delrc)))
+                # MODFLOW requires the connections of a row to be sorted
+                pairs.sort(key=lambda pair: pair[0])
+                iac.append(len(pairs) + 1)
+                ja.extend([i * ncol + j] + [pair[0] for pair in pairs])
+                ihc.extend([0] + [pair[1][0] for pair in pairs])
+                cl12.extend([0.0] + [pair[1][1] for pair in pairs])
+                hwva.extend([0.0] + [pair[1][2] for pair in pairs])
+        return iac, ja, ihc, cl12, hwva
+
+    def build(ws, rate):
+        ws = pl.Path(ws)
+        if ws.exists():
+            shutil.rmtree(ws)
+        iac, ja, ihc, cl12, hwva = connectivity()
+        sim = flopy.mf6.MFSimulation(
+            sim_name="lk", sim_ws=str(ws), exe_name=str(mf6_bin)
+        )
+        flopy.mf6.ModflowTdis(sim, nper=1, perioddata=[(100.0, 1, 1.0)])
+        flopy.mf6.ModflowIms(
+            sim,
+            outer_dvclose=1e-11,
+            inner_dvclose=1e-12,
+            outer_maximum=500,
+            complexity="complex",
+        )
+        gwf = flopy.mf6.ModflowGwf(sim, modelname="lk", save_flows=True)
+        flopy.mf6.ModflowGwfdisu(
+            gwf,
+            nodes=nrow * ncol,
+            nja=len(ja),
+            top=0.0,
+            bot=-20.0,
+            area=delrc * delrc,
+            iac=iac,
+            ja=ja,
+            ihc=ihc,
+            cl12=cl12,
+            hwva=hwva,
+        )
+        flopy.mf6.ModflowGwfic(gwf, strt=2.0)
+        flopy.mf6.ModflowGwfnpf(gwf, k=10.0, k33=1.0, icelltype=0)
+        flopy.mf6.ModflowGwfsto(gwf, ss=1e-5, sy=0.2, transient={0: True})
+        spd = []
+        for i in range(nrow):
+            spd.append([(i * ncol + 0,), 2.5, 1000.0])
+            spd.append([(i * ncol + ncol - 1,), 1.5, 1000.0])
+        flopy.mf6.ModflowGwfghb(gwf, stress_period_data=spd, pname="ghb-edge")
+        flopy.mf6.ModflowGwfwel(
+            gwf, stress_period_data=[[(well,), rate]], pname="wel-1"
+        )
+        conn = [
+            [0, n, (i * ncol + j,), "vertical", 0.05, 0.0, 0.0, 0.0, 0.0]
+            for n, (i, j) in enumerate(lake)
+        ]
+        flopy.mf6.ModflowGwflak(
+            gwf,
+            nlakes=1,
+            noutlets=0,
+            ntables=0,
+            packagedata=[[0, 5.0, len(conn)]],
+            connectiondata=conn,
+            pname="lak-1",
+        )
+        flopy.mf6.ModflowGwfoc(
+            gwf, head_filerecord="lk.hds", saverecord=[("HEAD", "ALL")]
+        )
+        sim.write_simulation(silent=True)
+        success, buff = sim.run_simulation(silent=True)
+        assert success, "\n".join(buff[-12:])
+        path = pl.Path(ws) / "test.adj"
+        with open(path, "w") as f:
+            f.write("begin performance_measure pm\n")
+            for i, j in lake:
+                f.write(f"1 1 {i * ncol + j + 1} lak-1 direct 1.0 -1.0e+30\n")
+            f.write("end performance_measure\n")
+        _solve(ws, path)
+        return ws
+
+    ws_base = build(function_tmpdir / "base", -300.0)
+    ws_pert = build(function_tmpdir / "pert", -300.0 + dq)
+    finite_difference = (
+        _measure_value(ws_pert, "lak-1") - _measure_value(ws_base, "lak-1")
+    ) / dq
+
+    with h5py.File(ws_base / "adjoint_solution_pm.hd5", "r") as hf:
+        adjoint = float(hf["composite"]["wel6_q"][:].ravel()[well])
+
+    assert np.isclose(adjoint, finite_difference, rtol=1e-3), (
+        f"adjoint {adjoint:.6e} does not match the finite-difference total "
+        f"derivative {finite_difference:.6e}"
     )

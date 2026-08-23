@@ -34,6 +34,8 @@ Cases:
                       their own columns in the bordered system.
   - perched         : a lake perched over a partially saturated aquifer leaks
                       at a rate the head cannot change.
+  - disv            : the same lake on a vertex grid gives the same answer as
+                      on a structured one.
 """
 
 import pathlib as pl
@@ -1202,4 +1204,118 @@ def test_perched_lake(function_tmpdir):
     assert np.isclose(adjoint, finite_difference, atol=1e-9), (
         f"adjoint {adjoint:.6e} does not match the finite-difference total "
         f"derivative {finite_difference:.6e}"
+    )
+
+
+def _disv_grid(nrow, ncol, delrc):
+    """Return vertices and cells for a rectangular grid stated as a vertex grid."""
+    verts, vid = [], {}
+    for i in range(nrow + 1):
+        for j in range(ncol + 1):
+            vid[(i, j)] = len(verts)
+            verts.append([len(verts), j * delrc, (nrow - i) * delrc])
+    cell2d = []
+    for i in range(nrow):
+        for j in range(ncol):
+            corners = [
+                vid[(i, j)],
+                vid[(i, j + 1)],
+                vid[(i + 1, j + 1)],
+                vid[(i + 1, j)],
+            ]
+            cell2d.append(
+                [i * ncol + j, (j + 0.5) * delrc, (nrow - i - 0.5) * delrc, 4, *corners]
+            )
+    return verts, cell2d
+
+
+def test_disv_lake_matches_structured(function_tmpdir):
+    """The same lake on a vertex grid gives the same sensitivity.
+
+    The model is the structured one restated cell for cell as a vertex grid, so
+    every sensitivity has to come out the same. It exercises the node mapping,
+    which differs between the two grid types.
+    """
+    ncpl = NROW * NCOL
+    well = (1, WELL_CELL[1] * NCOL + WELL_CELL[2])
+    lake = [(i, j) for i in LAKE_ROWS for j in LAKE_COLS]
+
+    ws_struct = function_tmpdir / "structured"
+    sim, _ = _build_model(ws_struct, boundary="lak", constant_stage=False)
+    sim.run_simulation(silent=True)
+    cells = [(1, i, j) for _, i, j in _lake_cells()]
+    _solve(ws_struct, _write_adj(ws_struct, cells, "lak-1", name="pm"))
+    with h5py.File(ws_struct / "adjoint_solution_pm.hd5", "r") as hf:
+        structured = float(hf["composite"]["wel6_q"][WELL_CELL])
+
+    ws = function_tmpdir / "disv"
+    if ws.exists():
+        shutil.rmtree(ws)
+    verts, cell2d = _disv_grid(NROW, NCOL, DELRC)
+    sim = flopy.mf6.MFSimulation(sim_name="lk", sim_ws=str(ws), exe_name=str(mf6_bin))
+    flopy.mf6.ModflowTdis(sim, nper=1, perioddata=[(100.0, 1, 1.0)])
+    flopy.mf6.ModflowIms(
+        sim,
+        outer_dvclose=1e-11,
+        inner_dvclose=1e-12,
+        outer_maximum=500,
+        complexity="complex",
+    )
+    gwf = flopy.mf6.ModflowGwf(sim, modelname="lk", save_flows=True)
+    idomain = np.ones((NLAY, ncpl), dtype=int)
+    for i, j in lake:
+        idomain[0, i * NCOL + j] = 0
+    flopy.mf6.ModflowGwfdisv(
+        gwf,
+        nlay=NLAY,
+        ncpl=ncpl,
+        nvert=len(verts),
+        top=10.0,
+        botm=[0.0, -10.0],
+        vertices=verts,
+        cell2d=cell2d,
+        idomain=idomain,
+    )
+    flopy.mf6.ModflowGwfic(gwf, strt=STRT)
+    flopy.mf6.ModflowGwfnpf(gwf, k=10.0, k33=1.0, icelltype=0)
+    flopy.mf6.ModflowGwfsto(gwf, ss=1e-5, sy=0.2, transient={0: True})
+    spd = []
+    for k in range(NLAY):
+        for i in range(NROW):
+            spd.append([(k, i * NCOL + 0), STRT + 0.5, 1000.0])
+            spd.append([(k, i * NCOL + NCOL - 1), STRT - 0.5, 1000.0])
+    flopy.mf6.ModflowGwfghb(gwf, stress_period_data=spd, pname="ghb-edge")
+    flopy.mf6.ModflowGwfwel(gwf, stress_period_data=[[well, WELL_RATE]], pname="wel-1")
+    conn = [
+        [0, n, (1, i * NCOL + j), "vertical", BEDLEAK, 0.0, 0.0, 0.0, 0.0]
+        for n, (i, j) in enumerate(lake)
+    ]
+    flopy.mf6.ModflowGwflak(
+        gwf,
+        nlakes=1,
+        noutlets=0,
+        ntables=0,
+        packagedata=[[0, LAKE_STAGE, len(conn)]],
+        connectiondata=conn,
+        pname="lak-1",
+    )
+    flopy.mf6.ModflowGwfoc(gwf, head_filerecord="lk.hds", saverecord=[("HEAD", "ALL")])
+    sim.write_simulation(silent=True)
+    success, buff = sim.run_simulation(silent=True)
+    assert success, "\n".join(buff[-12:])
+
+    path = pl.Path(ws) / "test.adj"
+    with open(path, "w") as f:
+        f.write("begin performance_measure pm\n")
+        for i, j in lake:
+            f.write(f"1 1 2 {i * NCOL + j + 1} lak-1 direct 1.0 -1.0e+30\n")
+        f.write("end performance_measure\n")
+    _solve(ws, path)
+
+    with h5py.File(ws / "adjoint_solution_pm.hd5", "r") as hf:
+        vertex = float(hf["composite"]["wel6_q"][:].ravel()[well[0] * ncpl + well[1]])
+
+    assert np.isclose(vertex, structured, rtol=1e-8), (
+        f"the vertex grid gives {vertex:.6e} where the structured grid gives "
+        f"{structured:.6e}"
     )

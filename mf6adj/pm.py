@@ -21,6 +21,7 @@ from scipy.sparse.linalg import (
     svds,
 )
 
+from .lake import LakeCoupling
 from .utils.utils import SolverCallback
 from .utils.utils_fileio import _write_group_to_hdf
 from .utils.utils_logger import _LoggerUtil
@@ -180,6 +181,7 @@ class PerfMeas:
         """
         self._name = pm_name.lower().strip()
         self._entries = pm_entries
+        self._lake = None
 
         if logger is None:
             logger_name = f"{self.__class__.__name__}-{self.name}"
@@ -280,203 +282,6 @@ class PerfMeas:
         if wsum <= 0.0:
             return 0.0
         return float(sum(dt_dict[kk] * val for kk, val in per_step.items()) / wsum)
-
-    def _lake_blocks(self, sol_dataset, gwf_package_dict) -> list:
-        """Return the free-stage lakes and the terms coupling them to the aquifer.
-
-        Parameters
-        ----------
-        sol_dataset : h5py.Group
-            Forward-solution group for one time step.
-        gwf_package_dict : dict
-            Mapping of package types to package names.
-
-        Returns
-        -------
-        list
-            One entry per lake package, holding the connection nodes and
-            conductances, the lake each connection belongs to, and the lake
-            surface areas. A lake held at a constant stage is left out, since
-            its stage is not a dependent variable.
-        """
-        blocks = []
-        for ptype, pnames in gwf_package_dict.items():
-            if ptype != "lak6":
-                continue
-            for pname in pnames:
-                if pname not in sol_dataset:
-                    continue
-                grp = sol_dataset[pname]
-                if "lake_of_conn" not in grp:
-                    continue
-                free = grp["lake_is_constant"][:] == 0
-                if not free.any():
-                    continue
-                outlets = {}
-                if "outlet_lakein" in grp:
-                    outlets = {
-                        "lakein": grp["outlet_lakein"][:],
-                        "lakeout": grp["outlet_lakeout"][:],
-                        "type": grp["outlet_type"][:],
-                        "invert": grp["outlet_invert"][:],
-                        "dmax": grp["outlet_dmax"][:],
-                        "rate": grp["outlet_rate"][:],
-                    }
-                blocks.append(
-                    {
-                        "name": pname,
-                        "node": grp["nodelist"][:] - 1,
-                        "cond": grp["bound"][:, 1],
-                        "lake_of_conn": grp["lake_of_conn"][:],
-                        "area": grp["lake_surface_area"][:],
-                        "stage": grp["lake_stage"][:],
-                        "free": free,
-                        "outlets": outlets,
-                    }
-                )
-        return blocks
-
-    def _lake_dfds(self, kk, blocks) -> dict:
-        """Return the derivative of the measure with respect to each lake stage.
-
-        A flux measure on a lake sums the exchange at the cells it names, and
-        that exchange depends on the lake stage as well as on the head.
-
-        Returns
-        -------
-        dict
-            ``(package name, lake)`` mapped to the derivative.
-        """
-        dfds = {}
-        for block in blocks:
-            weights = {
-                pfr.inode: pfr.weight
-                for pfr in self._entries
-                if pfr.kperkstp == kk and pfr.pm_type == block["name"]
-            }
-            if not weights:
-                continue
-            for iconn in range(block["node"].shape[0]):
-                node = int(block["node"][iconn])
-                if node not in weights:
-                    continue
-                key = (block["name"], int(block["lake_of_conn"][iconn]))
-                dfds[key] = dfds.get(key, 0.0) + weights[node] * float(
-                    block["cond"][iconn]
-                )
-        return dfds
-
-    # depth over an outlet invert below this is treated as no flow, because
-    # MODFLOW 6 smooths the rating curve to zero there and the derivative of
-    # that smoothing is not reproduced here
-    _OUTLET_MIN_DEPTH = 1.0e-6
-
-    # an outlet discharge follows a power of the depth over its invert, so the
-    # derivative is that exponent times the discharge divided by the depth.
-    # 0 is a specified rate, 1 is Manning, 2 is a weir.
-    _OUTLET_EXPONENT = {0: 0.0, 1: 5.0 / 3.0, 2: 1.5}
-
-    def _outlet_derivative(self, block, ioutlet) -> float:
-        """Return the derivative of an outlet discharge with respect to stage."""
-        outlets = block["outlets"]
-        ilak = int(outlets["lakein"][ioutlet])
-        exponent = self._OUTLET_EXPONENT.get(int(outlets["type"][ioutlet]), 0.0)
-        if exponent == 0.0:
-            return 0.0
-
-        depth = float(block["stage"][ilak]) - float(outlets["invert"][ioutlet])
-        dmax = float(outlets["dmax"][ioutlet])
-        if depth < self._OUTLET_MIN_DEPTH:
-            return 0.0
-        if dmax > 0.0 and depth > dmax:
-            # the rating is evaluated at the capped depth, so it stops
-            # responding to the stage
-            return 0.0
-
-        # the rate is negative leaving the lake
-        discharge = -float(outlets["rate"][ioutlet])
-        return exponent * discharge / depth
-
-    def _augment_with_lakes(self, amat, rhs, blocks, dt, lake_carry, dfds, nnodes):
-        """Border the adjoint system with the lake water-balance equations.
-
-        The lake stage is a dependent variable, so holding it fixed returns a
-        partial derivative. Solving the lake equation with the flow equations
-        gives the total derivative.
-
-        Returns
-        -------
-        tuple
-            The bordered matrix, the bordered right-hand side, and the column
-            each free lake occupies.
-        """
-        columns = {}
-        ilake = 0
-        for block in blocks:
-            for ilak in range(block["free"].shape[0]):
-                if block["free"][ilak]:
-                    columns[(block["name"], ilak)] = ilake
-                    ilake += 1
-        nlake = ilake
-
-        # dR/ds for the aquifer rows, dL/dh for the lake rows, and the lake's
-        # own storage and conductance on the diagonal
-        drds = sparse.lil_matrix((int(nnodes), int(nlake)))
-        dldh = sparse.lil_matrix((int(nlake), int(nnodes)))
-        diag = np.zeros(nlake)
-        for block in blocks:
-            for iconn in range(block["node"].shape[0]):
-                key = (block["name"], int(block["lake_of_conn"][iconn]))
-                if key not in columns:
-                    continue
-                node = int(block["node"][iconn])
-                cond = float(block["cond"][iconn])
-                icol = columns[key]
-                drds[node, icol] += cond
-                dldh[icol, node] -= cond
-                diag[icol] += cond
-
-        for key, icol in columns.items():
-            for block in blocks:
-                if block["name"] == key[0]:
-                    diag[icol] += float(block["area"][key[1]]) / dt
-
-        dlds = sparse.lil_matrix((int(nlake), int(nlake)))
-        for icol in range(nlake):
-            dlds[icol, icol] = diag[icol]
-
-        # an outlet drains the lake it leaves, and fills the lake it enters
-        for block in blocks:
-            outlets = block["outlets"]
-            if not outlets:
-                continue
-            for ioutlet in range(outlets["lakein"].shape[0]):
-                source = (block["name"], int(outlets["lakein"][ioutlet]))
-                if source not in columns:
-                    continue
-                dqds = self._outlet_derivative(block, ioutlet)
-                if dqds == 0.0:
-                    continue
-                dlds[columns[source], columns[source]] += dqds
-                destination = (block["name"], int(outlets["lakeout"][ioutlet]))
-                if destination in columns:
-                    dlds[columns[destination], columns[source]] -= dqds
-
-        # amat is already transposed, so the lake blocks are transposed too
-        bordered = sparse.bmat(
-            [
-                [amat, dldh.transpose()],
-                [drds.transpose(), dlds.transpose()],
-            ],
-            format="csr",
-        )
-
-        # same convention as the aquifer rows: the carry-back from the later
-        # time step minus the measure's own derivative
-        rhs_lake = np.zeros(nlake)
-        for key, icol in columns.items():
-            rhs_lake[icol] = lake_carry.get(key, 0.0) - dfds.get(key, 0.0)
-        return bordered, np.concatenate((rhs, rhs_lake)), columns
 
     def _setup_block_jacobi_preconditioner(self, amat, block_size=5000):
         """Setup a block Jacobi preconditioner
@@ -825,12 +630,11 @@ class PerfMeas:
         comp_welq_sens = np.zeros(nnodes)
         comp_rch_sens = np.zeros((nnodes))
 
-        # the lake stage carries its own storage backward in time, the way
-        # drhsdh carries the aquifer storage. nnodes is a one-element array, so
-        # keep a scalar for slicing the bordered solution.
+        # A lake stage is a dependent variable, so the system is bordered with
+        # the lake water balance. nnodes is a one-element array, so keep a
+        # scalar for slicing the bordered solution.
         nnode = int(np.asarray(nnodes).ravel()[0])
-        lake_carry = {}
-        lake_columns = {}
+        self._lake = LakeCoupling(logger=self.logger.logger)
 
         bnd_dict = get_mf6_bound_dict()
         comp_bnd_results = {}
@@ -920,21 +724,19 @@ class PerfMeas:
 
             # the lake state is per time step: a step with no free lake must
             # not inherit the previous step's columns, carry, or solution size
-            lake_columns = {}
-            lake_blocks = self._lake_blocks(hdf[sol_key], gwf_package_dict)
+            lake_blocks = self._lake.blocks(hdf[sol_key], gwf_package_dict)
             if not lake_blocks:
-                lake_carry = {}
+                self._lake.reset_step()
                 if lamb.shape[0] != nnode:
                     lamb = lamb[:nnode]
-            if lake_blocks:
+            else:
                 dt = float(hdf[sol_key].attrs["dt"])
-                amat, rhs, lake_columns = self._augment_with_lakes(
+                amat, rhs = self._lake.augment(
                     amat,
                     rhs,
                     lake_blocks,
                     dt,
-                    lake_carry,
-                    self._lake_dfds(kk, lake_blocks),
+                    self._lake.dfds(self._entries, kk, lake_blocks),
                     nnode,
                 )
                 if lamb.shape[0] != amat.shape[0]:
@@ -1178,18 +980,10 @@ class PerfMeas:
                 elif info > 0:
                     self.logger.logger.warning("Solver convergence not achieved")
 
-            if lake_columns:
+            if self._lake.columns:
                 # split the lake stages off and carry their storage back to the
                 # previous time step, as drhsdh does for the aquifer
-                lake_lamb = lamb[nnode:]
-                lamb = lamb[:nnode]
-                lake_carry = {}
-                for block in lake_blocks:
-                    for key, icol in lake_columns.items():
-                        if key[0] != block["name"]:
-                            continue
-                        area = float(block["area"][key[1]])
-                        lake_carry[key] = area / dt * lake_lamb[icol]
+                lamb = self._lake.split(lamb, lake_blocks, dt, nnode)
 
             if np.any(np.isnan(lamb)):
                 self.logger.logger.warning(

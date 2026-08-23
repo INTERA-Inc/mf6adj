@@ -24,6 +24,8 @@ Cases:
                       storage carried backward in time.
   - outlets         : a lake with a specified, Manning, or weir outlet
                       reproduces a finite-difference total derivative.
+  - table_lake      : a lake with a stage-volume-area table stores against the
+                      table rather than its connection areas.
 """
 
 import pathlib as pl
@@ -764,4 +766,109 @@ def test_lak_outlets(function_tmpdir, couttype):
     assert np.isclose(adjoint, finite_difference, rtol=1e-2), (
         f"{couttype} outlet: adjoint {adjoint:.6e} does not match the "
         f"finite-difference total derivative {finite_difference:.6e}"
+    )
+
+
+def _build_table_lake(ws, well_rate, evaporation=0.005):
+    """A lake whose storage and surface follow a stage-volume-area table."""
+    ws = pl.Path(ws)
+    if ws.exists():
+        shutil.rmtree(ws)
+    table = [
+        [8.0, 0.0, 20000.0, 20000.0],
+        [9.0, 30000.0, 40000.0, 40000.0],
+        [10.0, 80000.0, 60000.0, 60000.0],
+        [11.0, 150000.0, 80000.0, 80000.0],
+    ]
+    sim = flopy.mf6.MFSimulation(sim_name="lk", sim_ws=str(ws), exe_name=str(mf6_bin))
+    flopy.mf6.ModflowTdis(sim, nper=1, perioddata=[(100.0, 1, 1.0)])
+    flopy.mf6.ModflowIms(
+        sim,
+        outer_dvclose=1e-11,
+        inner_dvclose=1e-12,
+        outer_maximum=500,
+        complexity="complex",
+    )
+    gwf = flopy.mf6.ModflowGwf(sim, modelname="lk", save_flows=True)
+    idomain = np.ones((NLAY, NROW, NCOL), dtype=int)
+    for k, i, j in _lake_cells():
+        idomain[k, i, j] = 0
+    flopy.mf6.ModflowGwfdis(
+        gwf,
+        nlay=NLAY,
+        nrow=NROW,
+        ncol=NCOL,
+        delr=DELRC,
+        delc=DELRC,
+        top=10.0,
+        botm=[0.0, -10.0],
+        idomain=idomain,
+    )
+    flopy.mf6.ModflowGwfic(gwf, strt=STRT)
+    flopy.mf6.ModflowGwfnpf(gwf, k=10.0, k33=1.0, icelltype=0)
+    flopy.mf6.ModflowGwfsto(gwf, ss=1e-5, sy=0.2, transient={0: True})
+    spd = []
+    for k in range(NLAY):
+        for i in range(NROW):
+            spd.append([(k, i, 0), STRT + 0.5, 1000.0])
+            spd.append([(k, i, NCOL - 1), STRT - 0.5, 1000.0])
+    flopy.mf6.ModflowGwfghb(gwf, stress_period_data=spd, pname="ghb-edge")
+    flopy.mf6.ModflowGwfwel(
+        gwf, stress_period_data=[[WELL_CELL, well_rate]], pname="wel-1"
+    )
+    conn = [
+        [0, n, (1, i, j), "vertical", BEDLEAK, 0.0, 0.0, 0.0, 0.0]
+        for n, (_, i, j) in enumerate(_lake_cells())
+    ]
+    flopy.mf6.ModflowGwflak(
+        gwf,
+        nlakes=1,
+        noutlets=0,
+        ntables=1,
+        packagedata=[[0, LAKE_STAGE, len(conn)]],
+        connectiondata=conn,
+        tables=[[0, "lak_table.txt"]],
+        perioddata={0: [[0, "evaporation", evaporation], [0, "rainfall", 0.002]]},
+        pname="lak-1",
+    )
+    flopy.mf6.ModflowGwfoc(gwf, head_filerecord="lk.hds", saverecord=[("HEAD", "ALL")])
+    sim.write_simulation(silent=True)
+    with open(ws / "lak_table.txt", "w") as f:
+        f.write("begin dimensions\n  nrow 4\n  ncol 4\nend dimensions\n\n")
+        f.write("begin table\n")
+        for row in table:
+            f.write("  " + "  ".join(str(v) for v in row) + "\n")
+        f.write("end table\n")
+    success, buff = sim.run_simulation(silent=True)
+    assert success, "\n".join(buff[-12:])
+    return ws
+
+
+def test_table_lake(function_tmpdir):
+    """A lake with a table stores against the table, not its connection areas.
+
+    The connection areas total 40000 while the table gives a much larger
+    storage against stage, so using the connection areas is badly wrong. The
+    tolerance is loose because MODFLOW interpolates the table and this takes
+    the slope of the row interval, which is not the same curve.
+    """
+    dq = -5.0
+    cells = [(1, i, j) for _, i, j in _lake_cells()]
+
+    def measure(ws, rate):
+        _build_table_lake(ws, rate)
+        _solve(ws, _write_adj(ws, cells, "lak-1", name="pm"))
+        return _measure_value(ws, "lak-1")
+
+    ws_base = function_tmpdir / "base"
+    base = measure(ws_base, WELL_RATE)
+    pert = measure(function_tmpdir / "pert", WELL_RATE + dq)
+    finite_difference = (pert - base) / dq
+
+    with h5py.File(ws_base / "adjoint_solution_pm.hd5", "r") as hf:
+        adjoint = float(hf["composite"]["wel6_q"][WELL_CELL])
+
+    assert np.isclose(adjoint, finite_difference, rtol=3e-2), (
+        f"adjoint {adjoint:.6e} does not match the finite-difference total "
+        f"derivative {finite_difference:.6e}"
     )

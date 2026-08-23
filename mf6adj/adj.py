@@ -228,7 +228,10 @@ class Mf6Adj:
         # a lake with ibound < 0 is held at a constant stage
         is_constant = (value("IBOUND") < 0).astype(int)
 
+        noutlets = int(value("NOUTLETS")[0])
+
         return {
+            "lake_noutlets": np.full(nlakes, noutlets, dtype=int),
             "lake_of_conn": lake_of_conn,
             "lake_stage": value("XNEWPAK"),
             "lake_stage_old": value("XOLDPAK"),

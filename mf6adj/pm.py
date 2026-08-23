@@ -312,6 +312,14 @@ class PerfMeas:
                 free = grp["lake_is_constant"][:] == 0
                 if not free.any():
                     continue
+                if "lake_noutlets" in grp and grp["lake_noutlets"][:].max() > 0:
+                    raise Exception(
+                        f"lake package '{pname}' has outlets and a lake with a "
+                        "free stage. An outlet discharge depends on the stage, "
+                        "and that derivative is not formed yet, so the lake "
+                        "water balance would be incomplete. Hold the lake at a "
+                        "constant stage or remove the outlets."
+                    )
                 blocks.append(
                     {
                         "name": pname,
@@ -854,7 +862,14 @@ class PerfMeas:
             )
             amat = amat.transpose().tocsr()
 
+            # the lake state is per time step: a step with no free lake must
+            # not inherit the previous step's columns, carry, or solution size
+            lake_columns = {}
             lake_blocks = self._lake_blocks(hdf[sol_key], gwf_package_dict)
+            if not lake_blocks:
+                lake_carry = {}
+                if lamb.shape[0] != nnode:
+                    lamb = lamb[:nnode]
             if lake_blocks:
                 dt = float(hdf[sol_key].attrs["dt"])
                 amat, rhs, lake_columns = self._augment_with_lakes(

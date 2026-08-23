@@ -19,6 +19,9 @@ Cases:
                       both reproduce a finite-difference total derivative.
   - stage_switches  : a lake that is free in one period and constant in another
                       does not carry lake state between time steps.
+  - multi_period    : a lake free through several periods reproduces a
+                      finite-difference total derivative, exercising the lake
+                      storage carried backward in time.
 """
 
 import pathlib as pl
@@ -564,6 +567,98 @@ def test_stage_switches_between_periods(function_tmpdir):
             f.write("begin performance_measure pm\n")
             for k, i, j in cells:
                 f.write(f"3 1 {k + 1} {i + 1} {j + 1} lak-1 direct 1.0 -1.0e+30\n")
+            f.write("end performance_measure\n")
+        _solve(ws, path)
+        return _measure_value(ws, "lak-1")
+
+    ws_base = function_tmpdir / "base"
+    base = measure(ws_base, WELL_RATE)
+    pert = measure(function_tmpdir / "pert", WELL_RATE + dq)
+    finite_difference = (pert - base) / dq
+
+    with h5py.File(ws_base / "adjoint_solution_pm.hd5", "r") as hf:
+        adjoint = float(hf["composite"]["wel6_q"][WELL_CELL])
+
+    assert np.isclose(adjoint, finite_difference, rtol=1e-2), (
+        f"adjoint {adjoint:.6e} does not match the finite-difference total "
+        f"derivative {finite_difference:.6e}"
+    )
+
+
+def _build_multi_period(ws, well_rate, nper=4):
+    """A transient model with the lake stage free in every period."""
+    ws = pl.Path(ws)
+    if ws.exists():
+        shutil.rmtree(ws)
+    sim = flopy.mf6.MFSimulation(sim_name="lk", sim_ws=str(ws), exe_name=str(mf6_bin))
+    flopy.mf6.ModflowTdis(sim, nper=nper, perioddata=[(50.0, 1, 1.0)] * nper)
+    flopy.mf6.ModflowIms(sim, outer_dvclose=1e-11, inner_dvclose=1e-12)
+    gwf = flopy.mf6.ModflowGwf(sim, modelname="lk", save_flows=True)
+    idomain = np.ones((NLAY, NROW, NCOL), dtype=int)
+    for k, i, j in _lake_cells():
+        idomain[k, i, j] = 0
+    flopy.mf6.ModflowGwfdis(
+        gwf,
+        nlay=NLAY,
+        nrow=NROW,
+        ncol=NCOL,
+        delr=DELRC,
+        delc=DELRC,
+        top=10.0,
+        botm=[0.0, -10.0],
+        idomain=idomain,
+    )
+    flopy.mf6.ModflowGwfic(gwf, strt=STRT)
+    flopy.mf6.ModflowGwfnpf(gwf, k=10.0, k33=1.0, icelltype=0)
+    flopy.mf6.ModflowGwfsto(
+        gwf, ss=1e-5, sy=0.2, transient={kper: True for kper in range(nper)}
+    )
+    spd = []
+    for k in range(NLAY):
+        for i in range(NROW):
+            spd.append([(k, i, 0), STRT + 0.5, 1000.0])
+            spd.append([(k, i, NCOL - 1), STRT - 0.5, 1000.0])
+    flopy.mf6.ModflowGwfghb(gwf, stress_period_data=spd, pname="ghb-edge")
+    flopy.mf6.ModflowGwfwel(
+        gwf, stress_period_data={0: [[WELL_CELL, well_rate]]}, pname="wel-1"
+    )
+    conn = [
+        [0, n, (1, i, j), "vertical", BEDLEAK, 0.0, 0.0, 0.0, 0.0]
+        for n, (_, i, j) in enumerate(_lake_cells())
+    ]
+    flopy.mf6.ModflowGwflak(
+        gwf,
+        nlakes=1,
+        noutlets=0,
+        ntables=0,
+        packagedata=[[0, LAKE_STAGE, len(conn)]],
+        connectiondata=conn,
+        pname="lak-1",
+    )
+    flopy.mf6.ModflowGwfoc(gwf, head_filerecord="lk.hds", saverecord=[("HEAD", "ALL")])
+    sim.write_simulation(silent=True)
+    sim.run_simulation(silent=True)
+    return ws
+
+
+def test_multi_period_carry(function_tmpdir):
+    """A lake free through several periods reproduces the total derivative.
+
+    The measure is taken at the last period, so the lake storage has to be
+    carried backward through every earlier period. A single-period model never
+    exercises that term.
+    """
+    dq = -5.0
+    nper = 4
+    cells = [(1, i, j) for _, i, j in _lake_cells()]
+
+    def measure(ws, rate):
+        _build_multi_period(ws, rate, nper=nper)
+        path = pl.Path(ws) / "test.adj"
+        with open(path, "w") as f:
+            f.write("begin performance_measure pm\n")
+            for k, i, j in cells:
+                f.write(f"{nper} 1 {k + 1} {i + 1} {j + 1} lak-1 direct 1.0 -1.0e+30\n")
             f.write("end performance_measure\n")
         _solve(ws, path)
         return _measure_value(ws, "lak-1")

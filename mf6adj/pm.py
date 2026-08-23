@@ -281,6 +281,139 @@ class PerfMeas:
             return 0.0
         return float(sum(dt_dict[kk] * val for kk, val in per_step.items()) / wsum)
 
+    def _lake_blocks(self, sol_dataset, gwf_package_dict) -> list:
+        """Return the free-stage lakes and the terms coupling them to the aquifer.
+
+        Parameters
+        ----------
+        sol_dataset : h5py.Group
+            Forward-solution group for one time step.
+        gwf_package_dict : dict
+            Mapping of package types to package names.
+
+        Returns
+        -------
+        list
+            One entry per lake package, holding the connection nodes and
+            conductances, the lake each connection belongs to, and the lake
+            surface areas. A lake held at a constant stage is left out, since
+            its stage is not a dependent variable.
+        """
+        blocks = []
+        for ptype, pnames in gwf_package_dict.items():
+            if ptype != "lak6":
+                continue
+            for pname in pnames:
+                if pname not in sol_dataset:
+                    continue
+                grp = sol_dataset[pname]
+                if "lake_of_conn" not in grp:
+                    continue
+                free = grp["lake_is_constant"][:] == 0
+                if not free.any():
+                    continue
+                blocks.append(
+                    {
+                        "name": pname,
+                        "node": grp["nodelist"][:] - 1,
+                        "cond": grp["bound"][:, 1],
+                        "lake_of_conn": grp["lake_of_conn"][:],
+                        "area": grp["lake_surface_area"][:],
+                        "free": free,
+                    }
+                )
+        return blocks
+
+    def _lake_dfds(self, kk, blocks) -> dict:
+        """Return the derivative of the measure with respect to each lake stage.
+
+        A flux measure on a lake sums the exchange at the cells it names, and
+        that exchange depends on the lake stage as well as on the head.
+
+        Returns
+        -------
+        dict
+            ``(package name, lake)`` mapped to the derivative.
+        """
+        dfds = {}
+        for block in blocks:
+            weights = {
+                pfr.inode: pfr.weight
+                for pfr in self._entries
+                if pfr.kperkstp == kk and pfr.pm_type == block["name"]
+            }
+            if not weights:
+                continue
+            for iconn in range(block["node"].shape[0]):
+                node = int(block["node"][iconn])
+                if node not in weights:
+                    continue
+                key = (block["name"], int(block["lake_of_conn"][iconn]))
+                dfds[key] = dfds.get(key, 0.0) + weights[node] * float(
+                    block["cond"][iconn]
+                )
+        return dfds
+
+    def _augment_with_lakes(self, amat, rhs, blocks, dt, lake_carry, dfds, nnodes):
+        """Border the adjoint system with the lake water-balance equations.
+
+        The lake stage is a dependent variable, so holding it fixed returns a
+        partial derivative. Solving the lake equation with the flow equations
+        gives the total derivative.
+
+        Returns
+        -------
+        tuple
+            The bordered matrix, the bordered right-hand side, and the column
+            each free lake occupies.
+        """
+        columns = {}
+        ilake = 0
+        for block in blocks:
+            for ilak in range(block["free"].shape[0]):
+                if block["free"][ilak]:
+                    columns[(block["name"], ilak)] = ilake
+                    ilake += 1
+        nlake = ilake
+
+        # dR/ds for the aquifer rows, dL/dh for the lake rows, and the lake's
+        # own storage and conductance on the diagonal
+        drds = sparse.lil_matrix((int(nnodes), int(nlake)))
+        dldh = sparse.lil_matrix((int(nlake), int(nnodes)))
+        diag = np.zeros(nlake)
+        for block in blocks:
+            for iconn in range(block["node"].shape[0]):
+                key = (block["name"], int(block["lake_of_conn"][iconn]))
+                if key not in columns:
+                    continue
+                node = int(block["node"][iconn])
+                cond = float(block["cond"][iconn])
+                icol = columns[key]
+                drds[node, icol] += cond
+                dldh[icol, node] -= cond
+                diag[icol] += cond
+
+        for key, icol in columns.items():
+            for block in blocks:
+                if block["name"] == key[0]:
+                    diag[icol] += float(block["area"][key[1]]) / dt
+
+        # amat is already transposed, so the lake blocks are transposed too
+        bordered = sparse.bmat(
+            [
+                [amat, dldh.transpose()],
+                [drds.transpose(), sparse.diags(diag)],
+            ],
+            format="csr",
+        )
+
+        # same convention as the aquifer rows: the carry-back from the later
+        # time step minus the measure's own derivative
+        rhs_lake = np.zeros(nlake)
+        for key, icol in columns.items():
+            rhs_lake[icol] = lake_carry.get(key, 0.0) - dfds.get(key, 0.0)
+        return bordered, np.concatenate((rhs, rhs_lake)), columns
+
     def _setup_block_jacobi_preconditioner(self, amat, block_size=5000):
         """Setup a block Jacobi preconditioner
 
@@ -628,6 +761,13 @@ class PerfMeas:
         comp_welq_sens = np.zeros(nnodes)
         comp_rch_sens = np.zeros((nnodes))
 
+        # the lake stage carries its own storage backward in time, the way
+        # drhsdh carries the aquifer storage. nnodes is a one-element array, so
+        # keep a scalar for slicing the bordered solution.
+        nnode = int(np.asarray(nnodes).ravel()[0])
+        lake_carry = {}
+        lake_columns = {}
+
         bnd_dict = get_mf6_bound_dict()
         comp_bnd_results = {}
         for ptype, pnames in gwf_package_dict.items():
@@ -712,7 +852,24 @@ class PerfMeas:
                 (amat.copy()[: ja.shape[0]], ja.copy(), ia.copy()),
                 shape=(len(ia) - 1, len(ia) - 1),
             )
-            amat = amat.transpose()
+            amat = amat.transpose().tocsr()
+
+            lake_blocks = self._lake_blocks(hdf[sol_key], gwf_package_dict)
+            if lake_blocks:
+                dt = float(hdf[sol_key].attrs["dt"])
+                amat, rhs, lake_columns = self._augment_with_lakes(
+                    amat,
+                    rhs,
+                    lake_blocks,
+                    dt,
+                    lake_carry,
+                    self._lake_dfds(kk, lake_blocks),
+                    nnode,
+                )
+                if lamb.shape[0] != amat.shape[0]:
+                    lamb = np.concatenate(
+                        (lamb, np.zeros(amat.shape[0] - lamb.shape[0]))
+                    )
             self.logger.logger.debug(
                 (
                     "Transpose of amat took: "
@@ -833,7 +990,7 @@ class PerfMeas:
                         try:
                             amat_ilu = spilu(amat, **_precon_kwargs)
                             m = LinearOperator(
-                                (head.shape[0], head.shape[0]),
+                                (amat.shape[0], amat.shape[0]),
                                 amat_ilu.solve,
                             )
                         except Exception as e:
@@ -949,6 +1106,19 @@ class PerfMeas:
                     self.logger.logger.error("Solver parameter breakdown")
                 elif info > 0:
                     self.logger.logger.warning("Solver convergence not achieved")
+
+            if lake_columns:
+                # split the lake stages off and carry their storage back to the
+                # previous time step, as drhsdh does for the aquifer
+                lake_lamb = lamb[nnode:]
+                lamb = lamb[:nnode]
+                lake_carry = {}
+                for block in lake_blocks:
+                    for key, icol in lake_columns.items():
+                        if key[0] != block["name"]:
+                            continue
+                        area = float(block["area"][key[1]])
+                        lake_carry[key] = area / dt * lake_lamb[icol]
 
             if np.any(np.isnan(lamb)):
                 self.logger.logger.warning(

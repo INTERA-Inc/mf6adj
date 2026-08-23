@@ -13,8 +13,8 @@ Cases:
                       overwrite.
   - maw_rejected    : a model with maw6 is rejected because it adds equations
                       to the solution matrix.
-  - lak_total_deriv : a free lake stage makes the adjoint disagree with a
-                      finite-difference total derivative (xfail).
+  - lak_total_deriv : a free lake stage reproduces a finite-difference total
+                      derivative.
 """
 
 import pathlib as pl
@@ -303,18 +303,12 @@ def test_maw_rejected(function_tmpdir):
         )
 
 
-@pytest.mark.xfail(
-    reason="the adjoint holds the lake stage fixed, so it returns a partial "
-    "derivative rather than the total derivative (INTERA-Inc/mf6adj#78)",
-    strict=False,
-)
 def test_lak_total_derivative(function_tmpdir):
-    """The lake sensitivity should match a finite-difference total derivative.
+    """The lake sensitivity matches a finite-difference total derivative.
 
     A lake whose stage is free to move responds to pumping twice: the heads
-    beneath it fall, and the stage falls with them. The adjoint captures only
-    the first, so this comparison fails until the lake equation is solved with
-    the flow equations.
+    beneath it fall, and the stage falls with them. Solving the lake water
+    balance with the flow equations captures both.
     """
     dq = -5.0  # small enough to stay in the linear range
 
@@ -331,9 +325,11 @@ def test_lak_total_derivative(function_tmpdir):
     finite_difference = (perturbed - base) / dq
 
     cells = [(1, i, j) for _, i, j in _lake_cells()]
-    df = _solve(ws_base, _write_adj(ws_base, cells, "lak-1", name="pm"))["pm"]
-    node = np.ravel_multi_index(WELL_CELL, (NLAY, NROW, NCOL))
-    adjoint = df["wel6_q"].values[node]
+    _solve(ws_base, _write_adj(ws_base, cells, "lak-1", name="pm"))
+    # read the full-grid array: the lake removes cells from the top layer, so a
+    # reduced node number is not the grid index
+    with h5py.File(ws_base / "adjoint_solution_pm.hd5", "r") as hf:
+        adjoint = float(hf["composite"]["wel6_q"][WELL_CELL])
 
     assert np.isclose(adjoint, finite_difference, rtol=1e-2), (
         f"adjoint {adjoint:.6e} does not match the finite-difference total "

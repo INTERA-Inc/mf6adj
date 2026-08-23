@@ -193,6 +193,49 @@ class Mf6Adj:
                 "with wel6."
             )
 
+    def _lake_terms(self, tag: str) -> dict:
+        """Water-balance terms for an explicitly coupled lake package.
+
+        Parameters
+        ----------
+        tag : str
+            Lake package name from the GWF name file.
+
+        Returns
+        -------
+        dict
+            Stage, previous stage, surface area, and the lake each connection
+            belongs to. ``lake_is_constant`` marks a lake held at a fixed
+            stage, whose water balance does not constrain the solution.
+        """
+
+        def value(name):
+            return self._gwf.get_value(
+                self._gwf.get_var_address(name, self._gwf_name, tag.upper())
+            ).copy()
+
+        # IDXLAKECONN is a one-based pointer into the connection arrays
+        idx = value("IDXLAKECONN") - 1
+        nlakes = int(value("NLAKES")[0])
+        sarea = value("SAREA")
+
+        lake_of_conn = np.zeros(idx[-1], dtype=int)
+        surface_area = np.zeros(nlakes)
+        for ilak in range(nlakes):
+            lake_of_conn[idx[ilak] : idx[ilak + 1]] = ilak
+            surface_area[ilak] = sarea[idx[ilak] : idx[ilak + 1]].sum()
+
+        # a lake with ibound < 0 is held at a constant stage
+        is_constant = (value("IBOUND") < 0).astype(int)
+
+        return {
+            "lake_of_conn": lake_of_conn,
+            "lake_stage": value("XNEWPAK"),
+            "lake_stage_old": value("XOLDPAK"),
+            "lake_surface_area": surface_area,
+            "lake_is_constant": is_constant,
+        }
+
     def _add_performance_measure(
         self, pm_name: str, pm_entries: list[PerfMeasRecord]
     ) -> None:
@@ -890,6 +933,10 @@ class Mf6Adj:
                                         + f"data dict for {tag}"
                                     )
                                     data_dict[tag][key] = val
+                                if package_type == "lak6":
+                                    # the hdf writer nests one level, so these
+                                    # sit alongside the package arrays
+                                    data_dict[tag].update(self._lake_terms(tag))
                 attr_dict = {
                     "ctime": ctime,
                     "dt": dt1,

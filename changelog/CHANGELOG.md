@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The lake water balance is solved with the flow equations, so a measure's
+  sensitivity to a lake with a free stage is a total derivative rather than a
+  partial derivative that holds the stage fixed. The adjoint system is bordered
+  with one equation per lake, and the lake carries its own storage backward in
+  time the way the aquifer does. A lake held at a constant stage is unaffected,
+  since its stage is not a dependent variable. Inflows routed to a lake by the
+  water mover, and the dependence of lake evaporation on stage, are not yet
+  differentiated, so a lake fed through `mvr6` still has a residual error.
 - `lak6` performance measures. A lake connection exposes the same nodelist,
   conductance, and flux terms as the other head-dependent boundaries, so a
   measure can now sum the exchange between a lake and the aquifer, and lake

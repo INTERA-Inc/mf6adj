@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from xmipy.errors import XMIError
 
-from .lake import forward_terms as lake_forward_terms
+from .advanced_packages.lake import forward_terms as lake_forward_terms
 from .pm import PerfMeas, PerfMeasRecord
 from .utils.utils import _utils_cd
 from .utils.utils_fileio import _write_group_to_hdf

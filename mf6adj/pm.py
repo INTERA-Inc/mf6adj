@@ -21,7 +21,7 @@ from scipy.sparse.linalg import (
     svds,
 )
 
-from .lake import LakeCoupling
+from .advanced_packages import LakeCoupling
 from .utils.utils import SolverCallback
 from .utils.utils_fileio import _write_group_to_hdf
 from .utils.utils_logger import _LoggerUtil

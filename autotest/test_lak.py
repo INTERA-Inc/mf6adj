@@ -30,6 +30,8 @@ Cases:
                       one, so the lake keeps its storage on the diagonal.
   - steady_lake     : a steady free lake must pass its inflow straight through,
                       so that measure is insensitive to everything.
+  - two_packages    : two lake packages in one model keep their own stages and
+                      their own columns in the bordered system.
 """
 
 import pathlib as pl
@@ -1001,4 +1003,99 @@ def test_steady_state_lake(function_tmpdir):
     assert np.abs(sensitivity).max() < 1e-9, (
         "a measure pinned by the lake's own balance must not respond to "
         f"pumping, but the largest sensitivity is {np.abs(sensitivity).max()}"
+    )
+
+
+def test_two_lake_packages(function_tmpdir):
+    """Two lake packages in one model each get their own bordered equation.
+
+    The columns are keyed by package and lake, so a measure on one package must
+    not pick up the other's stage.
+    """
+    dq = -5.0
+    first = [(2, 2), (2, 3)]
+    second = [(5, 5), (5, 6)]
+
+    def build(ws, rate):
+        ws = pl.Path(ws)
+        if ws.exists():
+            shutil.rmtree(ws)
+        sim = flopy.mf6.MFSimulation(
+            sim_name="lk", sim_ws=str(ws), exe_name=str(mf6_bin)
+        )
+        flopy.mf6.ModflowTdis(sim, nper=1, perioddata=[(100.0, 1, 1.0)])
+        flopy.mf6.ModflowIms(
+            sim,
+            outer_dvclose=1e-11,
+            inner_dvclose=1e-12,
+            outer_maximum=500,
+            complexity="complex",
+        )
+        gwf = flopy.mf6.ModflowGwf(sim, modelname="lk", save_flows=True)
+        idomain = np.ones((NLAY, NROW, NCOL), dtype=int)
+        for i, j in first + second:
+            idomain[0, i, j] = 0
+        flopy.mf6.ModflowGwfdis(
+            gwf,
+            nlay=NLAY,
+            nrow=NROW,
+            ncol=NCOL,
+            delr=DELRC,
+            delc=DELRC,
+            top=10.0,
+            botm=[0.0, -10.0],
+            idomain=idomain,
+        )
+        flopy.mf6.ModflowGwfic(gwf, strt=STRT)
+        flopy.mf6.ModflowGwfnpf(gwf, k=10.0, k33=1.0, icelltype=0)
+        flopy.mf6.ModflowGwfsto(gwf, ss=1e-5, sy=0.2, transient={0: True})
+        spd = []
+        for k in range(NLAY):
+            for i in range(NROW):
+                spd.append([(k, i, 0), STRT + 0.5, 1000.0])
+                spd.append([(k, i, NCOL - 1), STRT - 0.5, 1000.0])
+        flopy.mf6.ModflowGwfghb(gwf, stress_period_data=spd, pname="ghb-edge")
+        flopy.mf6.ModflowGwfwel(
+            gwf, stress_period_data=[[WELL_CELL, rate]], pname="wel-1"
+        )
+        for name, cells in (("lak-a", first), ("lak-b", second)):
+            conn = [
+                [0, n, (1, i, j), "vertical", BEDLEAK, 0.0, 0.0, 0.0, 0.0]
+                for n, (i, j) in enumerate(cells)
+            ]
+            flopy.mf6.ModflowGwflak(
+                gwf,
+                nlakes=1,
+                noutlets=0,
+                ntables=0,
+                packagedata=[[0, LAKE_STAGE, len(conn)]],
+                connectiondata=conn,
+                pname=name,
+                filename=f"lk.{name}.lak",
+            )
+        flopy.mf6.ModflowGwfoc(
+            gwf, head_filerecord="lk.hds", saverecord=[("HEAD", "ALL")]
+        )
+        sim.write_simulation(silent=True)
+        success, buff = sim.run_simulation(silent=True)
+        assert success, "\n".join(buff[-12:])
+        measured = [(1, i, j) for i, j in first]
+        _solve(ws, _write_adj(ws, measured, "lak-a", name="pm"))
+        return _measure_value(ws, "lak-a")
+
+    ws_base = function_tmpdir / "base"
+    base = build(ws_base, WELL_RATE)
+    pert = build(function_tmpdir / "pert", WELL_RATE + dq)
+    finite_difference = (pert - base) / dq
+
+    with h5py.File(ws_base / "adjoint_solution_pm.hd5", "r") as hf:
+        adjoint = float(hf["composite"]["wel6_q"][WELL_CELL])
+        columns = sorted(c for c in hf["composite"] if c.startswith("lak-"))
+
+    assert columns == ["lak-a_cond", "lak-a_stage", "lak-b_cond", "lak-b_stage"], (
+        f"each package should report its own parameters, got {columns}"
+    )
+    assert np.isclose(adjoint, finite_difference, rtol=1e-2), (
+        f"adjoint {adjoint:.6e} does not match the finite-difference total "
+        f"derivative {finite_difference:.6e}"
     )

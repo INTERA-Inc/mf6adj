@@ -852,7 +852,9 @@ class Mf6Adj:
                                         bound[:, i] = vals
 
                                 if package_type == "sfr6":
-                                    tag = self._gwf_package_dict[package_type][0]
+                                    # tag is already this package: taking the
+                                    # first one instead wrote every streamflow
+                                    # routing package under that name
                                     stage = self._gwf.get_value(
                                         self._gwf.get_var_address(
                                             "STAGE", self._gwf_name, tag.upper()

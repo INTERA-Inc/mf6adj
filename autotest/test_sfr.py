@@ -12,6 +12,8 @@ Cases:
                        equation carries that.
   - sfr_fully_losing : a stream that loses all of its inflow has a leakage the
                        pumping cannot change, and the adjoint returns zero.
+  - two_packages     : two streamflow-routing packages in one model each keep
+                       their own reaches.
 """
 
 import glob
@@ -201,4 +203,127 @@ def test_sfr_fully_losing(tmp_path):
     )
     assert abs(adjoint) < 1e-6, (
         f"the adjoint reports {adjoint:.6e} where there is no sensitivity"
+    )
+
+
+def test_two_sfr_packages(tmp_path):
+    """Two streamflow-routing packages in one model each keep their own reaches.
+
+    Every package writes its own forward terms and its own columns, so a
+    measure on one must not pick up the other.
+    """
+    dq = -50.0
+    first_row, second_row = 2, 5
+
+    def build(ws, rate):
+        ws = pl.Path(ws)
+        if ws.exists():
+            shutil.rmtree(ws)
+        sim = flopy.mf6.MFSimulation(
+            sim_name="sf", sim_ws=str(ws), exe_name=str(mf6_bin)
+        )
+        flopy.mf6.ModflowTdis(sim, nper=1, perioddata=[(100.0, 1, 1.0)])
+        flopy.mf6.ModflowIms(
+            sim,
+            outer_dvclose=1e-11,
+            inner_dvclose=1e-12,
+            outer_maximum=500,
+            complexity="complex",
+        )
+        gwf = flopy.mf6.ModflowGwf(sim, modelname="sf", save_flows=True)
+        flopy.mf6.ModflowGwfdis(
+            gwf,
+            nlay=1,
+            nrow=NROW,
+            ncol=NCOL,
+            delr=DELRC,
+            delc=DELRC,
+            top=10.0,
+            botm=[-20.0],
+        )
+        flopy.mf6.ModflowGwfic(gwf, strt=5.0)
+        flopy.mf6.ModflowGwfnpf(gwf, k=10.0, icelltype=0)
+        flopy.mf6.ModflowGwfsto(gwf, ss=1e-5, sy=0.2, transient={0: True})
+        spd = []
+        for i in range(NROW):
+            spd.append([(0, i, 0), 5.5, 1000.0])
+            spd.append([(0, i, NCOL - 1), 4.5, 1000.0])
+        flopy.mf6.ModflowGwfghb(gwf, stress_period_data=spd, pname="ghb-edge")
+        flopy.mf6.ModflowGwfwel(
+            gwf, stress_period_data=[[WELL_CELL, rate]], pname="wel-1"
+        )
+        for name, row in (("sfr-a", first_row), ("sfr-b", second_row)):
+            packagedata, connectiondata = [], []
+            for n in range(NCOL):
+                nconn = 1 if n in (0, NCOL - 1) else 2
+                packagedata.append(
+                    [
+                        n,
+                        (0, row, n),
+                        DELRC,
+                        5.0,
+                        1.0e-3,
+                        STRTOP - 0.01 * n,
+                        1.0,
+                        5.0,
+                        0.03,
+                        nconn,
+                        1.0,
+                        0,
+                    ]
+                )
+                conn = [n]
+                if n > 0:
+                    conn.append(n - 1)
+                if n < NCOL - 1:
+                    conn.append(-(n + 1))
+                connectiondata.append(conn)
+            flopy.mf6.ModflowGwfsfr(
+                gwf,
+                nreaches=NCOL,
+                packagedata=packagedata,
+                connectiondata=connectiondata,
+                perioddata={0: [[0, "inflow", 5000.0]]},
+                unit_conversion=128390.0,
+                pname=name,
+                filename=f"sf.{name}.sfr",
+            )
+        flopy.mf6.ModflowGwfoc(
+            gwf, head_filerecord="sf.hds", saverecord=[("HEAD", "ALL")]
+        )
+        sim.write_simulation(silent=True)
+        success, buff = sim.run_simulation(silent=True)
+        assert success, "\n".join(buff[-15:])
+
+        # measure the exchange of the first package only
+        path = pl.Path(ws) / "test.adj"
+        with open(path, "w") as f:
+            f.write("begin performance_measure pm\n")
+            for n in range(NCOL):
+                f.write(f"1 1 1 {first_row + 1} {n + 1} sfr-a direct 1.0 -1.0e+30\n")
+            f.write("end performance_measure\n")
+        _solve(ws)
+        return ws
+
+    ws_base = build(tmp_path / "base", WELL_RATE)
+    ws_pert = build(tmp_path / "pert", WELL_RATE + dq)
+
+    def measured(ws):
+        path = sorted(glob.glob(str(pl.Path(ws) / "sf_*.hd5")))[-1]
+        with h5py.File(path, "r") as hf:
+            key = [k for k in hf if k.startswith("solution_")][-1]
+            names = sorted(k for k in hf[key] if k.startswith("sfr-"))
+            return float(np.sum(hf[key]["sfr-a"]["simvals"][:])), names
+
+    base, names = measured(ws_base)
+    pert, _ = measured(ws_pert)
+    assert names == ["sfr-a", "sfr-b"], (
+        f"each package should write its own group, got {names}"
+    )
+
+    finite_difference = (pert - base) / dq
+    with h5py.File(ws_base / "adjoint_solution_pm.hd5", "r") as hf:
+        adjoint = float(hf["composite"]["wel6_q"][WELL_CELL])
+    assert np.isclose(adjoint, finite_difference, rtol=2e-2), (
+        f"adjoint {adjoint:.6e} against finite difference {finite_difference:.6e}"
     )

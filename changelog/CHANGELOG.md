@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BOUND`, which MODFLOW 6 leaves allocated but zeroed. The stage and
   conductance sensitivities of `ghb6`, `riv6`, `drn6`, and `chd6` were reported
   as zero.
+- Each streamflow-routing package writes its own forward terms. The reach stage
+  lookup took the first package in the model rather than the one being written,
+  so a model with more than one wrote them all under the first package's name.
 - A cell holding more than one boundary from the same package accumulates all
   of them rather than keeping only the last.
 - A flux performance measure uses its entry weight, and its direct term is

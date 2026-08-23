@@ -19,10 +19,17 @@ Cases:
                                   for any tolerance.
 """
 
+import pathlib as pl
+import sys
+
 import numpy as np
 import pytest
 
-from mf6adj.boundary import drain_corner_entries, drop_corner_entries
+try:
+    from mf6adj.boundary import drain_corner_entries, drop_corner_entries
+except ImportError:
+    sys.path.insert(0, str(pl.Path("../").resolve()))
+    from mf6adj.boundary import drain_corner_entries, drop_corner_entries
 
 
 class FakeGroup(dict):

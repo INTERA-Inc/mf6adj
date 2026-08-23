@@ -168,6 +168,7 @@ def get_mf6_bound_dict() -> dict[str, dict[int, str]]:
         "drn6": {0: "elev", 1: "cond"},
         "riv6": {0: "stage", 1: "cond"},
         "sfr6": {0: "stage", 1: "cond"},
+        "lak6": {0: "stage", 1: "cond"},
     }
 
 

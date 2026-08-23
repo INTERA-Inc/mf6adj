@@ -12,6 +12,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import pytest
 from flopy.utils.gridgen import Gridgen
 from matplotlib.backends.backend_pdf import PdfPages
 
@@ -1581,6 +1582,10 @@ def test_xd_box_drn():
     xd_box_compare(new_d, plot_compare)
     return
 
+@pytest.mark.skip(
+    reason="maw6 adds equations to the solution matrix, which the adjoint "
+    "cannot rebuild from the grid connectivity (INTERA-Inc/mf6adj#78)"
+)
 def test_xd_box_maw():
     """
     permutations:

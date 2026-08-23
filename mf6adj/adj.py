@@ -116,6 +116,7 @@ class Mf6Adj:
             self._flow_dir = "."
             self._gwf = self._initialize_gwf(lib_name, self._flow_dir)
             self._gwf_version = self._get_gwf_version()
+            self._check_solution_coupling()
             self._hdf5_name = None
             self._dt_dict = None
 
@@ -146,6 +147,7 @@ class Mf6Adj:
                 "riv6",
                 "drn6",
                 "sfr6",
+                "lak6",
                 "rch6",
                 "recha6",
                 "evt6",
@@ -158,6 +160,38 @@ class Mf6Adj:
                 "wel6": ["q"],
                 "rch6": ["recharge"],
             }
+
+    def _check_solution_coupling(self) -> None:
+        """Raise if a package adds its own equations to the solution matrix.
+
+        Raises
+        ------
+        Exception
+            If any package contributes equations to the solution matrix.
+        """
+        coupled = []
+        for package_type, tags in self._gwf_package_dict.items():
+            for tag in tags:
+                try:
+                    npakeq = self._gwf.get_value(
+                        self._gwf.get_var_address("NPAKEQ", self._gwf_name, tag.upper())
+                    )[0]
+                except Exception:
+                    # only the advanced packages expose NPAKEQ
+                    continue
+                if npakeq > 0:
+                    coupled.append(f"{tag} ({package_type}, {npakeq} equations)")
+
+        if coupled:
+            raise Exception(
+                "the adjoint matrix is rebuilt from the groundwater flow grid "
+                "connectivity, so packages that add their own equations to the "
+                "solution matrix are not supported yet: "
+                + f"{', '.join(coupled)}. An implicitly coupled lake (MODFLOW 6 "
+                "6.8.0 and later) and maw6 both add equations; use an "
+                "explicitly coupled lake and represent multi-aquifer wells "
+                "with wel6."
+            )
 
     def _add_performance_measure(
         self, pm_name: str, pm_entries: list[PerfMeasRecord]
@@ -800,22 +834,12 @@ class Mf6Adj:
                                 )
                                 bnd_attrs = {}
                                 if package_type in self._gwf_boundary_attr_dict:
-                                    fill_bound = False
-                                    if bound.size == 0:
-                                        bound = np.zeros(
-                                            (
-                                                len(nodelist),
-                                                len(
-                                                    self._gwf_boundary_attr_dict[
-                                                        package_type
-                                                    ]
-                                                ),
-                                            )
-                                        )
-                                        fill_bound = True
-                                    for i, attr in enumerate(
-                                        self._gwf_boundary_attr_dict[package_type]
-                                    ):
+                                    attrs = self._gwf_boundary_attr_dict[package_type]
+                                    # MODFLOW 6 keeps these packages' values in
+                                    # their own arrays and leaves BOUND zeroed,
+                                    # so always rebuild bound from the arrays
+                                    bound = np.zeros((len(nodelist), len(attrs)))
+                                    for i, attr in enumerate(attrs):
                                         vals = self._gwf.get_value(
                                             self._gwf.get_var_address(
                                                 attr.upper(),
@@ -824,8 +848,7 @@ class Mf6Adj:
                                             )
                                         )
                                         bnd_attrs[attr] = vals
-                                        if fill_bound:
-                                            bound[:, i] = vals
+                                        bound[:, i] = vals
 
                                 if package_type == "sfr6":
                                     tag = self._gwf_package_dict[package_type][0]

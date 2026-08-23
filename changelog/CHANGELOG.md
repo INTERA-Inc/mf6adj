@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking changes
+
+- A model whose packages add their own equations to the MODFLOW 6 solution
+  matrix is now rejected instead of returning corrupted sensitivities. The
+  adjoint matrix is rebuilt from the groundwater-flow grid connectivity, which
+  has no rows for those equations, so the coefficients were misaligned and the
+  backward recursion diverged - on a 21-period model the sensitivities grew by
+  about a factor of ten per period, reaching 1e18, with no indication that
+  anything was wrong. `maw6` always adds equations, and an implicitly coupled
+  lake (MODFLOW 6 6.8.0 and later) does too. `sfr6`, `lak6`, and `uzf6` are
+  solved in the outer iteration, add nothing to the matrix, and are unaffected.
+
+### Added
+
+- `lak6` performance measures. A lake connection exposes the same nodelist,
+  conductance, and flux terms as the other head-dependent boundaries, so a
+  measure can now sum the exchange between a lake and the aquifer, and lake
+  stage and conductance appear as parameters in the results.
+
+### Fixed
+
+- Boundary values are read from each package's own arrays rather than from
+  `BOUND`. MODFLOW 6 leaves `BOUND` allocated but zeroed for these packages, so
+  the stage and conductance sensitivities of `ghb6`, `riv6`, `drn6`, and `chd6`
+  were reported as zero.
+- A cell holding more than one boundary from the same package accumulates every
+  boundary rather than keeping only the last one. A lake connected both
+  vertically and horizontally to one cell, or two river reaches in one cell,
+  previously contributed once.
+
 ## [1.2.0] - 2026-08-03
 
 ### Breaking changes

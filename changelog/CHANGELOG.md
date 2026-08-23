@@ -21,9 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the aquifer, with lake stage and conductance among the parameters.
 - The lake water balance is solved with the flow equations, so a sensitivity to
   a lake with a free stage is a total derivative rather than one that holds the
-  stage fixed. Outlets and stage-volume-area tables are included. Inflows
-  routed to a lake by `mvr6`, and the stage dependence of a horizontal
-  connection's conductance, are not, and are reported as warnings.
+  stage fixed. Outlets, stage-volume-area tables, rainfall, and evaporation are
+  included. Inflows routed to a lake by `mvr6`, and the stage dependence of a
+  horizontal connection's conductance, are not, and are reported as warnings.
 
 ### Fixed
 

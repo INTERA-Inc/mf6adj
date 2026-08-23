@@ -849,8 +849,7 @@ def test_table_lake(function_tmpdir):
 
     The connection areas total 40000 while the table gives a much larger
     storage against stage, so using the connection areas is badly wrong. The
-    tolerance is loose because MODFLOW interpolates the table and this takes
-    the slope of the row interval, which is not the same curve.
+    lake also rains and evaporates over a surface that grows with stage.
     """
     dq = -5.0
     cells = [(1, i, j) for _, i, j in _lake_cells()]
@@ -868,7 +867,7 @@ def test_table_lake(function_tmpdir):
     with h5py.File(ws_base / "adjoint_solution_pm.hd5", "r") as hf:
         adjoint = float(hf["composite"]["wel6_q"][WELL_CELL])
 
-    assert np.isclose(adjoint, finite_difference, rtol=3e-2), (
+    assert np.isclose(adjoint, finite_difference, rtol=1e-3), (
         f"adjoint {adjoint:.6e} does not match the finite-difference total "
         f"derivative {finite_difference:.6e}"
     )

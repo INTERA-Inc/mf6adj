@@ -724,6 +724,7 @@ class PerfMeas:
 
             # the lake state is per time step: a step with no free lake must
             # not inherit the previous step's columns, carry, or solution size
+            lake_transient = hdf[sol_key]["iss"][0] == 0 and not is_instantaneous
             lake_blocks = self._lake.blocks(hdf[sol_key], gwf_package_dict)
             if not lake_blocks:
                 self._lake.reset_step()
@@ -738,11 +739,14 @@ class PerfMeas:
                     dt,
                     self._lake.dfds(self._entries, kk, lake_blocks),
                     nnode,
+                    transient=lake_transient,
                 )
+                # the number of free lakes can change between steps, so rebuild
+                # the initial guess from the aquifer part and zero the rest
                 if lamb.shape[0] != amat.shape[0]:
-                    lamb = np.concatenate(
-                        (lamb, np.zeros(amat.shape[0] - lamb.shape[0]))
-                    )
+                    guess = np.zeros(amat.shape[0])
+                    guess[:nnode] = lamb[:nnode]
+                    lamb = guess
             self.logger.logger.debug(
                 (
                     "Transpose of amat took: "
@@ -983,7 +987,9 @@ class PerfMeas:
             if self._lake.columns:
                 # split the lake stages off and carry their storage back to the
                 # previous time step, as drhsdh does for the aquifer
-                lamb = self._lake.split(lamb, lake_blocks, dt, nnode)
+                lamb = self._lake.split(
+                    lamb, lake_blocks, dt, nnode, carry_back=lake_transient
+                )
 
             if np.any(np.isnan(lamb)):
                 self.logger.logger.warning(
@@ -1117,9 +1123,11 @@ class PerfMeas:
 
             if self.logger.isDebugLogger:
                 self.logger.logger.debug("Adding amat, rhs, and residual to hdf file")
-                data["amat"] = amat
-                data["rhs"] = rhs
-                data["residual"] = residual
+                # the writer serializes csc, and maps vectors onto the grid,
+                # so drop the lake rows the bordered system added
+                data["amat"] = amat.tocsc()
+                data["rhs"] = rhs[:nnode]
+                data["residual"] = residual[:nnode]
 
             self.logger.logger.info("Write group to hdf file")
             _write_group_to_hdf(

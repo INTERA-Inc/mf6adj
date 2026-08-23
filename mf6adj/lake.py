@@ -67,12 +67,23 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
     -------
     dict
         Stage, storage and evaporating surface against stage, outlets, and the
-        lake each connection belongs to. ``lake_is_constant`` marks a lake held
-        at a fixed stage, whose water balance does not constrain the solution.
+        lake each connection belongs to. ``lake_is_free`` marks a lake whose
+        stage is solved, as opposed to one held constant or inactive.
     """
 
     def value(name):
         return gwf.get_value(gwf.get_var_address(name, gwf_name, tag.upper())).copy()
+
+    def optional(name, default):
+        """Return a package quantity, or a default where MODFLOW omits it.
+
+        A package exposes only what its options bring in, so a lake with no
+        mover has no receiver count and one with no rainfall has no rate.
+        """
+        try:
+            return value(name)
+        except Exception:
+            return np.full(nlakes, default)
 
     # IDXLAKECONN is a one-based pointer into the connection arrays
     idx = value("IDXLAKECONN") - 1
@@ -85,14 +96,19 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
         lake_of_conn[idx[ilak] : idx[ilak + 1]] = ilak
         surface_area[ilak] = sarea[idx[ilak] : idx[ilak + 1]].sum()
 
-    # a lake with ibound < 0 is held at a constant stage
-    is_constant = (value("IBOUND") < 0).astype(int)
+    # ibound is negative for a lake held at a constant stage and zero for an
+    # inactive one; only a positive ibound has a water balance to solve
+    is_free = (value("IBOUND") > 0).astype(int)
 
     # With a stage-volume-area table the lake's storage and its evaporating
     # surface both follow the table rather than the connection areas, so take
     # their slopes at the current stage.
     stage = value("XNEWPAK")
+    stage_old = value("XOLDPAK")
     dvds = surface_area.copy()
+    # the storage carried back to the previous step is the slope at that step's
+    # stage, which differs once a step crosses a table interval
+    dvds_old = surface_area.copy()
     dsads = np.zeros(nlakes)
     if int(value("NTABLES")[0]) > 0:
         itab = value("IALAKTAB") - 1
@@ -101,7 +117,13 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
         tabsarea = value("TABSAREA")
         for ilak in range(nlakes):
             rows = slice(itab[ilak], itab[ilak + 1])
+            # a package can table some lakes and not others
+            if tabstage[rows].shape[0] < 2:
+                continue
             dvds[ilak] = table_slope(stage[ilak], tabstage[rows], tabvolume[rows])
+            dvds_old[ilak] = table_slope(
+                stage_old[ilak], tabstage[rows], tabvolume[rows]
+            )
             dsads[ilak] = table_slope(stage[ilak], tabstage[rows], tabsarea[rows])
 
     # a horizontal connection's conductance and wetted area follow the stage
@@ -112,6 +134,7 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
         if ictype[iconn] == 1:
             nhorizontal[lake_of_conn[iconn]] += 1
 
+    nreceivers = int(optional("NRECEIVERS", 0)[0])
     noutlets = int(value("NOUTLETS")[0])
     if noutlets > 0:
         # LAKEIN and LAKEOUT are one-based; LAKEOUT of zero or less leaves the
@@ -131,12 +154,16 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
         **outlet,
         "lake_dsads": dsads,
         "lake_dvds": dvds,
-        "lake_evaporation": value("EVAPORATION"),
-        "lake_is_constant": is_constant,
+        "lake_dvds_old": dvds_old,
+        "lake_evaporation": optional("EVAPORATION", 0.0),
+        "lake_is_free": is_free,
         "lake_nhorizontal": nhorizontal,
         "lake_noutlets": np.full(nlakes, noutlets, dtype=int),
+        "lake_nreceivers": np.full(nlakes, nreceivers, dtype=int),
         "lake_of_conn": lake_of_conn,
+        "lake_rainfall": optional("RAINFALL", 0.0),
         "lake_stage": stage,
+        "lake_stage_old": stage_old,
         "lake_surface_area": surface_area,
     }
 
@@ -187,6 +214,14 @@ class LakeCoupling:
                     "and no table has no surface area to store against."
                 )
 
+        if "lake_nreceivers" in grp and grp["lake_nreceivers"][:].max() > 0:
+            self._warn(
+                f"lake package '{pname}' receives water through the mover. "
+                "That inflow follows the state of the package providing it, "
+                "and the derivative is not formed, so the sensitivity is "
+                "approximate."
+            )
+
         if "lake_nhorizontal" in grp and grp["lake_nhorizontal"][:].max() > 0:
             self._warn(
                 f"lake package '{pname}' has horizontal connections. Their "
@@ -221,7 +256,7 @@ class LakeCoupling:
                 grp = sol_dataset[pname]
                 if "lake_of_conn" not in grp:
                     continue
-                free = grp["lake_is_constant"][:] == 0
+                free = grp["lake_is_free"][:] == 1
                 if not free.any():
                     continue
 
@@ -246,6 +281,8 @@ class LakeCoupling:
                         "lake_of_conn": grp["lake_of_conn"][:],
                         "area": grp["lake_surface_area"][:],
                         "dvds": grp["lake_dvds"][:],
+                        "dvds_old": grp["lake_dvds_old"][:],
+                        "rainfall": grp["lake_rainfall"][:],
                         "dsads": grp["lake_dsads"][:],
                         "evaporation": grp["lake_evaporation"][:],
                         "stage": grp["lake_stage"][:],
@@ -306,7 +343,7 @@ class LakeCoupling:
         discharge = -float(outlets["rate"][ioutlet])
         return exponent * discharge / depth
 
-    def augment(self, amat, rhs, blocks, dt, dfds, nnodes):
+    def augment(self, amat, rhs, blocks, dt, dfds, nnodes, transient=True):
         """Border the adjoint system with the lake water-balance equations.
 
         Returns
@@ -346,12 +383,15 @@ class LakeCoupling:
                 if block["name"] != key[0]:
                     continue
                 ilak = key[1]
-                # storage follows the lake's volume against stage, and a lake
-                # whose surface grows with stage evaporates more as it rises
-                diag[icol] += float(block["dvds"][ilak]) / dt
-                diag[icol] += float(block["evaporation"][ilak]) * float(
-                    block["dsads"][ilak]
+                # a steady-state step has no change in lake storage
+                if transient:
+                    diag[icol] += float(block["dvds"][ilak]) / dt
+                # a lake whose surface grows with stage evaporates more as it
+                # rises, and catches more rain, which act in opposite senses
+                net_rate = float(block["evaporation"][ilak]) - float(
+                    block["rainfall"][ilak]
                 )
+                diag[icol] += net_rate * float(block["dsads"][ilak])
 
         dlds = sparse.lil_matrix((int(nlake), int(nlake)))
         for icol in range(nlake):
@@ -391,8 +431,14 @@ class LakeCoupling:
             rhs_lake[icol] = self.carry.get(key, 0.0) - dfds.get(key, 0.0)
         return bordered, np.concatenate((rhs, rhs_lake))
 
-    def split(self, lamb, blocks, dt, nnodes):
+    def split(self, lamb, blocks, dt, nnodes, carry_back=True):
         """Take the lake stages off the solution and carry their storage back.
+
+        Parameters
+        ----------
+        carry_back : bool
+            False for a steady-state step, and for an instantaneous measure,
+            where each time step is solved on its own.
 
         Returns
         -------
@@ -401,9 +447,13 @@ class LakeCoupling:
         """
         lake_lamb = lamb[nnodes:]
         self.carry = {}
-        for block in blocks:
-            for key, icol in self.columns.items():
-                if key[0] != block["name"]:
-                    continue
-                self.carry[key] = float(block["dvds"][key[1]]) / dt * lake_lamb[icol]
+        if carry_back:
+            for block in blocks:
+                for key, icol in self.columns.items():
+                    if key[0] != block["name"]:
+                        continue
+                    # the storage that links the steps is the slope at the
+                    # previous step's stage
+                    dvds = float(block["dvds_old"][key[1]])
+                    self.carry[key] = dvds / dt * lake_lamb[icol]
         return lamb[:nnodes]

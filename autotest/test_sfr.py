@@ -17,6 +17,8 @@ Cases:
   - multi_period     : a stream measured after several periods.
   - sfr_with_lake    : a model holding both a stream and a lake borders them
                        together.
+  - branching        : a stream that splits sends its flow on in the shares the
+                       reaches below it are given.
 """
 
 import glob
@@ -475,6 +477,142 @@ def test_sfr_with_lake(tmp_path):
     adjoint, finite_difference = _compare_with_lake(
         tmp_path, with_lake=True, rgrd=1.0e-3, man=0.03
     )
+    assert np.isclose(adjoint, finite_difference, rtol=2e-2), (
+        f"adjoint {adjoint:.6e} against finite difference {finite_difference:.6e}"
+    )
+
+
+def test_sfr_branching(tmp_path):
+    """A stream that splits sends its flow on in the shares given below it.
+
+    Every other case is a single chain, where each reach passes its whole flow
+    to one reach below. Here reach 1 splits into two branches taking 0.7 and
+    0.3, and the measure follows one branch.
+
+    The shares are checked directly. The finite difference does not isolate
+    them: the share enters only the reach equations, and its contribution to
+    this measure is small beside the head response, so a wrong share still
+    reproduces the total.
+    """
+    dq = -50.0
+    # reach: cell, and the reaches it flows to
+    cells = [(3, 0), (3, 1), (2, 2), (4, 2), (2, 3), (4, 3)]
+    downstream = {0: [1], 1: [2, 3], 2: [4], 3: [5], 4: [], 5: []}
+    upstream = {0: [], 1: [0], 2: [1], 3: [1], 4: [2], 5: [3]}
+    shares = {2: 0.7, 3: 0.3}
+
+    def build(ws, rate):
+        ws = pl.Path(ws)
+        if ws.exists():
+            shutil.rmtree(ws)
+        sim = flopy.mf6.MFSimulation(
+            sim_name="sf", sim_ws=str(ws), exe_name=str(mf6_bin)
+        )
+        flopy.mf6.ModflowTdis(sim, nper=1, perioddata=[(100.0, 1, 1.0)])
+        flopy.mf6.ModflowIms(
+            sim,
+            outer_dvclose=1e-11,
+            inner_dvclose=1e-12,
+            outer_maximum=500,
+            complexity="complex",
+        )
+        gwf = flopy.mf6.ModflowGwf(sim, modelname="sf", save_flows=True)
+        flopy.mf6.ModflowGwfdis(
+            gwf,
+            nlay=1,
+            nrow=NROW,
+            ncol=NCOL,
+            delr=DELRC,
+            delc=DELRC,
+            top=10.0,
+            botm=[-20.0],
+        )
+        flopy.mf6.ModflowGwfic(gwf, strt=5.0)
+        flopy.mf6.ModflowGwfnpf(gwf, k=10.0, icelltype=0)
+        flopy.mf6.ModflowGwfsto(gwf, ss=1e-5, sy=0.2, transient={0: True})
+        spd = []
+        for i in range(NROW):
+            spd.append([(0, i, 0), 5.5, 1000.0])
+            spd.append([(0, i, NCOL - 1), 4.5, 1000.0])
+        flopy.mf6.ModflowGwfghb(gwf, stress_period_data=spd, pname="ghb-edge")
+        flopy.mf6.ModflowGwfwel(
+            gwf, stress_period_data=[[WELL_CELL, rate]], pname="wel-1"
+        )
+
+        packagedata, connectiondata = [], []
+        for n, (i, j) in enumerate(cells):
+            nconn = len(upstream[n]) + len(downstream[n])
+            packagedata.append(
+                [
+                    n,
+                    (0, i, j),
+                    DELRC,
+                    5.0,
+                    1.0e-5,
+                    STRTOP - 0.05 * n,
+                    1.0,
+                    5.0,
+                    0.3,
+                    nconn,
+                    shares.get(n, 1.0),
+                    0,
+                ]
+            )
+            conn = [n] + list(upstream[n]) + [-d for d in downstream[n]]
+            connectiondata.append(conn)
+        flopy.mf6.ModflowGwfsfr(
+            gwf,
+            nreaches=len(cells),
+            packagedata=packagedata,
+            connectiondata=connectiondata,
+            perioddata={0: [[0, "inflow", 5000.0]]},
+            unit_conversion=128390.0,
+            pname="sfr-1",
+        )
+        flopy.mf6.ModflowGwfoc(
+            gwf, head_filerecord="sf.hds", saverecord=[("HEAD", "ALL")]
+        )
+        sim.write_simulation(silent=True)
+        success, buff = sim.run_simulation(silent=True)
+        assert success, "\n".join(buff[-15:])
+
+        path = pl.Path(ws) / "test.adj"
+        with open(path, "w") as f:
+            f.write("begin performance_measure pm\n")
+            # one branch only: summing both would hide the split, since the
+            # total leaving the junction is the same however it is shared
+            for n in (2, 4):
+                i, j = cells[n]
+                f.write(f"1 1 1 {i + 1} {j + 1} sfr-1 direct 1.0 -1.0e+30\n")
+            f.write("end performance_measure\n")
+        _solve(ws)
+        return ws
+
+    ws_base = build(tmp_path / "base", WELL_RATE)
+    ws_pert = build(tmp_path / "pert", WELL_RATE + dq)
+
+    # the branches should carry the shares they were given
+    path = sorted(glob.glob(str(ws_base / "sf_*.hd5")))[-1]
+    with h5py.File(path, "r") as hf:
+        key = [k for k in hf if k.startswith("solution_")][-1]
+        fraction = hf[key]["sfr-1"]["reach_fraction"][:]
+        idir = hf[key]["sfr-1"]["reach_idir"][:]
+    split = sorted(round(float(f), 4) for f in fraction[idir > 0])
+    assert split == [0.3, 0.7, 1.0, 1.0, 1.0], (
+        f"the branches should take 0.3 and 0.7, got {split}"
+    )
+
+    def branch_leakage(ws):
+        """Return the exchange of the measured branch only."""
+        path = sorted(glob.glob(str(pl.Path(ws) / "sf_*.hd5")))[-1]
+        with h5py.File(path, "r") as hf:
+            key = [k for k in hf if k.startswith("solution_")][-1]
+            simvals = hf[key]["sfr-1"]["simvals"][:]
+        return float(simvals[2] + simvals[4])
+
+    finite_difference = (branch_leakage(ws_pert) - branch_leakage(ws_base)) / dq
+    with h5py.File(ws_base / "adjoint_solution_pm.hd5", "r") as hf:
+        adjoint = float(hf["composite"]["wel6_q"][WELL_CELL])
     assert np.isclose(adjoint, finite_difference, rtol=2e-2), (
         f"adjoint {adjoint:.6e} against finite difference {finite_difference:.6e}"
     )

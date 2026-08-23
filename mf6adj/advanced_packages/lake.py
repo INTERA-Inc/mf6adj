@@ -278,6 +278,7 @@ class LakeCoupling:
                         "name": pname,
                         "node": grp["nodelist"][:] - 1,
                         "cond": grp["bound"][:, 1],
+                        "hcof": grp["hcof"][:],
                         "lake_of_conn": grp["lake_of_conn"][:],
                         "area": grp["lake_surface_area"][:],
                         "dvds": grp["lake_dvds"][:],
@@ -374,8 +375,12 @@ class LakeCoupling:
                 node = int(block["node"][iconn])
                 cond = float(block["cond"][iconn])
                 icol = self.columns[key]
+                # A lake perched above the water table leaks at a rate set by
+                # its bed rather than by the head beneath it, and MODFLOW marks
+                # that by leaving hcof at zero. The exchange still follows the
+                # stage, so only the head side of the coupling drops out.
                 drds[node, icol] += cond
-                dldh[icol, node] -= cond
+                dldh[icol, node] += float(block["hcof"][iconn])
                 diag[icol] += cond
 
         for key, icol in self.columns.items():

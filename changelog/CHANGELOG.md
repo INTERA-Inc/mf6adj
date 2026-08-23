@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The lake water balance is solved with the flow equations, so a sensitivity to
   a lake with a free stage is a total derivative rather than one that holds the
   stage fixed. Outlets, stage-volume-area tables, rainfall, and evaporation are
-  included. Inflows routed to a lake by `mvr6`, and the stage dependence of a
+  included, and a lake perched above the water table is coupled only through
+  its stage, since the head beneath it no longer sets the leakage. Inflows routed to a lake by `mvr6`, and the stage dependence of a
   horizontal connection's conductance, are not, and are reported as warnings.
 
 ### Fixed

@@ -32,6 +32,8 @@ Cases:
                       so that measure is insensitive to everything.
   - two_packages    : two lake packages in one model keep their own stages and
                       their own columns in the bordered system.
+  - perched         : a lake perched over a partially saturated aquifer leaks
+                      at a rate the head cannot change.
 """
 
 import pathlib as pl
@@ -1096,6 +1098,108 @@ def test_two_lake_packages(function_tmpdir):
         f"each package should report its own parameters, got {columns}"
     )
     assert np.isclose(adjoint, finite_difference, rtol=1e-2), (
+        f"adjoint {adjoint:.6e} does not match the finite-difference total "
+        f"derivative {finite_difference:.6e}"
+    )
+
+
+def test_perched_lake(function_tmpdir):
+    """A perched lake's leakage does not depend on the head beneath it.
+
+    Once the water table drops below the lakebed the exchange is set by the
+    bed rather than by the aquifer, and MODFLOW marks that by leaving hcof at
+    zero. Taking the conductance from the bound array instead would couple the
+    lake to a head it no longer responds to, and report a sensitivity where
+    there is none.
+    """
+    dq = -5.0
+    ghb_head = -5.0  # layer 2 spans 0 to -10, so this leaves it half saturated
+    perched_stage = 5.0
+    well = (1, 6, 6)
+
+    def build(ws, rate):
+        ws = pl.Path(ws)
+        if ws.exists():
+            shutil.rmtree(ws)
+        sim = flopy.mf6.MFSimulation(
+            sim_name="lk", sim_ws=str(ws), exe_name=str(mf6_bin)
+        )
+        flopy.mf6.ModflowTdis(sim, nper=1, perioddata=[(100.0, 1, 1.0)])
+        flopy.mf6.ModflowIms(
+            sim,
+            outer_dvclose=1e-11,
+            inner_dvclose=1e-12,
+            outer_maximum=1000,
+            inner_maximum=500,
+            complexity="complex",
+            linear_acceleration="bicgstab",
+        )
+        gwf = flopy.mf6.ModflowGwf(
+            sim, modelname="lk", save_flows=True, newtonoptions="under_relaxation"
+        )
+        idomain = np.ones((NLAY, NROW, NCOL), dtype=int)
+        for k, i, j in _lake_cells():
+            idomain[k, i, j] = 0
+        flopy.mf6.ModflowGwfdis(
+            gwf,
+            nlay=NLAY,
+            nrow=NROW,
+            ncol=NCOL,
+            delr=DELRC,
+            delc=DELRC,
+            top=10.0,
+            botm=[0.0, -10.0],
+            idomain=idomain,
+        )
+        flopy.mf6.ModflowGwfic(gwf, strt=ghb_head)
+        flopy.mf6.ModflowGwfnpf(gwf, k=10.0, k33=1.0, icelltype=1)
+        flopy.mf6.ModflowGwfsto(gwf, ss=1e-5, sy=0.2, iconvert=1, transient={0: True})
+        spd = []
+        for i in range(NROW):
+            spd.append([(1, i, 0), ghb_head + 0.5, 1000.0])
+            spd.append([(1, i, NCOL - 1), ghb_head - 0.5, 1000.0])
+        flopy.mf6.ModflowGwfghb(gwf, stress_period_data=spd, pname="ghb-edge")
+        flopy.mf6.ModflowGwfwel(gwf, stress_period_data=[[well, rate]], pname="wel-1")
+        conn = [
+            [0, n, (1, i, j), "vertical", BEDLEAK, 0.0, 0.0, 0.0, 0.0]
+            for n, (_, i, j) in enumerate(_lake_cells())
+        ]
+        flopy.mf6.ModflowGwflak(
+            gwf,
+            nlakes=1,
+            noutlets=0,
+            ntables=0,
+            packagedata=[[0, perched_stage, len(conn)]],
+            connectiondata=conn,
+            perioddata={0: [[0, "inflow", 200.0]]},
+            pname="lak-1",
+        )
+        flopy.mf6.ModflowGwfoc(
+            gwf, head_filerecord="lk.hds", saverecord=[("HEAD", "ALL")]
+        )
+        sim.write_simulation(silent=True)
+        success, buff = sim.run_simulation(silent=True)
+        assert success, "\n".join(buff[-12:])
+        cells = [(1, i, j) for _, i, j in _lake_cells()]
+        _solve(ws, _write_adj(ws, cells, "lak-1", name="pm"))
+        return ws
+
+    ws_base = build(function_tmpdir / "base", -200.0)
+    ws_pert = build(function_tmpdir / "pert", -200.0 + dq)
+    finite_difference = (
+        _measure_value(ws_pert, "lak-1") - _measure_value(ws_base, "lak-1")
+    ) / dq
+
+    path = sorted(ws_base.glob("lk_*.hd5"))[-1]
+    with h5py.File(path, "r") as hf:
+        key = [k for k in hf if k.startswith("solution_")][-1]
+        hcof = hf[key]["lak-1"]["hcof"][:]
+    assert np.allclose(hcof, 0.0), f"the lake should be perched, but hcof is {hcof[:4]}"
+
+    with h5py.File(ws_base / "adjoint_solution_pm.hd5", "r") as hf:
+        adjoint = float(hf["composite"]["wel6_q"][well])
+
+    assert np.isclose(adjoint, finite_difference, atol=1e-9), (
         f"adjoint {adjoint:.6e} does not match the finite-difference total "
         f"derivative {finite_difference:.6e}"
     )

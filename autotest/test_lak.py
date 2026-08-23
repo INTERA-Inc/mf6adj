@@ -26,6 +26,10 @@ Cases:
                       reproduces a finite-difference total derivative.
   - table_lake      : a lake with a stage-volume-area table stores against the
                       table rather than its connection areas.
+  - instantaneous   : over one step an instantaneous measure matches a direct
+                      one, so the lake keeps its storage on the diagonal.
+  - steady_lake     : a steady free lake must pass its inflow straight through,
+                      so that measure is insensitive to everything.
 """
 
 import pathlib as pl
@@ -870,4 +874,131 @@ def test_table_lake(function_tmpdir):
     assert np.isclose(adjoint, finite_difference, rtol=1e-3), (
         f"adjoint {adjoint:.6e} does not match the finite-difference total "
         f"derivative {finite_difference:.6e}"
+    )
+
+
+def _write_adj_form(ws, cells, pm_type, form, kpers, name="pm"):
+    """Write a performance measure of a given form over several periods."""
+    path = pl.Path(ws) / "test.adj"
+    with open(path, "w") as f:
+        f.write(f"begin performance_measure {name}\n")
+        for kper in kpers:
+            for k, i, j in cells:
+                f.write(
+                    f"{kper} 1 {k + 1} {i + 1} {j + 1} {pm_type} {form} 1.0 -1.0e+30\n"
+                )
+        f.write("end performance_measure\n")
+    return path
+
+
+def test_instantaneous_measure_with_lake(function_tmpdir):
+    """An instantaneous measure keeps the lake storage, and drops only the carry.
+
+    Over a single transient step there is no later step to carry anything from,
+    and the instantaneous average is over that one step, so an instantaneous
+    measure has to return exactly what a direct one does. It only does that if
+    the lake keeps its storage on the diagonal, which belongs to the step
+    itself rather than to the link between steps.
+    """
+    cells = [(1, i, j) for _, i, j in _lake_cells()]
+
+    def solve(ws, form):
+        sim, _ = _build_model(ws, boundary="lak", constant_stage=False)
+        sim.run_simulation(silent=True)
+        return _solve(ws, _write_adj_form(ws, cells, "lak-1", form, [1]))["pm"]
+
+    direct = solve(function_tmpdir / "direct", "direct")
+    instantaneous = solve(function_tmpdir / "inst", "instantaneous")
+
+    for column in ("wel6_q", "k11", "lak-1_stage"):
+        assert np.allclose(
+            instantaneous[column].values, direct[column].values, rtol=1e-8
+        ), (
+            f"'{column}' differs between an instantaneous and a direct measure "
+            f"over one step by up to "
+            f"{np.abs(instantaneous[column].values - direct[column].values).max()}"
+        )
+
+
+def test_steady_state_lake(function_tmpdir):
+    """A steady free lake passes its inflow straight through to the aquifer.
+
+    With no storage to draw on, the lake's balance forces its total leakage to
+    equal its inflow whatever the aquifer does, so that measure does not
+    respond to pumping at all. The adjoint has to return zero, and it is the
+    lake equation in the bordered system that makes it do so.
+    """
+    ws = function_tmpdir / "steady"
+    if ws.exists():
+        shutil.rmtree(ws)
+    sim = flopy.mf6.MFSimulation(sim_name="lk", sim_ws=str(ws), exe_name=str(mf6_bin))
+    flopy.mf6.ModflowTdis(sim, nper=1, perioddata=[(1.0, 1, 1.0)])
+    flopy.mf6.ModflowIms(
+        sim,
+        outer_dvclose=1e-11,
+        inner_dvclose=1e-12,
+        outer_maximum=500,
+        complexity="complex",
+    )
+    gwf = flopy.mf6.ModflowGwf(sim, modelname="lk", save_flows=True)
+    idomain = np.ones((NLAY, NROW, NCOL), dtype=int)
+    for k, i, j in _lake_cells():
+        idomain[k, i, j] = 0
+    flopy.mf6.ModflowGwfdis(
+        gwf,
+        nlay=NLAY,
+        nrow=NROW,
+        ncol=NCOL,
+        delr=DELRC,
+        delc=DELRC,
+        top=10.0,
+        botm=[0.0, -10.0],
+        idomain=idomain,
+    )
+    flopy.mf6.ModflowGwfic(gwf, strt=STRT)
+    flopy.mf6.ModflowGwfnpf(gwf, k=10.0, k33=1.0, icelltype=0)
+    flopy.mf6.ModflowGwfsto(gwf, ss=1e-5, sy=0.2, steady_state={0: True})
+    spd = []
+    for k in range(NLAY):
+        for i in range(NROW):
+            spd.append([(k, i, 0), STRT + 0.5, 1000.0])
+            spd.append([(k, i, NCOL - 1), STRT - 0.5, 1000.0])
+    flopy.mf6.ModflowGwfghb(gwf, stress_period_data=spd, pname="ghb-edge")
+    flopy.mf6.ModflowGwfwel(
+        gwf, stress_period_data=[[WELL_CELL, WELL_RATE]], pname="wel-1"
+    )
+    conn = [
+        [0, n, (1, i, j), "vertical", BEDLEAK, 0.0, 0.0, 0.0, 0.0]
+        for n, (_, i, j) in enumerate(_lake_cells())
+    ]
+    # an inflow keeps the stage off its own zero-leakage equilibrium
+    flopy.mf6.ModflowGwflak(
+        gwf,
+        nlakes=1,
+        noutlets=0,
+        ntables=0,
+        packagedata=[[0, LAKE_STAGE, len(conn)]],
+        connectiondata=conn,
+        perioddata={0: [[0, "inflow", 500.0]]},
+        pname="lak-1",
+    )
+    flopy.mf6.ModflowGwfoc(gwf, head_filerecord="lk.hds", saverecord=[("HEAD", "ALL")])
+    sim.write_simulation(silent=True)
+    success, buff = sim.run_simulation(silent=True)
+    assert success, "\n".join(buff[-12:])
+
+    cells = [(1, i, j) for _, i, j in _lake_cells()]
+    _solve(ws, _write_adj(ws, cells, "lak-1", name="pm"))
+    leakage = _measure_value(ws, "lak-1")
+
+    with h5py.File(ws / "adjoint_solution_pm.hd5", "r") as hf:
+        sensitivity = hf["composite"]["wel6_q"][:]
+
+    assert np.all(np.isfinite(sensitivity))
+    assert np.isclose(abs(leakage), 500.0, rtol=1e-6), (
+        f"the lake should pass its inflow through, but leaks {leakage}"
+    )
+    assert np.abs(sensitivity).max() < 1e-9, (
+        "a measure pinned by the lake's own balance must not respond to "
+        f"pumping, but the largest sensitivity is {np.abs(sensitivity).max()}"
     )

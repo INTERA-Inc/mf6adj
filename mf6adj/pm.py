@@ -724,7 +724,12 @@ class PerfMeas:
 
             # the lake state is per time step: a step with no free lake must
             # not inherit the previous step's columns, carry, or solution size
-            lake_transient = hdf[sol_key]["iss"][0] == 0 and not is_instantaneous
+            # a steady-state step has no change in lake storage, so it has no
+            # storage on the diagonal and nothing to carry. An instantaneous
+            # measure keeps the storage, because that is part of the lake's
+            # equation at this step, but is solved without the carry.
+            lake_storage = hdf[sol_key]["iss"][0] == 0
+            lake_carry_back = lake_storage and not is_instantaneous
             lake_blocks = self._lake.blocks(hdf[sol_key], gwf_package_dict)
             if not lake_blocks:
                 self._lake.reset_step()
@@ -739,7 +744,7 @@ class PerfMeas:
                     dt,
                     self._lake.dfds(self._entries, kk, lake_blocks),
                     nnode,
-                    transient=lake_transient,
+                    transient=lake_storage,
                 )
                 # the number of free lakes can change between steps, so rebuild
                 # the initial guess from the aquifer part and zero the rest
@@ -988,7 +993,7 @@ class PerfMeas:
                 # split the lake stages off and carry their storage back to the
                 # previous time step, as drhsdh does for the aquifer
                 lamb = self._lake.split(
-                    lamb, lake_blocks, dt, nnode, carry_back=lake_transient
+                    lamb, lake_blocks, dt, nnode, carry_back=lake_carry_back
                 )
 
             if np.any(np.isnan(lamb)):

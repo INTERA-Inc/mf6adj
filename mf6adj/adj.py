@@ -229,8 +229,22 @@ class Mf6Adj:
         is_constant = (value("IBOUND") < 0).astype(int)
 
         noutlets = int(value("NOUTLETS")[0])
+        if noutlets > 0:
+            # LAKEIN and LAKEOUT are one-based; LAKEOUT of zero or less leaves
+            # the model rather than feeding another lake
+            outlet = {
+                "outlet_lakein": value("LAKEIN") - 1,
+                "outlet_lakeout": value("LAKEOUT") - 1,
+                "outlet_type": value("IOUTTYPE"),
+                "outlet_invert": value("OUTINVERT"),
+                "outlet_dmax": value("OUTDMAX"),
+                "outlet_rate": value("SIMOUTRATE"),
+            }
+        else:
+            outlet = {}
 
         return {
+            **outlet,
             "lake_noutlets": np.full(nlakes, noutlets, dtype=int),
             "lake_of_conn": lake_of_conn,
             "lake_stage": value("XNEWPAK"),

@@ -22,6 +22,8 @@ Cases:
   - multi_period    : a lake free through several periods reproduces a
                       finite-difference total derivative, exercising the lake
                       storage carried backward in time.
+  - outlets         : a lake with a specified, Manning, or weir outlet
+                      reproduces a finite-difference total derivative.
 """
 
 import pathlib as pl
@@ -611,7 +613,7 @@ def _build_multi_period(ws, well_rate, nper=10):
     flopy.mf6.ModflowGwfic(gwf, strt=STRT)
     flopy.mf6.ModflowGwfnpf(gwf, k=10.0, k33=1.0, icelltype=0)
     flopy.mf6.ModflowGwfsto(
-        gwf, ss=1e-5, sy=0.2, transient={kper: True for kper in range(nper)}
+        gwf, ss=1e-5, sy=0.2, transient=dict.fromkeys(range(nper), True)
     )
     spd = []
     for k in range(NLAY):
@@ -674,4 +676,92 @@ def test_multi_period_carry(function_tmpdir):
     assert np.isclose(adjoint, finite_difference, rtol=1e-2), (
         f"adjoint {adjoint:.6e} does not match the finite-difference total "
         f"derivative {finite_difference:.6e}"
+    )
+
+
+def _build_outlet(ws, well_rate, couttype, invert=9.0):
+    """A lake draining through one outlet of the given rating type."""
+    ws = pl.Path(ws)
+    if ws.exists():
+        shutil.rmtree(ws)
+    sim = flopy.mf6.MFSimulation(sim_name="lk", sim_ws=str(ws), exe_name=str(mf6_bin))
+    flopy.mf6.ModflowTdis(sim, nper=1, perioddata=[(100.0, 1, 1.0)])
+    flopy.mf6.ModflowIms(
+        sim,
+        outer_dvclose=1e-11,
+        inner_dvclose=1e-12,
+        outer_maximum=500,
+        inner_maximum=300,
+        complexity="complex",
+    )
+    gwf = flopy.mf6.ModflowGwf(sim, modelname="lk", save_flows=True)
+    idomain = np.ones((NLAY, NROW, NCOL), dtype=int)
+    for k, i, j in _lake_cells():
+        idomain[k, i, j] = 0
+    flopy.mf6.ModflowGwfdis(
+        gwf,
+        nlay=NLAY,
+        nrow=NROW,
+        ncol=NCOL,
+        delr=DELRC,
+        delc=DELRC,
+        top=10.0,
+        botm=[0.0, -10.0],
+        idomain=idomain,
+    )
+    flopy.mf6.ModflowGwfic(gwf, strt=STRT)
+    flopy.mf6.ModflowGwfnpf(gwf, k=10.0, k33=1.0, icelltype=0)
+    flopy.mf6.ModflowGwfsto(gwf, ss=1e-5, sy=0.2, transient={0: True})
+    spd = []
+    for k in range(NLAY):
+        for i in range(NROW):
+            spd.append([(k, i, 0), STRT + 0.5, 1000.0])
+            spd.append([(k, i, NCOL - 1), STRT - 0.5, 1000.0])
+    flopy.mf6.ModflowGwfghb(gwf, stress_period_data=spd, pname="ghb-edge")
+    flopy.mf6.ModflowGwfwel(
+        gwf, stress_period_data=[[WELL_CELL, well_rate]], pname="wel-1"
+    )
+    conn = [
+        [0, n, (1, i, j), "vertical", BEDLEAK, 0.0, 0.0, 0.0, 0.0]
+        for n, (_, i, j) in enumerate(_lake_cells())
+    ]
+    flopy.mf6.ModflowGwflak(
+        gwf,
+        nlakes=1,
+        noutlets=1,
+        ntables=0,
+        packagedata=[[0, LAKE_STAGE, len(conn)]],
+        connectiondata=conn,
+        outlets=[[0, 0, -1, couttype, invert, 100.0, 0.02, 0.01]],
+        pname="lak-1",
+    )
+    flopy.mf6.ModflowGwfoc(gwf, head_filerecord="lk.hds", saverecord=[("HEAD", "ALL")])
+    sim.write_simulation(silent=True)
+    success, buff = sim.run_simulation(silent=True)
+    assert success, "\n".join(buff[-15:])
+    return ws
+
+
+@pytest.mark.parametrize("couttype", ["specified", "manning", "weir"])
+def test_lak_outlets(function_tmpdir, couttype):
+    """A lake outlet's dependence on stage belongs in the lake water balance."""
+    dq = -5.0
+    cells = [(1, i, j) for _, i, j in _lake_cells()]
+
+    def measure(ws, rate):
+        _build_outlet(ws, rate, couttype)
+        _solve(ws, _write_adj(ws, cells, "lak-1", name="pm"))
+        return _measure_value(ws, "lak-1")
+
+    ws_base = function_tmpdir / "base"
+    base = measure(ws_base, WELL_RATE)
+    pert = measure(function_tmpdir / "pert", WELL_RATE + dq)
+    finite_difference = (pert - base) / dq
+
+    with h5py.File(ws_base / "adjoint_solution_pm.hd5", "r") as hf:
+        adjoint = float(hf["composite"]["wel6_q"][WELL_CELL])
+
+    assert np.isclose(adjoint, finite_difference, rtol=1e-2), (
+        f"{couttype} outlet: adjoint {adjoint:.6e} does not match the "
+        f"finite-difference total derivative {finite_difference:.6e}"
     )

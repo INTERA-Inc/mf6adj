@@ -26,8 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   partial derivative that holds the stage fixed. The adjoint system is bordered
   with one equation per lake, and the lake carries its own storage backward in
   time the way the aquifer does. A lake held at a constant stage is unaffected,
-  since its stage is not a dependent variable. Inflows routed to a lake by the
-  water mover, and the dependence of lake evaporation on stage, are not yet
+  since its stage is not a dependent variable. Lake outlets are included: a
+  Manning or weir outlet discharge follows a power of the depth over its
+  invert, so its derivative joins the lake's own equation, and an outlet
+  feeding another lake couples the two. Inflows routed to a lake by the water
+  mover, and the dependence of lake evaporation on stage, are not yet
   differentiated, so a lake fed through `mvr6` still has a residual error.
 - `lak6` performance measures. A lake connection exposes the same nodelist,
   conductance, and flux terms as the other head-dependent boundaries, so a

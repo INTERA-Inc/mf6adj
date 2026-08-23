@@ -312,14 +312,16 @@ class PerfMeas:
                 free = grp["lake_is_constant"][:] == 0
                 if not free.any():
                     continue
-                if "lake_noutlets" in grp and grp["lake_noutlets"][:].max() > 0:
-                    raise Exception(
-                        f"lake package '{pname}' has outlets and a lake with a "
-                        "free stage. An outlet discharge depends on the stage, "
-                        "and that derivative is not formed yet, so the lake "
-                        "water balance would be incomplete. Hold the lake at a "
-                        "constant stage or remove the outlets."
-                    )
+                outlets = {}
+                if "outlet_lakein" in grp:
+                    outlets = {
+                        "lakein": grp["outlet_lakein"][:],
+                        "lakeout": grp["outlet_lakeout"][:],
+                        "type": grp["outlet_type"][:],
+                        "invert": grp["outlet_invert"][:],
+                        "dmax": grp["outlet_dmax"][:],
+                        "rate": grp["outlet_rate"][:],
+                    }
                 blocks.append(
                     {
                         "name": pname,
@@ -327,7 +329,9 @@ class PerfMeas:
                         "cond": grp["bound"][:, 1],
                         "lake_of_conn": grp["lake_of_conn"][:],
                         "area": grp["lake_surface_area"][:],
+                        "stage": grp["lake_stage"][:],
                         "free": free,
+                        "outlets": outlets,
                     }
                 )
         return blocks
@@ -361,6 +365,37 @@ class PerfMeas:
                     block["cond"][iconn]
                 )
         return dfds
+
+    # depth over an outlet invert below this is treated as no flow, because
+    # MODFLOW 6 smooths the rating curve to zero there and the derivative of
+    # that smoothing is not reproduced here
+    _OUTLET_MIN_DEPTH = 1.0e-6
+
+    # an outlet discharge follows a power of the depth over its invert, so the
+    # derivative is that exponent times the discharge divided by the depth.
+    # 0 is a specified rate, 1 is Manning, 2 is a weir.
+    _OUTLET_EXPONENT = {0: 0.0, 1: 5.0 / 3.0, 2: 1.5}
+
+    def _outlet_derivative(self, block, ioutlet) -> float:
+        """Return the derivative of an outlet discharge with respect to stage."""
+        outlets = block["outlets"]
+        ilak = int(outlets["lakein"][ioutlet])
+        exponent = self._OUTLET_EXPONENT.get(int(outlets["type"][ioutlet]), 0.0)
+        if exponent == 0.0:
+            return 0.0
+
+        depth = float(block["stage"][ilak]) - float(outlets["invert"][ioutlet])
+        dmax = float(outlets["dmax"][ioutlet])
+        if depth < self._OUTLET_MIN_DEPTH:
+            return 0.0
+        if dmax > 0.0 and depth > dmax:
+            # the rating is evaluated at the capped depth, so it stops
+            # responding to the stage
+            return 0.0
+
+        # the rate is negative leaving the lake
+        discharge = -float(outlets["rate"][ioutlet])
+        return exponent * discharge / depth
 
     def _augment_with_lakes(self, amat, rhs, blocks, dt, lake_carry, dfds, nnodes):
         """Border the adjoint system with the lake water-balance equations.
@@ -406,11 +441,32 @@ class PerfMeas:
                 if block["name"] == key[0]:
                     diag[icol] += float(block["area"][key[1]]) / dt
 
+        dlds = sparse.lil_matrix((int(nlake), int(nlake)))
+        for icol in range(nlake):
+            dlds[icol, icol] = diag[icol]
+
+        # an outlet drains the lake it leaves, and fills the lake it enters
+        for block in blocks:
+            outlets = block["outlets"]
+            if not outlets:
+                continue
+            for ioutlet in range(outlets["lakein"].shape[0]):
+                source = (block["name"], int(outlets["lakein"][ioutlet]))
+                if source not in columns:
+                    continue
+                dqds = self._outlet_derivative(block, ioutlet)
+                if dqds == 0.0:
+                    continue
+                dlds[columns[source], columns[source]] += dqds
+                destination = (block["name"], int(outlets["lakeout"][ioutlet]))
+                if destination in columns:
+                    dlds[columns[destination], columns[source]] -= dqds
+
         # amat is already transposed, so the lake blocks are transposed too
         bordered = sparse.bmat(
             [
                 [amat, dldh.transpose()],
-                [drds.transpose(), sparse.diags(diag)],
+                [drds.transpose(), dlds.transpose()],
             ],
             format="csr",
         )

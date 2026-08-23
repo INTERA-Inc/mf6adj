@@ -11,9 +11,7 @@ Cases:
   - sfr_deep         : a slow, deep stream moves its stage, and the reach
                        equation carries that.
   - sfr_fully_losing : a stream that loses all of its inflow has a leakage the
-                       pumping cannot change, which needs the reach that gives
-                       up its whole flow to be coupled to the reaches above it
-                       (xfail).
+                       pumping cannot change, and the adjoint returns zero.
 """
 
 import glob
@@ -187,20 +185,14 @@ def test_sfr_deep(tmp_path):
     )
 
 
-@pytest.mark.xfail(
-    reason="the reach that gives up its whole flow leaks its own inflow rather "
-    "than a head-dependent amount, and that coupling to the reaches above it is "
-    "not formed (INTERA-Inc/mf6adj#78)",
-    strict=False,
-)
 def test_sfr_fully_losing(tmp_path):
     """A stream that loses all its inflow has a leakage pumping cannot change.
 
     Every drop that enters the stream reaches the aquifer, so the total
     exchange is the inflow whatever the pumping does, and the adjoint has to
     return zero. The last reach gives up all of the water it carries, so its
-    leakage follows the reaches above it rather than its own stage; until that
-    coupling is formed the reach equations cannot pin the total.
+    leakage follows the reaches above it rather than its own stage, and it is
+    that coupling which pins the total.
     """
     adjoint, finite_difference = _compare(tmp_path, rgrd=1.0e-5, man=0.3, rhk=50.0)
     assert abs(finite_difference) < 1e-6, (

@@ -229,6 +229,7 @@ class SfrCoupling:
                         "cond": grp["bound"][:, 1],
                         "hcof": grp["hcof"][:],
                         "ddischarge": grp["reach_ddischarge"][:],
+                        "flow_limited": grp["reach_flow_limited"][:] == 1,
                         "fraction": grp["reach_fraction"][:],
                         "free": free,
                         "ia": grp["reach_ia"][:],
@@ -257,11 +258,70 @@ class SfrCoupling:
                 node = int(block["node"][ireach])
                 if node not in weights:
                     continue
+                if block["flow_limited"][ireach]:
+                    # this reach leaks the whole flow it receives, so the
+                    # measure follows the reaches above it
+                    for iup, share in self._upstream(block, ireach):
+                        ddepth, _ = self._outflow_derivatives(block, iup)
+                        key = (block["name"], iup)
+                        result[key] = (
+                            result.get(key, 0.0) + weights[node] * share * ddepth
+                        )
+                    continue
                 key = (block["name"], ireach)
                 result[key] = result.get(key, 0.0) + weights[node] * float(
                     block["cond"][ireach]
                 )
         return result
+
+    def _upstream(self, block, ireach):
+        """Yield the free reaches feeding a reach, with the share each sends."""
+        ia, ja, idir = block["ia"], block["ja"], block["idir"]
+        for icon in range(ia[ireach], ia[ireach + 1]):
+            if idir[icon] <= 0:
+                continue
+            iup = int(ja[icon])
+            if not block["free"][iup]:
+                # a reach that already gave up its whole flow sends nothing on
+                continue
+            yield iup, float(block["fraction"][icon])
+
+    def _outflow_derivatives(self, block, iup):
+        """Return how an upstream reach's outflow follows its depth and head.
+
+        The flow leaving a reach is its Manning discharge less half of its
+        leakage, so it follows the reach depth and the head beneath it.
+        """
+        ddepth = float(block["ddischarge"][iup]) - 0.5 * float(block["cond"][iup])
+        dhead = 0.5 * float(block["cond"][iup])
+        return ddepth, dhead
+
+    def measure_dfdh(self, entries, kk, blocks, nnodes):
+        """Return what a measure on a flow-limited reach adds to df/dh.
+
+        Such a reach leaks the whole flow it receives, so the measure follows
+        the head beneath the reaches above it rather than the head beneath the
+        reach itself.
+        """
+        extra = np.zeros(nnodes)
+        for block in blocks:
+            weights = {
+                pfr.inode: pfr.weight
+                for pfr in entries
+                if pfr.kperkstp == kk and pfr.pm_type == block["name"]
+            }
+            if not weights:
+                continue
+            for ireach in range(block["node"].shape[0]):
+                if not block["flow_limited"][ireach]:
+                    continue
+                node = int(block["node"][ireach])
+                if node not in weights:
+                    continue
+                for iup, share in self._upstream(block, ireach):
+                    _, dhead = self._outflow_derivatives(block, iup)
+                    extra[int(block["node"][iup])] += weights[node] * share * dhead
+        return extra
 
     def augment(self, amat, rhs, blocks, dfds, nnodes):
         """Border the adjoint system with the reach routing equations.
@@ -284,9 +344,26 @@ class SfrCoupling:
         drds = sparse.lil_matrix((int(nnodes), int(nreach)))
         drdh = sparse.lil_matrix((int(nreach), int(nnodes)))
         drdr = sparse.lil_matrix((int(nreach), int(nreach)))
+        # a reach that leaks the whole flow it receives ties one aquifer cell to
+        # another, so it corrects the flow matrix rather than the border
+        dgwf = sparse.lil_matrix((int(nnodes), int(nnodes)))
 
         for block in blocks:
             ia, ja, idir = block["ia"], block["ja"], block["idir"]
+
+            # a reach that gives up all of the water it carries leaks its own
+            # inflow, so the aquifer beneath it follows the reaches above
+            for n in range(block["free"].shape[0]):
+                if not block["flow_limited"][n]:
+                    continue
+                node = int(block["node"][n])
+                for iup, share in self._upstream(block, n):
+                    ddepth, dhead = self._outflow_derivatives(block, iup)
+                    upstream = (block["name"], iup)
+                    if upstream in self.columns:
+                        drds[node, self.columns[upstream]] += share * ddepth
+                    dgwf[node, int(block["node"][iup])] += share * dhead
+
             for n in range(block["free"].shape[0]):
                 key = (block["name"], n)
                 if key not in self.columns:
@@ -324,7 +401,7 @@ class SfrCoupling:
         # amat is already transposed, so the reach blocks are transposed too
         bordered = sparse.bmat(
             [
-                [amat, drdh.transpose()],
+                [amat + dgwf.transpose().tocsr(), drdh.transpose()],
                 [drds.transpose(), drdr.transpose()],
             ],
             format="csr",

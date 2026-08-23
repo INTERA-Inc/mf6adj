@@ -753,6 +753,11 @@ class PerfMeas:
             if not sfr_blocks:
                 self._sfr.reset_step()
             else:
+                # a measure on a reach that leaks its whole flow follows the
+                # head beneath the reaches above it, which df/dh has to carry
+                rhs = rhs - self._sfr.measure_dfdh(
+                    self._entries, kk, sfr_blocks, rhs.shape[0]
+                )
                 amat, rhs = self._sfr.augment(
                     amat,
                     rhs,

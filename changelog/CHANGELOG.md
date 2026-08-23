@@ -10,55 +10,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking changes
 
 - A model whose packages add their own equations to the MODFLOW 6 solution
-  matrix is now rejected instead of returning corrupted sensitivities. The
-  adjoint matrix is rebuilt from the groundwater-flow grid connectivity, which
-  has no rows for those equations, so the coefficients were misaligned and the
-  backward recursion diverged - on a 21-period model the sensitivities grew by
-  about a factor of ten per period, reaching 1e18, with no indication that
-  anything was wrong. `maw6` always adds equations, and an implicitly coupled
-  lake (MODFLOW 6 6.8.0 and later) does too. `sfr6`, `lak6`, and `uzf6` are
-  solved in the outer iteration, add nothing to the matrix, and are unaffected.
+  matrix is rejected instead of returning corrupted sensitivities. `maw6`
+  always adds equations, and so does an implicitly coupled lake (MODFLOW 6
+  6.8.0 and later); `sfr6`, `lak6`, and `uzf6` are solved in the outer
+  iteration and are unaffected.
 
 ### Added
 
-- The lake water balance is solved with the flow equations, so a measure's
-  sensitivity to a lake with a free stage is a total derivative rather than a
-  partial derivative that holds the stage fixed. The adjoint system is bordered
-  with one equation per lake, and the lake carries its own storage backward in
-  time the way the aquifer does. A lake held at a constant stage is unaffected,
-  since its stage is not a dependent variable. Lake outlets are included: a
-  Manning or weir outlet discharge follows a power of the depth over its
-  invert, so its derivative joins the lake's own equation, and an outlet
-  feeding another lake couples the two. A lake with a stage-volume-area table
-  stores against that table rather than against its connection areas, and its
-  evaporating surface grows with stage. Inflows routed to a lake by the water
-  mover are not differentiated, because that couples UZF, LAK, and SFR to each
-  other, so a lake fed through `mvr6` still has a residual error; nor is the
-  dependence of a horizontal connection's conductance and wetted area on stage.
-  Both cases are reported as warnings. The lake terms live in `mf6adj/lake.py`
-  so the adjoint solver stays free of package detail.
-- `lak6` performance measures. A lake connection exposes the same nodelist,
-  conductance, and flux terms as the other head-dependent boundaries, so a
-  measure can now sum the exchange between a lake and the aquifer, and lake
-  stage and conductance appear as parameters in the results.
+- `lak6` performance measures, so a measure can sum the exchange between a lake
+  and the aquifer, with lake stage and conductance among the parameters.
+- The lake water balance is solved with the flow equations, so a sensitivity to
+  a lake with a free stage is a total derivative rather than one that holds the
+  stage fixed. Outlets and stage-volume-area tables are included. Inflows
+  routed to a lake by `mvr6`, and the stage dependence of a horizontal
+  connection's conductance, are not, and are reported as warnings.
 
 ### Fixed
 
 - Boundary values are read from each package's own arrays rather than from
-  `BOUND`. MODFLOW 6 leaves `BOUND` allocated but zeroed for these packages, so
-  the stage and conductance sensitivities of `ghb6`, `riv6`, `drn6`, and `chd6`
-  were reported as zero.
-- A cell holding more than one boundary from the same package accumulates every
-  boundary rather than keeping only the last one. A lake connected both
-  vertically and horizontally to one cell, or two river reaches in one cell,
-  previously contributed once.
-- A flux performance-measure entry uses its weight. The forward value scales the
-  package flux by the entry weight, but the adjoint right-hand side ignored it,
-  so a weighted measure returned unscaled sensitivities.
-- The direct term of a flux measure is applied only to the boundaries the
-  measure names, and with that entry's weight. It was applied to every boundary
-  of every head-dependent package as soon as a measure contained any flux entry,
-  which biased the sensitivities to boundary parameters the measure never used.
+  `BOUND`, which MODFLOW 6 leaves allocated but zeroed. The stage and
+  conductance sensitivities of `ghb6`, `riv6`, `drn6`, and `chd6` were reported
+  as zero.
+- A cell holding more than one boundary from the same package accumulates all
+  of them rather than keeping only the last.
+- A flux performance measure uses its entry weight, and its direct term is
+  applied only to the boundaries the measure names rather than to every
+  head-dependent package.
 
 ## [1.2.0] - 2026-08-03
 

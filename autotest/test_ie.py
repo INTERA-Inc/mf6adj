@@ -78,16 +78,12 @@ def test_ie_1sp():
         shutil.rmtree(new_dir)
     shutil.copytree(org_d, new_dir)
 
-    flopy.run_model(exe_name=mf6_bin, namefile=None, model_ws=new_dir)
-
-    sim = flopy.mf6.MFSimulation.load(sim_ws=new_dir, load_only=["dis", "sfr"])
-    nstp = sim.tdis.perioddata.array[0][1]
-
+    # the coupling check runs before the adjoint file is read, so the file only
+    # has to exist
     with open(adj_file, "w") as f:
-        f.write("begin performance_measure single_all_times\n")
-        for kper in range(sim.tdis.nper.data):
-            f.write(f"{kper + 1} {nstp} {32} {1808} head direct 1.0 -1.0e+30\n")
-        f.write("end performance_measure\n\n")
+        f.write("begin performance_measure single\n")
+        f.write(f"1 1 {32} {1808} head direct 1.0 -1.0e+30\n")
+        f.write("end performance_measure\n")
 
     with pytest.raises(Exception, match="solution matrix"):
         mf6adj.Mf6Adj(

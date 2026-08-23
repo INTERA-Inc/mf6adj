@@ -615,12 +615,6 @@ class PerfMeas:
         if has_sto:
             comp_ss_sens = np.zeros(nnodes)
 
-        has_flux_pm = False
-        for entry in self._entries:
-            if entry.pm_type != "head":
-                has_flux_pm = True
-                break
-
         # An "instantaneous" measure looks at each time step on its own and
         # ignores how later time steps would otherwise feed back into earlier
         # ones. The result is the sensitivity at each time step by itself. All
@@ -1051,8 +1045,13 @@ class PerfMeas:
                             "bound": hdf[sol_key][pname]["bound"][:],
                             "node": hdf[sol_key][pname]["nodelist"][:],
                         }
+                        direct_weights = {
+                            pfr.inode: pfr.weight
+                            for pfr in self._entries
+                            if pfr.kperkstp == kk and pfr.pm_type == pname
+                        }
                         sens_level, sens_cond = self.__lam_drhs_dbnd(
-                            lamb, head, sp_bnd_dict, has_flux_pm
+                            lamb, head, sp_bnd_dict, direct_weights
                         )
                         comp_bnd_results[pname + "_" + bnd_dict[ptype][0]] += (
                             sens_level * w
@@ -1512,7 +1511,7 @@ class PerfMeas:
         lamb: np.ndarray,
         head: np.ndarray,
         sp_dict: dict,
-        has_flux_pm: bool,
+        direct_weights: dict,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Return adjoint-weighted derivatives with respect to boundary terms.
 
@@ -1529,9 +1528,9 @@ class PerfMeas:
         sp_dict : dict
             Stress-package data for a single time step containing at least
             ``node`` and ``bound`` arrays.
-        has_flux_pm : bool
-            Whether the performance measure has a direct flux contribution in
-            addition to the adjoint-weighted response.
+        direct_weights : dict
+            Node to weight for the entries this measure takes from this package.
+            A boundary the measure does not name has no direct contribution.
 
         Returns
         -------
@@ -1555,16 +1554,17 @@ class PerfMeas:
                 boundcond = bound[1]
             # the second item in bound should be cond
             result_head[n] += lamb[n] * boundcond
-            # Add the direct effect
-            if has_flux_pm:
-                result_head[n] += boundcond
+            # Add the direct effect, only where the measure sums this
+            # package's flux, and weighted the way the measure weights it
+            weight = direct_weights.get(n, 0.0)
+            if weight != 0.0:
+                result_head[n] += weight * boundcond
             # the first item in bound should be head
             lam_drhs_dcond = lamb[n] * bound[0]
             lam_dadcond_h = -1.0 * lamb[n] * head[n]
             result_cond[n] += lam_drhs_dcond + lam_dadcond_h
-            # Add the direct effect
-            if has_flux_pm:
-                result_cond[n] += bound[0] - head[n]
+            if weight != 0.0:
+                result_cond[n] += weight * (bound[0] - head[n])
 
         return result_head, result_cond
 
@@ -1641,7 +1641,7 @@ class PerfMeas:
                 node_hcof, in_package = cached_maps[pfr.pm_type]
 
                 if in_package[pfr.inode]:
-                    dfdh[pfr.inode] = node_hcof[pfr.inode]
+                    dfdh[pfr.inode] = pfr.weight * node_hcof[pfr.inode]
 
         return dfdh
 

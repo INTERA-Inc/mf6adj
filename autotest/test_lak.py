@@ -22,6 +22,7 @@ import shutil
 import sys
 
 import flopy
+import h5py
 import modflowapi
 import numpy as np
 import pytest
@@ -165,15 +166,23 @@ def _build_model(
     return sim, gwf
 
 
-def _write_adj(ws, cells, pm_type, name="pm"):
+def _write_adj(ws, cells, pm_type, name="pm", weight=1.0):
     """Write a direct performance measure over the given zero-based cells."""
     path = pl.Path(ws) / "test.adj"
     with open(path, "w") as f:
         f.write(f"begin performance_measure {name}\n")
         for k, i, j in cells:
-            f.write(f"1 1 {k + 1} {i + 1} {j + 1} {pm_type} direct 1.0 -1.0e+30\n")
+            f.write(f"1 1 {k + 1} {i + 1} {j + 1} {pm_type} direct {weight} -1.0e+30\n")
         f.write("end performance_measure\n")
     return path
+
+
+def _measure_value(ws, package):
+    """Return the measure value mf6adj saw: the package flux it summed."""
+    path = sorted(pl.Path(ws).glob("lk_*.hd5"))[-1]
+    with h5py.File(path, "r") as hf:
+        key = [k for k in hf if k.startswith("solution_")][-1]
+        return float(np.sum(hf[key][package]["simvals"][:]))
 
 
 def _solve(ws, adj_file):
@@ -329,4 +338,57 @@ def test_lak_total_derivative(function_tmpdir):
     assert np.isclose(adjoint, finite_difference, rtol=1e-2), (
         f"adjoint {adjoint:.6e} does not match the finite-difference total "
         f"derivative {finite_difference:.6e}"
+    )
+
+
+def test_flux_measure_weight(function_tmpdir):
+    """A weighted flux measure scales its sensitivities by that weight."""
+    cells = [(1, i, j) for _, i, j in _lake_cells()]
+
+    def solve(ws, weight):
+        sim, _ = _build_model(ws, boundary="lak")
+        sim.run_simulation(silent=True)
+        return _solve(ws, _write_adj(ws, cells, "lak-1", weight=weight))["pm"]
+
+    single = solve(function_tmpdir / "w1", 1.0)
+    double = solve(function_tmpdir / "w2", 2.0)
+
+    for column in ("wel6_q", "k11", "lak-1_stage", "lak-1_cond"):
+        assert np.allclose(
+            double[column].values, 2.0 * single[column].values, atol=1e-8
+        ), (
+            f"'{column}' is not twice the unweighted result; largest gap "
+            f"{np.abs(double[column].values - 2.0 * single[column].values).max()}"
+        )
+
+
+def test_direct_effect_only_for_measured_package(function_tmpdir):
+    """A package the measure does not name gets no direct contribution.
+
+    The measure sums the lake flux, so its sensitivity to the edge GHB heads is
+    only the adjoint response. Compare it with a finite difference that shifts
+    every edge GHB head.
+    """
+    delta = 1.0e-3
+    cells = [(1, i, j) for _, i, j in _lake_cells()]
+
+    def run(ws, shift):
+        sim, gwf = _build_model(ws, boundary="lak")
+        edge = gwf.get_package("ghb-edge")
+        spd = [list(record) for record in edge.stress_period_data.get_data(0)]
+        edge.stress_period_data = {0: [[tuple(r[0]), r[1] + shift, r[2]] for r in spd]}
+        sim.write_simulation(silent=True)
+        sim.run_simulation(silent=True)
+        df = _solve(ws, _write_adj(ws, cells, "lak-1"))["pm"]
+        return df, _measure_value(ws, "lak-1")
+
+    base, value = run(function_tmpdir / "base", 0.0)
+    _, shifted = run(function_tmpdir / "shift", delta)
+
+    finite_difference = (shifted - value) / delta
+    adjoint = float(np.sum(base["ghb-edge_bhead"].values))
+
+    assert np.isclose(adjoint, finite_difference, rtol=1e-3), (
+        f"adjoint {adjoint:.6e} does not match the finite difference "
+        f"{finite_difference:.6e}"
     )

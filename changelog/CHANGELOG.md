@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   boundary rather than keeping only the last one. A lake connected both
   vertically and horizontally to one cell, or two river reaches in one cell,
   previously contributed once.
+- A flux performance-measure entry uses its weight. The forward value scales the
+  package flux by the entry weight, but the adjoint right-hand side ignored it,
+  so a weighted measure returned unscaled sensitivities.
+- The direct term of a flux measure is applied only to the boundaries the
+  measure names, and with that entry's weight. It was applied to every boundary
+  of every head-dependent package as soon as a measure contained any flux entry,
+  which biased the sensitivities to boundary parameters the measure never used.
 
 ## [1.2.0] - 2026-08-03
 

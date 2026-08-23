@@ -20,12 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The reach routing equations are solved with the flow equations, so a
   sensitivity to a stream is a total derivative rather than one that holds the
   reach stage fixed. It matters where a stream is deep and slow enough for its
-  stage to follow its flow: on a test stream the frozen stage was a quarter
-  out. A reach that gives up all of the water it carries leaks its own inflow,
-  so it is coupled to the reaches above it rather than to its own stage, which
-  is what lets a fully losing stream report the zero sensitivity it has.
-  Reaches with a cross section and reaches taking a diversion are not
-  differentiated and are reported as warnings.
+  stage to follow its flow, where the frozen stage was a quarter out, and where
+  a stream loses all of its inflow and has no sensitivity at all. Reaches with a
+  cross section and reaches taking a diversion are not differentiated, and are
+  reported as warnings.
 
 - `lak6` performance measures, so a measure can sum the exchange between a lake
   and the aquifer, with lake stage and conductance among the parameters.

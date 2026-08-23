@@ -8,10 +8,11 @@ derivative. These cases measure how far that is from the total derivative.
 Cases:
   - sfr_shallow      : a steep, shallow stream barely moves its stage, so the
                        frozen-stage result is already close.
-  - sfr_deep         : a slow, deep stream moves its stage enough that the
-                       frozen-stage result is well out (xfail).
+  - sfr_deep         : a slow, deep stream moves its stage, and the reach
+                       equation carries that.
   - sfr_fully_losing : a stream that loses all of its inflow has a leakage the
-                       pumping cannot change, and the adjoint should say so
+                       pumping cannot change, which needs the reach that gives
+                       up its whole flow to be coupled to the reaches above it
                        (xfail).
 """
 
@@ -172,17 +173,13 @@ def test_sfr_shallow(tmp_path):
     )
 
 
-@pytest.mark.xfail(
-    reason="the adjoint holds the reach stage fixed, so a stream deep enough to "
-    "move its stage returns a partial derivative (INTERA-Inc/mf6adj#78)",
-    strict=False,
-)
 def test_sfr_deep(tmp_path):
-    """A slow, deep stream moves its stage enough for the frozen result to be out.
+    """A slow, deep stream moves its stage, and the reach equation carries that.
 
     Depth follows flow, so a stream with a gentle slope and a rough bed carries
     its water deep and slowly. Pumping takes water from the stream, the flow
-    drops, the stage falls with it, and that second effect is missing.
+    drops, and the stage falls with it. Holding the stage fixed misses that
+    second effect and is a quarter out.
     """
     adjoint, finite_difference = _compare(tmp_path, rgrd=1.0e-5, man=0.3, rhk=5.0)
     assert np.isclose(adjoint, finite_difference, rtol=2e-2), (
@@ -191,16 +188,19 @@ def test_sfr_deep(tmp_path):
 
 
 @pytest.mark.xfail(
-    reason="a fully losing stream has a leakage the pumping cannot change, but "
-    "the frozen reach stage hides that (INTERA-Inc/mf6adj#78)",
+    reason="the reach that gives up its whole flow leaks its own inflow rather "
+    "than a head-dependent amount, and that coupling to the reaches above it is "
+    "not formed (INTERA-Inc/mf6adj#78)",
     strict=False,
 )
 def test_sfr_fully_losing(tmp_path):
     """A stream that loses all its inflow has a leakage pumping cannot change.
 
     Every drop that enters the stream reaches the aquifer, so the total
-    exchange is the inflow whatever the pumping does. The adjoint has to return
-    zero, and it will once the reach equation is solved with the flow equations.
+    exchange is the inflow whatever the pumping does, and the adjoint has to
+    return zero. The last reach gives up all of the water it carries, so its
+    leakage follows the reaches above it rather than its own stage; until that
+    coupling is formed the reach equations cannot pin the total.
     """
     adjoint, finite_difference = _compare(tmp_path, rgrd=1.0e-5, man=0.3, rhk=50.0)
     assert abs(finite_difference) < 1e-6, (

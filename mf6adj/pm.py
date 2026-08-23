@@ -21,7 +21,7 @@ from scipy.sparse.linalg import (
     svds,
 )
 
-from .advanced_packages import LakeCoupling
+from .advanced_packages import LakeCoupling, SfrCoupling
 from .utils.utils import SolverCallback
 from .utils.utils_fileio import _write_group_to_hdf
 from .utils.utils_logger import _LoggerUtil
@@ -182,6 +182,7 @@ class PerfMeas:
         self._name = pm_name.lower().strip()
         self._entries = pm_entries
         self._lake = None
+        self._sfr = None
 
         if logger is None:
             logger_name = f"{self.__class__.__name__}-{self.name}"
@@ -635,6 +636,7 @@ class PerfMeas:
         # scalar for slicing the bordered solution.
         nnode = int(np.asarray(nnodes).ravel()[0])
         self._lake = LakeCoupling(logger=self.logger.logger)
+        self._sfr = SfrCoupling(logger=self.logger.logger)
 
         bnd_dict = get_mf6_bound_dict()
         comp_bnd_results = {}
@@ -733,8 +735,6 @@ class PerfMeas:
             lake_blocks = self._lake.blocks(hdf[sol_key], gwf_package_dict)
             if not lake_blocks:
                 self._lake.reset_step()
-                if lamb.shape[0] != nnode:
-                    lamb = lamb[:nnode]
             else:
                 dt = float(hdf[sol_key].attrs["dt"])
                 amat, rhs = self._lake.augment(
@@ -746,12 +746,27 @@ class PerfMeas:
                     nnode,
                     transient=lake_storage,
                 )
-                # the number of free lakes can change between steps, so rebuild
-                # the initial guess from the aquifer part and zero the rest
-                if lamb.shape[0] != amat.shape[0]:
-                    guess = np.zeros(amat.shape[0])
-                    guess[:nnode] = lamb[:nnode]
-                    lamb = guess
+
+            # the reach rows sit outside the lake rows, so they are added to
+            # whatever the lake left, and index the aquifer nodes below it
+            sfr_blocks = self._sfr.blocks(hdf[sol_key], gwf_package_dict)
+            if not sfr_blocks:
+                self._sfr.reset_step()
+            else:
+                amat, rhs = self._sfr.augment(
+                    amat,
+                    rhs,
+                    sfr_blocks,
+                    self._sfr.dfds(self._entries, kk, sfr_blocks),
+                    amat.shape[0],
+                )
+
+            # the number of free lakes and reaches can change between steps, so
+            # rebuild the initial guess from the aquifer part and zero the rest
+            if lamb.shape[0] != amat.shape[0]:
+                guess = np.zeros(amat.shape[0])
+                guess[:nnode] = lamb[:nnode]
+                lamb = guess
             self.logger.logger.debug(
                 (
                     "Transpose of amat took: "
@@ -989,6 +1004,9 @@ class PerfMeas:
                 elif info > 0:
                     self.logger.logger.warning("Solver convergence not achieved")
 
+            if self._sfr.columns:
+                # the reach depths come off first, being the outer border
+                lamb = self._sfr.split(lamb, lamb.shape[0] - len(self._sfr.columns))
             if self._lake.columns:
                 # split the lake stages off and carry their storage back to the
                 # previous time step, as drhsdh does for the aquifer

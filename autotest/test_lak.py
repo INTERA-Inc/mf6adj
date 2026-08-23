@@ -585,7 +585,7 @@ def test_stage_switches_between_periods(function_tmpdir):
     )
 
 
-def _build_multi_period(ws, well_rate, nper=4):
+def _build_multi_period(ws, well_rate, nper=10):
     """A transient model with the lake stage free in every period."""
     ws = pl.Path(ws)
     if ws.exists():
@@ -645,11 +645,11 @@ def test_multi_period_carry(function_tmpdir):
     """A lake free through several periods reproduces the total derivative.
 
     The measure is taken at the last period, so the lake storage has to be
-    carried backward through every earlier period. A single-period model never
-    exercises that term.
+    carried backward through all nine earlier periods. A single-period model
+    never exercises that term, and a long chain compounds any error in it.
     """
     dq = -5.0
-    nper = 4
+    nper = 10
     cells = [(1, i, j) for _, i, j in _lake_cells()]
 
     def measure(ws, rate):

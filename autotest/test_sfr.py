@@ -14,6 +14,9 @@ Cases:
                        pumping cannot change, and the adjoint returns zero.
   - two_packages     : two streamflow-routing packages in one model each keep
                        their own reaches.
+  - multi_period     : a stream measured after several periods.
+  - sfr_with_lake    : a model holding both a stream and a lake borders them
+                       together.
 """
 
 import glob
@@ -324,6 +327,154 @@ def test_two_sfr_packages(tmp_path):
     finite_difference = (pert - base) / dq
     with h5py.File(ws_base / "adjoint_solution_pm.hd5", "r") as hf:
         adjoint = float(hf["composite"]["wel6_q"][WELL_CELL])
+    assert np.isclose(adjoint, finite_difference, rtol=2e-2), (
+        f"adjoint {adjoint:.6e} against finite difference {finite_difference:.6e}"
+    )
+
+
+def _build_with_lake(ws, well_rate, nper=1, with_lake=False, rgrd=1.0e-5, man=0.3):
+    """Build the stream model, optionally over several periods or with a lake."""
+    ws = pl.Path(ws)
+    if ws.exists():
+        shutil.rmtree(ws)
+    lake_cells = [(6, 2), (6, 3)]
+    nlay = 2 if with_lake else 1
+    botm = [0.0, -20.0] if with_lake else [-20.0]
+    sim = flopy.mf6.MFSimulation(sim_name="sf", sim_ws=str(ws), exe_name=str(mf6_bin))
+    flopy.mf6.ModflowTdis(sim, nper=nper, perioddata=[(50.0, 1, 1.0)] * nper)
+    flopy.mf6.ModflowIms(
+        sim,
+        outer_dvclose=1e-11,
+        inner_dvclose=1e-12,
+        outer_maximum=500,
+        complexity="complex",
+    )
+    gwf = flopy.mf6.ModflowGwf(sim, modelname="sf", save_flows=True)
+    idomain = np.ones((nlay, NROW, NCOL), dtype=int)
+    if with_lake:
+        for i, j in lake_cells:
+            idomain[0, i, j] = 0
+    flopy.mf6.ModflowGwfdis(
+        gwf,
+        nlay=nlay,
+        nrow=NROW,
+        ncol=NCOL,
+        delr=DELRC,
+        delc=DELRC,
+        top=10.0,
+        botm=botm,
+        idomain=idomain,
+    )
+    flopy.mf6.ModflowGwfic(gwf, strt=5.0)
+    flopy.mf6.ModflowGwfnpf(gwf, k=10.0, icelltype=0)
+    flopy.mf6.ModflowGwfsto(
+        gwf, ss=1e-5, sy=0.2, transient=dict.fromkeys(range(nper), True)
+    )
+    spd = []
+    for k in range(nlay):
+        for i in range(NROW):
+            spd.append([(k, i, 0), 5.5, 1000.0])
+            spd.append([(k, i, NCOL - 1), 4.5, 1000.0])
+    flopy.mf6.ModflowGwfghb(gwf, stress_period_data=spd, pname="ghb-edge")
+    well = (nlay - 1, 6, 6)
+    flopy.mf6.ModflowGwfwel(
+        gwf, stress_period_data={0: [[well, well_rate]]}, pname="wel-1"
+    )
+    packagedata, connectiondata = [], []
+    for n in range(NCOL):
+        nconn = 1 if n in (0, NCOL - 1) else 2
+        packagedata.append(
+            [
+                n,
+                (0, REACH_ROW, n),
+                DELRC,
+                5.0,
+                rgrd,
+                STRTOP - 0.01 * n,
+                1.0,
+                5.0,
+                man,
+                nconn,
+                1.0,
+                0,
+            ]
+        )
+        conn = [n]
+        if n > 0:
+            conn.append(n - 1)
+        if n < NCOL - 1:
+            conn.append(-(n + 1))
+        connectiondata.append(conn)
+    flopy.mf6.ModflowGwfsfr(
+        gwf,
+        nreaches=NCOL,
+        packagedata=packagedata,
+        connectiondata=connectiondata,
+        perioddata={0: [[0, "inflow", 5000.0]]},
+        unit_conversion=128390.0,
+        pname="sfr-1",
+    )
+    if with_lake:
+        lconn = [
+            [0, m, (1, i, j), "vertical", 0.1, 0.0, 0.0, 0.0, 0.0]
+            for m, (i, j) in enumerate(lake_cells)
+        ]
+        flopy.mf6.ModflowGwflak(
+            gwf,
+            nlakes=1,
+            noutlets=0,
+            ntables=0,
+            packagedata=[[0, 6.0, len(lconn)]],
+            connectiondata=lconn,
+            pname="lak-1",
+        )
+    flopy.mf6.ModflowGwfoc(gwf, head_filerecord="sf.hds", saverecord=[("HEAD", "ALL")])
+    sim.write_simulation(silent=True)
+    success, buff = sim.run_simulation(silent=True)
+    assert success, "\n".join(buff[-15:])
+
+    path = pl.Path(ws) / "test.adj"
+    with open(path, "w") as f:
+        f.write("begin performance_measure pm\n")
+        for n in range(NCOL):
+            f.write(f"{nper} 1 1 {REACH_ROW + 1} {n + 1} sfr-1 direct 1.0 -1.0e+30\n")
+        f.write("end performance_measure\n")
+    _solve(ws)
+    return ws, well
+
+
+def _compare_with_lake(tmpdir, **kwargs):
+    dq = -50.0
+    base, well = _build_with_lake(tmpdir / "base", WELL_RATE, **kwargs)
+    pert, _ = _build_with_lake(tmpdir / "pert", WELL_RATE + dq, **kwargs)
+    finite_difference = (_measure_value(pert) - _measure_value(base)) / dq
+    with h5py.File(base / "adjoint_solution_pm.hd5", "r") as hf:
+        adjoint = float(hf["composite"]["wel6_q"][well])
+    return adjoint, finite_difference
+
+
+def test_sfr_multi_period(tmp_path):
+    """A stream measured after several periods.
+
+    A reach carries no storage, so nothing passes between steps, but the reach
+    equations still have to be built and taken apart at every step of the
+    backward sweep.
+    """
+    adjoint, finite_difference = _compare_with_lake(tmp_path, nper=5)
+    assert np.isclose(adjoint, finite_difference, rtol=2e-2), (
+        f"adjoint {adjoint:.6e} against finite difference {finite_difference:.6e}"
+    )
+
+
+def test_sfr_with_lake(tmp_path):
+    """A model holding both a stream and a lake borders them together.
+
+    The reach rows sit outside the lake rows, so the two have to share one
+    system without treading on each other.
+    """
+    adjoint, finite_difference = _compare_with_lake(
+        tmp_path, with_lake=True, rgrd=1.0e-3, man=0.03
+    )
     assert np.isclose(adjoint, finite_difference, rtol=2e-2), (
         f"adjoint {adjoint:.6e} against finite difference {finite_difference:.6e}"
     )

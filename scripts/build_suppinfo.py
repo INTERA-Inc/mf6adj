@@ -5,8 +5,9 @@ Runs the LaTeX build in docs/SuppInfo and copies the result in beside the
 rendered notebooks, so it is picked up by the artifact the documentation
 workflow uploads and the rtds_action extension downloads on Read the Docs.
 
-The document is supplementary, so a missing LaTeX distribution is reported and
-skipped rather than failing the documentation build.
+A missing LaTeX distribution is reported and skipped, so the documentation can
+be built without one. A LaTeX distribution that cannot build the document is a
+failure: skipping that case hides a broken document behind a passing build.
 """
 
 import shutil
@@ -31,10 +32,10 @@ def main() -> int:
     result = subprocess.run(["make"], cwd=SOURCE, capture_output=True, text=True)
     built = SOURCE / PDF
     if result.returncode != 0 or not built.is_file():
-        print("[suppinfo] the build failed, skipping the supplemental document")
-        print(result.stdout[-2000:])
-        print(result.stderr[-2000:])
-        return 0
+        print("[suppinfo] the build failed")
+        print(result.stdout[-4000:])
+        print(result.stderr[-4000:])
+        return 1
 
     DEST.mkdir(parents=True, exist_ok=True)
     shutil.copy2(built, DEST / PDF)

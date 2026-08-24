@@ -11,7 +11,8 @@ LATEX = pdflatex -interaction=nonstopmode -halt-on-error
 all: $(DOC).pdf
 
 $(DOC).pdf: $(DOC).tex body.tex introduction.tex instantaneous.tex \
-            storage.tex lake.tex sfr.tex references.bib
+            storage.tex lake.tex sfr.tex references.bib \
+            Figures/sfr-capture.pdf Figures/lake-capture.pdf
 	$(LATEX) $(DOC)
 	-bibtex $(DOC)
 	$(LATEX) $(DOC)

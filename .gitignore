@@ -150,4 +150,4 @@ docs/SuppInfo/*.blg
 docs/SuppInfo/*.log
 docs/SuppInfo/*.out
 docs/SuppInfo/*.toc
-docs/SuppInfo/*.pdf
+docs/SuppInfo/mf6adjsuppinfo.pdf

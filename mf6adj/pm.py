@@ -615,6 +615,7 @@ class PerfMeas:
         top = hdf["gwf_info"]["top"][:]
         bot = hdf["gwf_info"]["bot"][:]
         icelltype = hdf["gwf_info"]["icelltype"][:]
+        area = hdf["gwf_info"]["area"][:]
         ihighcellsat = hdf["gwf_info"]["ihighcellsat"][0]
 
         comp_k33_sens = np.zeros(nnodes)
@@ -1103,8 +1104,11 @@ class PerfMeas:
 
             data["wel6_q"] = lamb
             comp_welq_sens += lamb * w
-            comp_rch_sens += lamb * w
-            data["rch6_recharge"] = lamb
+            # a well rate is already a flow, but recharge is a rate over the
+            # cell area, so the flow it produces is recharge * area
+            rch_sens = lamb * area
+            comp_rch_sens += rch_sens * w
+            data["rch6_recharge"] = rch_sens
 
             for ptype, pnames in gwf_package_dict.items():
                 if ptype == "chd6":

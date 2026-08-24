@@ -17,10 +17,12 @@ publication. Each chapter is self-contained.
 * **Streamflow Routing Package** -- the same treatment for reach depths,
   including the routing between reaches.
 
-The document is written in LaTeX and lives in ``docs/SuppInfo``. Build it with
-``make`` in that directory, which writes ``mf6adjsuppinfo.pdf``.
+The document is written in LaTeX and lives in ``docs/SuppInfo``. Build it
+locally with ``make`` in that directory, which writes ``mf6adjsuppinfo.pdf``.
+The copy offered below is built by the documentation workflow and downloaded
+into this site with the rendered notebooks.
 
 .. only:: html
 
    :download:`Download the supplemental technical information (PDF)
-   <_static/mf6adjsuppinfo.pdf>`
+   <examples/mf6adjsuppinfo.pdf>`

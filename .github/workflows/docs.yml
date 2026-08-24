@@ -53,6 +53,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pandoc
 
+      # the supplemental technical information document is built here rather
+      # than on Read the Docs, which has no LaTeX distribution and instead
+      # downloads the artifact uploaded below
+      - name: Install LaTeX
+        run: |
+          sudo apt-get install -y texlive-latex-base texlive-latex-recommended texlive-fonts-recommended texlive-binaries
+
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.10.1
         with:
@@ -77,6 +84,10 @@ jobs:
       - name: Run notebooks and build HTML docs
         run: |
           pixi run docs-build-exec
+
+      - name: Build the supplemental technical information
+        run: |
+          pixi run python scripts/build_suppinfo.py
 
       - name: Upload rendered notebooks
         if: always()

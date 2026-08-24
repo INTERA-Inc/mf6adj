@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 """Build the supplemental technical information document for the docs build.
 
-Runs the LaTeX build in docs/SuppInfo and copies the result into the Sphinx
-static directory, where docs/source/supplemental.rst offers it for download.
+Runs the LaTeX build in docs/SuppInfo and copies the result in beside the
+rendered notebooks, so it is picked up by the artifact the documentation
+workflow uploads and the rtds_action extension downloads on Read the Docs.
 
 The document is supplementary, so a missing LaTeX distribution is reported and
 skipped rather than failing the documentation build.
@@ -15,7 +16,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "docs" / "SuppInfo"
-STATIC = ROOT / "docs" / "source" / "_static"
+# the directory the rtds_action extension downloads and extracts into,
+# so the document reaches Read the Docs with the rendered notebooks
+DEST = ROOT / "docs" / "source" / "examples"
 PDF = "mf6adjsuppinfo.pdf"
 
 
@@ -33,9 +36,9 @@ def main() -> int:
         print(result.stderr[-2000:])
         return 0
 
-    STATIC.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(built, STATIC / PDF)
-    print(f"[suppinfo] copied {PDF} to {STATIC.relative_to(ROOT)}")
+    DEST.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(built, DEST / PDF)
+    print(f"[suppinfo] copied {PDF} to {DEST.relative_to(ROOT)}")
     return 0
 
 

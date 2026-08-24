@@ -1,0 +1,121 @@
+Storage is the only term in the groundwater flow equations that connects one
+time step to the next, so it is the term through which an adjoint solution
+propagates backward in time. This chapter describes that coupling and the
+selection between the specific-storage and specific-yield contributions.
+
+\section{Coupling between time steps}
+
+The right-hand side at time step $k$ depends on the head at step $k-1$ through
+the storage terms. Differentiating the adjoint problem with respect to that
+earlier head gives the term that carries the later adjoint state backward, as in
+equation~\ref{eqn:carryback}. Writing it per cell,
+
+\begin{equation}
+	\label{eqn:drhsdh}
+	\frac{\partial b}{\partial h^{\told}} = -\left(
+	\frac{\partial Q_{SS}}{\partial h^{\told}} +
+	\frac{\partial Q_{SY}}{\partial h^{\told}} \right),
+\end{equation}
+
+\noindent where $Q_{SS}$ and $Q_{SY}$ are the volumetric flow rates from
+specific storage and specific yield.
+
+The quantity in equation~\ref{eqn:drhsdh} is formed while the forward model runs
+and stored with that time step. It is paired with the adjoint state of the
+\emph{following} step, so the saturation it requires is the one at the step
+where it is formed, which the following step sees as the previous saturation.
+
+\section{Selecting the contributions}
+
+\mf{} does not apply both contributions at once. The selection is made on the
+saturation of the cell at the previous time step, and it depends on the options
+in effect \citep{langevin2024supp}.
+
+\subsection{Specific yield}
+
+Specific yield enters the previous-head derivative only through the saturation.
+For a cell that is neither full nor dry, $S_F^\told = (h^\told - BOT)/\Delta z$
+and so $\partial S_F^\told / \partial h^\told = 1/\Delta z$, giving
+
+\begin{equation}
+	\label{eqn:dsy}
+	\frac{\partial Q_{SY}}{\partial h^{\told}} = \frac{S_y A}{\Delta t},
+\end{equation}
+
+\noindent where $S_y$ is the specific yield. Once the cell is full or dry the
+saturation stops changing with head, the derivative in
+equation~\ref{eqn:dsy} vanishes, and specific yield drops out.
+
+\subsection{Specific storage}
+
+The specific-storage contribution depends on which formulation is active. Under
+the default formulation the previous-head derivative follows the previous
+saturation,
+
+\begin{equation}
+	\label{eqn:dss-default}
+	\frac{\partial Q_{SS}}{\partial h^{\told}} =
+	\frac{SC1}{\Delta t} S_F^{\told}, \qquad SC1 = S_s A \Delta z,
+\end{equation}
+
+\noindent where $S_s$ is the specific storage coefficient. Under the
+\texttt{SS\_CONFINED\_ONLY} option, specific storage acts only where the cell is
+full, and the term is removed rather than scaled:
+
+\begin{equation}
+	\label{eqn:dss-confined}
+	\frac{\partial Q_{SS}}{\partial h^{\told}} = \begin{cases}
+		\dfrac{SC1}{\Delta t}, & S_F^{\told} = 1, \\[2ex]
+		0, & S_F^{\told} < 1.
+	\end{cases}
+\end{equation}
+
+A cell that is not convertible is treated as full at all times, and
+equation~\ref{eqn:dss-default} reduces to $SC1/\Delta t$.
+
+Equations~\ref{eqn:dsy} through \ref{eqn:dss-confined} are complementary on the
+same test. Specific storage acts where the cell was full, specific yield where
+it was not.
+
+\section{Verification}
+
+A seven by seven single-layer model was drawn down by a well over four time
+steps, leaving the cells between about half and four-fifths saturated. The
+sensitivity of the head at an observation cell to the pumping rate was compared
+with a finite-difference derivative taken by perturbing that rate.
+
+\begin{table}[h]
+	\centering
+	\caption{Error in the head sensitivity against a finite-difference
+	derivative, before and after the contributions were selected as described
+	in this chapter.}
+	\label{tab:sto-verify}
+	\begin{tabular}{lrr}
+		\toprule
+		Formulation & Applying $SC1$ throughout & Selecting on saturation \\
+		\midrule
+		\texttt{SS\_CONFINED\_ONLY} & 10.7\% & 0.17\% \\
+		Default                     & 2.6\%  & 0.15\% \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+Applying $SC1$ at full cell thickness everywhere gives a partially saturated
+cell a storage term the forward model does not have, and
+Table~\ref{tab:sto-verify} shows the resulting error. The residual error after
+the correction is consistent with the nonlinearity of the finite-difference
+derivative itself.
+
+The error is largest under \texttt{SS\_CONFINED\_ONLY} because that option
+removes the term entirely rather than reducing it, so the difference between
+applying and not applying it is the whole term. The size of the error in a given
+model scales with $S_s \Delta z$ relative to $S_y$: where a model sets $S_s$
+such that $S_s \Delta z$ is comparable to or larger than $S_y$, an unselected
+specific-storage term dominates the coupling between time steps.
+
+\section{Limitation}
+
+The \texttt{ORIGINAL\_SPECIFIC\_STORAGE} option, which restores the formulation
+used before \mf{} version 6.1.3, is not supported. Its previous-head derivative
+carries a term in the previous head itself in addition to the saturation, and
+\adj{} reports the option as unsupported rather than approximating it.

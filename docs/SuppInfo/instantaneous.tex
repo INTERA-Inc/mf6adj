@@ -1,0 +1,86 @@
+A performance measure is declared in the adjoint input file with one of three
+forms. The \emph{direct} form accumulates a quantity, the \emph{residual} form
+accumulates the squared difference between a quantity and an observed
+counterpart, and the \emph{instantaneous} form averages a quantity over the
+times at which it is observed. This chapter describes the third.
+
+\section{Motivation}
+
+The direct form answers a question about a total: how much water left through a
+set of boundaries over the simulation, and how does that total respond to a
+parameter. Written over the time steps $k$ at which the measure has entries,
+
+\begin{equation}
+	\label{eqn:direct}
+	f_{\mathrm{direct}} = \sum_{k} f_{k}.
+\end{equation}
+
+That total depends on how the simulation is discretized in time. Splitting a
+stress period into more time steps adds terms to the sum. When the question is
+instead about a state at a particular time, such as the head at an observation
+well or the rate a stream is losing at the end of a season, a sum over time
+steps is not the quantity of interest and its value moves with the time
+discretization.
+
+The instantaneous form is the time-weighted mean
+
+\begin{equation}
+	\label{eqn:instantaneous}
+	f_{\mathrm{inst}} = \frac{\sum_{k} \Delta t_{k} f_{k}}
+	{\sum_{k} \Delta t_{k}},
+\end{equation}
+
+\noindent where $\Delta t_{k}$ is the length of time step $k$ and the sums run
+only over the time steps at which the measure has entries. Refining the time
+discretization leaves equation~\ref{eqn:instantaneous} unchanged, because both
+sums scale together.
+
+\section{Implementation}
+
+Two things follow from equation~\ref{eqn:instantaneous}, and both differ from
+the direct and residual forms.
+
+\subsection{Time steps are independent}
+
+A direct or residual measure accumulates through time, so the adjoint solution
+at one time step feeds the step before it. That coupling is carried by the
+storage term $\partial \mathbf{b} / \partial \mathbf{h}^{\told}$ described in
+Chapter~\ref{ch:storage}: the right-hand side of the adjoint problem at step $k$
+is
+
+\begin{equation}
+	\label{eqn:carryback}
+	\frac{\partial \mathbf{b}^{k+1}}{\partial \mathbf{h}^{k}} \lam^{k+1}
+	- \frac{\partial f}{\partial \mathbf{h}^{k}},
+\end{equation}
+
+\noindent which propagates the later step's adjoint state backward in time.
+
+An instantaneous measure asks a separate question at each observation time, so
+no such propagation applies and the first term of equation~\ref{eqn:carryback}
+is dropped. Each observed time step is solved on its own and the results are
+combined by equation~\ref{eqn:instantaneous}. The same reasoning removes the
+stage carry-back for a lake, described in Section~\ref{sec:lake-storage}.
+
+\subsection{Unobserved time steps are skipped}
+
+Because the steps are independent, a time step at which the measure has no
+entries contributes nothing and is not solved at all. For a measure observed at
+one time in a long simulation this is the difference between one adjoint solve
+and one per time step.
+
+\section{On examples}
+
+The chapters that follow close with a numerical comparison, because in each case
+a sensitivity can be checked against a finite-difference derivative and the
+agreement is the evidence that the formulation is right. No comparable example
+is given here. The instantaneous form does not change any single sensitivity; it
+changes which time steps are solved and how their results are combined. A
+worked example would show the same per-step sensitivities as the direct form,
+rescaled by a constant, which demonstrates nothing that
+equation~\ref{eqn:instantaneous} does not already state.
+
+The property worth testing is the one that motivates the form: that the result
+does not depend on the time discretization. Halving the time step length while
+holding the simulated period fixed leaves an instantaneous measure unchanged and
+doubles the number of terms in a direct measure.

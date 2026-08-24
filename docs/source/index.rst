@@ -15,4 +15,5 @@ Contents:
    installing
    usage
    examples/index
+   supplemental
    api

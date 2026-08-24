@@ -6,10 +6,16 @@ build:
     python: "3.11"
   apt_packages:
     - pandoc
+    # the supplemental technical information document is built with LaTeX
+    - texlive-latex-base
+    - texlive-latex-recommended
+    - texlive-fonts-recommended
+    - texlive-binaries
   jobs:
     pre_build:
       - python scripts/sphinx_prepare_notebooks.py --skip-if-exist
       - python scripts/sphinx_apidoc.py
+      - python scripts/build_suppinfo.py
 
 sphinx:
   configuration: docs/source/conf.py

@@ -1,0 +1,33 @@
+\documentclass[11pt]{report}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{natbib}
+\usepackage[hidelinks]{hyperref}
+
+\bibliographystyle{plainnat}
+
+% shorthand used throughout the chapters
+\newcommand{\mf}{MODFLOW~6}
+\newcommand{\adj}{mf6adj}
+\newcommand{\told}{{t-\Delta t}}
+\newcommand{\lam}{\bm{\lambda}}
+\usepackage{bm}
+
+\title{Supplemental Technical Information for \adj}
+\author{}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+
+\input{body.tex}
+
+\bibliography{references}
+
+\end{document}

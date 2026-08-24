@@ -476,11 +476,12 @@ class Mf6Adj:
         dt: float,
         sat_old: np.ndarray,
     ) -> np.ndarray:
-        """Return the head derivative of the storage-related right-hand side.
+        """Return the previous-head derivative of the storage right-hand side.
 
-        The derivative combines confined-storage and specific-yield terms for
-        the previous time step. Specific-yield contributions are suppressed in
-        fully saturated cells.
+        The storage right-hand side depends on the previous head through both
+        the head itself and the saturation it sets, and MODFLOW 6 selects
+        between the specific-storage and specific-yield terms on that
+        saturation. See SsTerms and SyTerms in GwfStorageUtils.f90.
 
         Parameters
         ----------
@@ -493,27 +494,51 @@ class Mf6Adj:
         -------
         ndarray
             Per-cell derivative of the storage-related right-hand side with
-            respect to head.
+            respect to the previous head.
         """
         area = get_ptr_from_gwf(self._gwf_name, "DIS", "AREA", self._gwf)
-
-        # specific storage
         top = get_ptr_from_gwf(self._gwf_name, "DIS", "TOP", self._gwf)
         bot = get_ptr_from_gwf(self._gwf_name, "DIS", "BOT", self._gwf)
         storage = get_ptr_from_gwf(self._gwf_name, "STO", "SS", self._gwf)
-
-        # specific yield
         iconvert = get_ptr_from_gwf(self._gwf_name, "STO", "ICONVERT", self._gwf)
         sy = get_ptr_from_gwf(self._gwf_name, "STO", "SY", self._gwf)
+        iconf_ss = int(
+            np.asarray(
+                get_ptr_from_gwf(self._gwf_name, "STO", "ICONF_SS", self._gwf)
+            ).ravel()[0]
+        )
+        iorig_ss = int(
+            np.asarray(
+                get_ptr_from_gwf(self._gwf_name, "STO", "IORIG_SS", self._gwf)
+            ).ravel()[0]
+        )
+        if iorig_ss != 0:
+            self.logger.logger.warning(
+                "ORIGINAL_SPECIFIC_STORAGE is not supported; the storage "
+                + "sensitivity uses the current specific-storage formulation"
+            )
+
         sat_old_mod = sat_old.copy()
         sat_old_mod[iconvert == 0] = 1.0
-        sy_mod = sy.copy()
-        sy_mod[sat_old_mod == 1.0] = 0.0
 
-        # calculate drhsdh
-        drhsdh = -1.0 * area * (storage * (top - bot) + sy_mod) / dt
+        # specific storage, rho1old in SsTerms
+        ss_term = area * storage * (top - bot) / dt
+        if iconf_ss != 0:
+            # SS_CONFINED_ONLY carries a previous-head term only where the cell
+            # was full; elsewhere the term is dropped rather than scaled
+            ss_scale = np.where(sat_old_mod == 1.0, 1.0, 0.0)
+        else:
+            # otherwise the term follows the previous saturation
+            ss_scale = sat_old_mod
+        # a cell that never converts is always full
+        ss_scale = np.where(iconvert == 0, 1.0, ss_scale)
 
-        return drhsdh
+        # specific yield, which enters only through the saturation and so
+        # vanishes once the cell is full or dry
+        sy_term = area * sy / dt
+        sy_scale = np.where((sat_old_mod > 0.0) & (sat_old_mod < 1.0), 1.0, 0.0)
+
+        return -1.0 * (ss_term * ss_scale + sy_term * sy_scale)
 
     def solve_forward_model(
         self,
@@ -775,6 +800,9 @@ class Mf6Adj:
                 data_dict["sat"] = sat
                 data_dict["sat_old"] = sat_old
 
+                # drhsdh stored here couples this time step to the next one, so
+                # the saturation it needs is this step's: the next step sees it
+                # as the old one. Do not move this below the calls.
                 sat_old = sat.copy()
                 if has_sto:  # has storage
                     dresdss_h = self._dresdss_h(head, head_old, dt1, sat, sat_old)

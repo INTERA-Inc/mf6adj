@@ -1,33 +1,18 @@
-\adj{} computes the sensitivity of a performance measure to model inputs by
-solving an adjoint problem alongside a \mf{} simulation \citep{hayek2025}. The
-approach is non-intrusive: the forward model runs unmodified through the
-\mf{} application programming interface, and the quantities the adjoint needs
-are read from the memory manager as the simulation proceeds.
+\adj{} computes the sensitivity of a performance measure to model inputs by solving an adjoint problem alongside a \mf{} simulation \citep{langevin2017}, an approach described by \cite{hayek2025}. The approach is non-intrusive: the forward model runs unmodified, and the quantities the adjoint needs are recovered from the simulation as it proceeds.
 
-This document records the technical detail behind extensions made after the
-original publication. It is supplemental: it assumes the formulation in
-\citet{hayek2025} and describes only what has been added or corrected. Each
-chapter is self-contained and can be read on its own.
+This document records the technical detail behind extensions made after the original publication. It is supplemental: it assumes the formulation of \cite{hayek2025} and describes only what has been added or corrected. Each chapter is self-contained and can be read on its own.
 
-\section{Scope}
+\section*{Scope}
 
-Chapter~\ref{ch:instantaneous} describes the instantaneous performance measure,
-a third form alongside the direct and residual forms, which averages a quantity
-over the time steps at which it is observed rather than accumulating it.
+Chapter~\ref{ch:instantaneous} describes the instantaneous performance measure, a third form alongside the direct and residual forms, which averages a quantity over the time steps at which it is observed rather than accumulating it.
 
-Chapter~\ref{ch:storage} describes how the storage terms couple one time step to
-the next in the adjoint, and how the specific-storage and specific-yield
-contributions are selected to match what \mf{} does.
+Chapter~\ref{ch:storage} describes how the storage terms couple one time step to the next in the adjoint, and how the specific-storage and specific-yield contributions are selected to match what \mf{} does.
 
-Chapters~\ref{ch:lake} and \ref{ch:sfr} describe the treatment of two advanced
-packages whose dependent variables are solved outside the groundwater flow
-matrix. Both use the same device, a bordered matrix, and the two chapters share
-the notation established in Chapter~\ref{ch:lake}.
+Chapters~\ref{ch:lake} and \ref{ch:sfr} describe the treatment of two advanced packages whose dependent variables are solved outside the groundwater flow matrix. Both use the same device, a bordered matrix, and the two chapters share the notation established in Chapter~\ref{ch:lake}.
 
-\section{Notation}
+\section*{Notation}
 
-The symbols below follow \citet{hayek2025} so that this document and the paper
-can be read together.
+The symbols below follow \cite{hayek2025} so that this document and the paper can be read together.
 
 The groundwater flow equations for time step $k$ are written
 
@@ -36,11 +21,7 @@ The groundwater flow equations for time step $k$ are written
 	\left[ \mathbf{A} \right]^{k} \mathbf{h}^{k} = \mathbf{b}^{k},
 \end{equation}
 
-\noindent where $\left[ \mathbf{A} \right]^{k}$ is the matrix of coefficients,
-$\mathbf{h}^{k}$ is the vector of heads, and $\mathbf{b}^{k}$ is the vector of
-constant terms. Under the Newton-Raphson scheme the Jacobian
-$\left[ \mathbf{J} \right]^{k}$ takes the place of
-$\left[ \mathbf{A} \right]^{k}$. The residual is
+\noindent where $\left[ \mathbf{A} \right]^{k}$ is the matrix of coefficients, $\mathbf{h}^{k}$ is the vector of heads, and $\mathbf{b}^{k}$ is the vector of constant terms. Under the Newton-Raphson scheme the Jacobian $\left[ \mathbf{J} \right]^{k}$ takes the place of $\left[ \mathbf{A} \right]^{k}$. The residual is
 
 \begin{equation}
 	\label{eqn:residual}
@@ -48,31 +29,17 @@ $\left[ \mathbf{A} \right]^{k}$. The residual is
 	- \mathbf{b}^{k} = \mathbf{0}.
 \end{equation}
 
-A performance measure $J$ is the sum of the contributions $F^{k}$ of the
-individual time steps,
+A performance measure $J$ is the sum of the contributions $F^{k}$ of the individual time steps,
 
 \begin{equation}
 	\label{eqn:pm}
 	J = \sum_{k=1}^{N} F^{k},
 \end{equation}
 
-\noindent for a simulation of $N$ time steps. The adjoint states
-$\bm{\lambda}^{k}$ solve the adjoint system, formed from the transpose of
-equation~\ref{eqn:forward} and solved backward in time, and the sensitivity of
-$J$ to an input parameter $\alpha_{j}$ follows from them.
+\noindent for a simulation of $N$ time steps. The adjoint states $\bm{\lambda}^{k}$ solve the adjoint system, formed from the transpose of equation~\ref{eqn:forward} and solved backward in time, and the sensitivity of $J$ to an input parameter $\alpha_{j}$ follows from them.
 
-Cells are indexed by $n$ and $m$, so $C_{n,m}$ is the conductance between two
-cells and $\eta_{n}$ is the list of cells connected to cell $n$. A superscript
-$k$ denotes the current time step and $k-1$ the previous one.
+Cells are indexed by $n$ and $m$, so $C_{n,m}$ is the conductance between two cells and $\eta_{n}$ is the list of cells connected to cell $n$. A superscript $k$ denotes the current time step and $k-1$ the previous one.
 
-A well withdraws at a specified volumetric rate, so the derivative of
-equation~\ref{eqn:residual} with respect to that rate is a unit vector at the
-pumped cell and the sensitivity of $J$ to it is the adjoint state itself. That
-identity is used throughout as a check, because it means the reported well
-sensitivity is $\bm{\lambda}$ without post-processing.
+A well withdraws at a specified volumetric rate, so the derivative of equation~\ref{eqn:residual} with respect to that rate is a unit vector at the pumped cell and the sensitivity of $J$ to it is the adjoint state itself. That identity is used throughout as a check, because it means the reported well sensitivity is $\bm{\lambda}$ without post-processing.
 
-The chapters that follow add symbols where they describe a \mf{} formulation
-directly, and those keep the names used in the \mf{} documentation
-\citep{langevin2024supp}: $SC1$ for the primary storage coefficient, $S_s$ and
-$S_y$ for specific storage and specific yield, and $S_F$ for the fractional
-saturation of a cell.
+The chapters that follow add symbols where they describe a \mf{} formulation directly, and those keep the names used in the \mf{} documentation \citep{langevin2017}: $SC1$ for the primary storage coefficient, $S_s$ and $S_y$ for specific storage and specific yield, and $S_F$ for the fractional saturation of a cell.

@@ -1,19 +1,27 @@
 \documentclass[11pt]{report}
 
 \usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
 \usepackage{amsmath}
 \usepackage{amssymb}
+\usepackage{bm}
+\usepackage[strings]{underscore}
 \usepackage{booktabs}
-\usepackage{graphicx}
-\usepackage{natbib}
-\usepackage[hidelinks]{hyperref}
+\usepackage{array}
+\usepackage{siunitx}
+\usepackage[round]{natbib}
+\setcitestyle{aysep={}}          % (Author year), no comma
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor={red!50!black},
+  citecolor={blue!50!black}, urlcolor={blue!80!black}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 
-\bibliographystyle{plainnat}
+\bibliographystyle{groundwater}
 
 % shorthand used throughout the chapters
 \newcommand{\mf}{MODFLOW~6}
 \newcommand{\adj}{mf6adj}
-\usepackage{bm}
 
 \title{Supplemental Technical Information for \adj}
 \author{}

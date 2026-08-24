@@ -26,37 +26,53 @@ the notation established in Chapter~\ref{ch:lake}.
 
 \section{Notation}
 
-The groundwater flow equations for one time step are written
+The symbols below follow \citet{hayek2025} so that this document and the paper
+can be read together.
+
+The groundwater flow equations for time step $k$ are written
 
 \begin{equation}
 	\label{eqn:forward}
-	\mathbf{A} \mathbf{h} = \mathbf{b},
+	\left[ \mathbf{A} \right]^{k} \mathbf{h}^{k} = \mathbf{b}^{k},
 \end{equation}
 
-\noindent where $\mathbf{A}$ is the flow matrix, $\mathbf{h}$ is the vector of
-cell heads, and $\mathbf{b}$ is the right-hand side. For a performance measure
-$f$ the adjoint state $\lam$ satisfies
+\noindent where $\left[ \mathbf{A} \right]^{k}$ is the matrix of coefficients,
+$\mathbf{h}^{k}$ is the vector of heads, and $\mathbf{b}^{k}$ is the vector of
+constant terms. Under the Newton-Raphson scheme the Jacobian
+$\left[ \mathbf{J} \right]^{k}$ takes the place of
+$\left[ \mathbf{A} \right]^{k}$. The residual is
 
 \begin{equation}
-	\label{eqn:adjoint}
-	\mathbf{A}^{T} \lam = \frac{\partial f}{\partial \mathbf{h}},
+	\label{eqn:residual}
+	\mathbf{r}^{k} = \left[ \mathbf{A} \right]^{k} \mathbf{h}^{k}
+	- \mathbf{b}^{k} = \mathbf{0}.
 \end{equation}
 
-\noindent and the sensitivity of $f$ to a parameter $p$ that enters through the
-residual $\mathbf{r} = \mathbf{A}\mathbf{h} - \mathbf{b}$ is
+A performance measure $J$ is the sum of the contributions $F^{k}$ of the
+individual time steps,
 
 \begin{equation}
-	\label{eqn:sensitivity}
-	\frac{\partial f}{\partial p} = -\lam^{T} \frac{\partial \mathbf{r}}
-	{\partial p}.
+	\label{eqn:pm}
+	J = \sum_{k=1}^{N} F^{k},
 \end{equation}
 
-A well withdraws at a specified volumetric rate, so
-$\partial \mathbf{r} / \partial q$ is a unit vector at the pumped cell and the
-sensitivity of $f$ to that rate is the adjoint state itself. That identity is
-used throughout as a check, because it means the reported well sensitivity is
-$\lam$ without post-processing.
+\noindent for a simulation of $N$ time steps. The adjoint states
+$\bm{\lambda}^{k}$ solve the adjoint system, formed from the transpose of
+equation~\ref{eqn:forward} and solved backward in time, and the sensitivity of
+$J$ to an input parameter $\alpha_{j}$ follows from them.
 
-Superscripts $t$ and $\told$ denote the current and previous time step. The
-saturated fraction of a cell is $S_F$, its horizontal area is $A$, and its
-thickness is $\Delta z$.
+Cells are indexed by $n$ and $m$, so $C_{n,m}$ is the conductance between two
+cells and $\eta_{n}$ is the list of cells connected to cell $n$. A superscript
+$k$ denotes the current time step and $k-1$ the previous one.
+
+A well withdraws at a specified volumetric rate, so the derivative of
+equation~\ref{eqn:residual} with respect to that rate is a unit vector at the
+pumped cell and the sensitivity of $J$ to it is the adjoint state itself. That
+identity is used throughout as a check, because it means the reported well
+sensitivity is $\bm{\lambda}$ without post-processing.
+
+The chapters that follow add symbols where they describe a \mf{} formulation
+directly, and those keep the names used in the \mf{} documentation
+\citep{langevin2024supp}: $SC1$ for the primary storage coefficient, $S_s$ and
+$S_y$ for specific storage and specific yield, and $S_F$ for the fractional
+saturation of a cell.

@@ -12,9 +12,9 @@ equation~\ref{eqn:carryback}. Writing it per cell,
 
 \begin{equation}
 	\label{eqn:drhsdh}
-	\frac{\partial b}{\partial h^{\told}} = -\left(
-	\frac{\partial Q_{SS}}{\partial h^{\told}} +
-	\frac{\partial Q_{SY}}{\partial h^{\told}} \right),
+	\frac{\partial b}{\partial h^{k-1}} = -\left(
+	\frac{\partial Q_{SS}}{\partial h^{k-1}} +
+	\frac{\partial Q_{SY}}{\partial h^{k-1}} \right),
 \end{equation}
 
 \noindent where $Q_{SS}$ and $Q_{SY}$ are the volumetric flow rates from
@@ -34,12 +34,12 @@ in effect \citep{langevin2024supp}.
 \subsection{Specific yield}
 
 Specific yield enters the previous-head derivative only through the saturation.
-For a cell that is neither full nor dry, $S_F^\told = (h^\told - BOT)/\Delta z$
-and so $\partial S_F^\told / \partial h^\told = 1/\Delta z$, giving
+For a cell that is neither full nor dry, $S_F^{k-1} = (h^{k-1} - BOT)/\Delta z$
+and so $\partial S_F^{k-1} / \partial h^{k-1} = 1/\Delta z$, giving
 
 \begin{equation}
 	\label{eqn:dsy}
-	\frac{\partial Q_{SY}}{\partial h^{\told}} = \frac{S_y A}{\Delta t},
+	\frac{\partial Q_{SY}}{\partial h^{k-1}} = \frac{S_y A}{\Delta t^{k}},
 \end{equation}
 
 \noindent where $S_y$ is the specific yield. Once the cell is full or dry the
@@ -54,8 +54,8 @@ saturation,
 
 \begin{equation}
 	\label{eqn:dss-default}
-	\frac{\partial Q_{SS}}{\partial h^{\told}} =
-	\frac{SC1}{\Delta t} S_F^{\told}, \qquad SC1 = S_s A \Delta z,
+	\frac{\partial Q_{SS}}{\partial h^{k-1}} =
+	\frac{SC1}{\Delta t^{k}} S_F^{k-1}, \qquad SC1 = S_s A \Delta z,
 \end{equation}
 
 \noindent where $S_s$ is the specific storage coefficient. Under the
@@ -64,14 +64,14 @@ full, and the term is removed rather than scaled:
 
 \begin{equation}
 	\label{eqn:dss-confined}
-	\frac{\partial Q_{SS}}{\partial h^{\told}} = \begin{cases}
-		\dfrac{SC1}{\Delta t}, & S_F^{\told} = 1, \\[2ex]
-		0, & S_F^{\told} < 1.
+	\frac{\partial Q_{SS}}{\partial h^{k-1}} = \begin{cases}
+		\dfrac{SC1}{\Delta t^{k}}, & S_F^{k-1} = 1, \\[2ex]
+		0, & S_F^{k-1} < 1.
 	\end{cases}
 \end{equation}
 
 A cell that is not convertible is treated as full at all times, and
-equation~\ref{eqn:dss-default} reduces to $SC1/\Delta t$.
+equation~\ref{eqn:dss-default} reduces to $SC1/\Delta t^{k}$.
 
 Equations~\ref{eqn:dsy} through \ref{eqn:dss-confined} are complementary on the
 same test. Specific storage acts where the cell was full, specific yield where

@@ -19,23 +19,24 @@ it there. Instead the adjoint system is extended.
 \section{Bordered system}
 
 Let $\mathbf{h}$ be the cell heads and $\mathbf{s}$ the stages of the lakes
-whose stage is free to move. Write the aquifer residual as $\mathbf{R}$ and the
-lake water balance as $\mathbf{L}$. The two sets of equations together are
+whose stage is free to move. Write the aquifer residual as $\mathbf{r}$, as in
+equation~\ref{eqn:residual}, and the lake water balance as
+$\mathbf{r}_{L}$. The two sets of equations together are
 
 \begin{equation}
 	\label{eqn:lak-bordered}
 	\begin{bmatrix}
-		\dfrac{\partial \mathbf{R}}{\partial \mathbf{h}} &
-		\dfrac{\partial \mathbf{R}}{\partial \mathbf{s}} \\[2ex]
-		\dfrac{\partial \mathbf{L}}{\partial \mathbf{h}} &
-		\dfrac{\partial \mathbf{L}}{\partial \mathbf{s}}
+		\dfrac{\partial \mathbf{r}}{\partial \mathbf{h}} &
+		\dfrac{\partial \mathbf{r}}{\partial \mathbf{s}} \\[2ex]
+		\dfrac{\partial \mathbf{r}_{L}}{\partial \mathbf{h}} &
+		\dfrac{\partial \mathbf{r}_{L}}{\partial \mathbf{s}}
 	\end{bmatrix}
 	\begin{bmatrix} \mathbf{h} \\ \mathbf{s} \end{bmatrix}
 	=
 	\begin{bmatrix} \mathbf{b} \\ \mathbf{b}_{L} \end{bmatrix}.
 \end{equation}
 
-The leading block is the flow matrix $\mathbf{A}$ of
+The leading block is the matrix $\left[ \mathbf{A} \right]^{k}$ of
 equation~\ref{eqn:forward}. The other three blocks add one row and one column
 per free lake, which is why this is called a bordered matrix: the original
 system sits inside a border one equation deep. The adjoint problem is the
@@ -47,14 +48,14 @@ border, as is an inactive lake.
 
 \subsection{Connection terms}
 
-Each lake-aquifer connection carries a conductance $C$. The exchange depends on
+Each lake-aquifer connection carries a conductance $C_{n,\ell}$ between cell $n$ and lake $\ell$. The exchange depends on
 both the head in the cell and the stage of the lake, giving the off-diagonal
 blocks
 
 \begin{equation}
 	\label{eqn:lak-offdiag}
-	\frac{\partial R_{n}}{\partial s_{\ell}} = C, \qquad
-	\frac{\partial L_{\ell}}{\partial h_{n}} = \mathrm{HCOF}_{n},
+	\frac{\partial r_{n}}{\partial s_{\ell}} = C_{n,\ell}, \qquad
+	\frac{\partial r_{L,\ell}}{\partial h_{n}} = \mathrm{HCOF}_{n},
 \end{equation}
 
 \noindent summed over the connections between cell $n$ and lake $\ell$, and the

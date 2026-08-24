@@ -12,7 +12,7 @@ parameter. Written over the time steps $k$ at which the measure has entries,
 
 \begin{equation}
 	\label{eqn:direct}
-	f_{\mathrm{direct}} = \sum_{k} f_{k}.
+	J_{\mathrm{direct}} = \sum_{k} F^{k}.
 \end{equation}
 
 That total depends on how the simulation is discretized in time. Splitting a
@@ -26,11 +26,11 @@ The instantaneous form is the time-weighted mean
 
 \begin{equation}
 	\label{eqn:instantaneous}
-	f_{\mathrm{inst}} = \frac{\sum_{k} \Delta t_{k} f_{k}}
-	{\sum_{k} \Delta t_{k}},
+	J_{\mathrm{inst}} = \frac{\sum_{k} \Delta t^{k} F^{k}}
+	{\sum_{k} \Delta t^{k}},
 \end{equation}
 
-\noindent where $\Delta t_{k}$ is the length of time step $k$ and the sums run
+\noindent where $\Delta t^{k}$ is the length of time step $k$ and the sums run
 only over the time steps at which the measure has entries. Refining the time
 discretization leaves equation~\ref{eqn:instantaneous} unchanged, because both
 sums scale together.
@@ -44,14 +44,15 @@ the direct and residual forms.
 
 A direct or residual measure accumulates through time, so the adjoint solution
 at one time step feeds the step before it. That coupling is carried by the
-storage term $\partial \mathbf{b} / \partial \mathbf{h}^{\told}$ described in
+storage term $\partial \mathbf{b}^{k} / \partial \mathbf{h}^{k-1}$ described in
 Chapter~\ref{ch:storage}: the right-hand side of the adjoint problem at step $k$
 is
 
 \begin{equation}
 	\label{eqn:carryback}
-	\frac{\partial \mathbf{b}^{k+1}}{\partial \mathbf{h}^{k}} \lam^{k+1}
-	- \frac{\partial f}{\partial \mathbf{h}^{k}},
+	\frac{\partial \mathbf{b}^{k+1}}{\partial \mathbf{h}^{k}}
+	\bm{\lambda}^{k+1}
+	- \frac{\partial F^{k}}{\partial \mathbf{h}^{k}},
 \end{equation}
 
 \noindent which propagates the later step's adjoint state backward in time.

@@ -65,8 +65,8 @@ def _build_model(ws, recharge, array_recharge=False):
         stress_period_data=[[(0, i, 0), 0.0, 100.0] for i in range(NROW)],
         pname="ghb-1",
     )
-    # both recharge forms are rch6 in the name file; the array form is
-    # distinguished only by reading its input as arrays
+    # recharge given as a list of cells, or as an array over the grid; both are
+    # applied at a specified rate, so neither flow follows the head
     if array_recharge:
         flopy.mf6.ModflowGwfrcha(gwf, recharge=recharge, pname="rcha-1")
     else:

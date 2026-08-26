@@ -157,7 +157,6 @@ class Mf6Adj:
                 "sfr6",
                 "lak6",
                 "rch6",
-                "recha6",
                 "evt6",
             ]
             self._gwf_boundary_attr_dict = {

@@ -20,7 +20,9 @@ Cases:
   - branching        : a stream that splits sends its flow on in the shares the
                        reaches below it are given.
   - xs_rating        : the cross-section rating reproduces the discharge the
-                       forward model solved the reach depth against.
+                       forward model solved the reach depth against, for a
+                       channel with sloping banks and for one closed by a
+                       vertical wall.
   - xs_derivative    : the derivative of that rating matches a central
                        difference through a break in the section.
   - sfr_cross_section: a stream whose reaches carry a cross section, whose
@@ -64,9 +66,28 @@ CROSS_SECTION = [
     (1.0, 1.2, 1.0),
 ]
 
+# the same channel closed by a vertical wall standing on the bank, which is the
+# geometry a wetted vertical face is formed for; the wall stands low enough that
+# the water reaches it
+WALLED_SECTION = [
+    (0.0, 0.5, 1.0),
+    (0.0, 0.03, 1.0),
+    (0.3, 0.0, 1.0),
+    (0.7, 0.0, 1.0),
+    (1.0, 0.03, 1.0),
+    (1.0, 0.5, 1.0),
+]
+
 
 def _build_model(
-    ws, well_rate, inflow=5000.0, rhk=5.0, rgrd=1.0e-3, man=0.03, cross_section=False
+    ws,
+    well_rate,
+    inflow=5000.0,
+    rhk=5.0,
+    rgrd=1.0e-3,
+    man=0.03,
+    cross_section=False,
+    section=None,
 ):
     """Build a single-layer model with a chain of reaches across it."""
     ws = pl.Path(ws)
@@ -137,9 +158,9 @@ def _build_model(
             name = f"xs{n}"
             flopy.mf6.ModflowUtlsfrtab(
                 gwf,
-                nrow=len(CROSS_SECTION),
+                nrow=len(section or CROSS_SECTION),
                 ncol=3,
-                table=CROSS_SECTION,
+                table=section or CROSS_SECTION,
                 filename=f"{name}.txt",
                 pname=name,
             )
@@ -682,9 +703,10 @@ def _section_terms(ws):
     return terms
 
 
-def test_xs_rating(tmp_path):
+@pytest.mark.parametrize("section", [None, WALLED_SECTION])
+def test_xs_rating(tmp_path, section):
     """The rating reproduces the discharge the reach depth was solved against."""
-    ws = _build_model(tmp_path / "xs", WELL_RATE, cross_section=True)
+    ws = _build_model(tmp_path / "xs", WELL_RATE, cross_section=True, section=section)
     terms = _section_terms(ws)
     for n in range(1, NCOL):
         # the first reach is left out because its inflow is specified rather

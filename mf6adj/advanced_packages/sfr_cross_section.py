@@ -56,7 +56,15 @@ def _vertical_faces(stations, heights):
 
 
 def _wet_vertical_face(heights, n, d, left):
-    """Return the wetted length of a vertical face, and how it follows depth."""
+    """Return the wetted length of a vertical face, and how it follows depth.
+
+    A water surface below the foot of the face gives a negative length, which
+    MODFLOW 6 neither guards against nor discards. That is reproduced rather
+    than corrected: the sensitivity has to be taken of the rating the forward
+    model actually used, and clamping here would differentiate a different one.
+    A segment left with a negative perimeter carries no conveyance, in this
+    routine as in MODFLOW.
+    """
     if left:
         above, below = heights[n - 1], heights[n]
     else:

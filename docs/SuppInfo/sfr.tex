@@ -162,4 +162,6 @@ Equations~\ref{eqn:sfr-passed} and \ref{eqn:sfr-diverted} scale the routing coef
 
 \section*{Limitations}
 
-Where the flows do not determine the rule, which happens when a reach has nothing to give and every rule diverts nothing, \adj{} reports the diversion and holds its flow fixed rather than returning a partial derivative silently.
+The flows leave the rule open only where two rules divert the same amount and respond differently, which takes a coincidence between the flow available and the rate the diversion is given. A flow of exactly twice the rate is one: \texttt{EXCESS} passes the rate on and takes the rest, which is then the rate itself, the same amount \texttt{UPTO} and \texttt{THRESHOLD} take, and the three do not agree on how that amount would change. Where that happens \adj{} reports the diversion and holds its flow fixed rather than returning a partial derivative silently.
+
+A reach whose outflow is not positive diverts nothing under any rule, and passes nothing on, so no rule is inferred for it and none is needed.

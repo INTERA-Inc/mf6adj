@@ -30,6 +30,43 @@ Equation~\ref{eqn:sfr-dqdd} is written in terms of the discharge \mf{} reports r
 
 Below a depth of $10^{-5}$ in model length units \mf{} smooths the discharge to zero. That smoothing is not reproduced, so a shallower reach is treated as carrying no flow.
 
+\section*{Reaches with a cross section}
+
+A reach may instead be given a cross section, a set of points describing the shape of the channel as a station across it and a height above the streambed. The channel is then a chain of straight segments between those points, and the discharge is the conveyance of the wetted part of each,
+
+\begin{equation}
+	\label{eqn:sfr-section}
+	q_{\mathrm{man}}(d) = K \sqrt{S} \sum_{i} \frac{a_{i}^{5/3}}
+	{n_{i} \, p_{i}^{2/3}},
+\end{equation}
+
+\noindent where $a_{i}$ is the wetted area of segment $i$ (L$^{2}$), $p_{i}$ is its wetted perimeter (L), and $n_{i}$ is Manning's roughness of the reach times the roughness fraction given for that segment. Equation~\ref{eqn:sfr-manning} is the special case of a single segment whose perimeter does not follow the depth, and equation~\ref{eqn:sfr-dqdd} does not hold for equation~\ref{eqn:sfr-section}.
+
+Both the area and the perimeter of a segment follow the depth, so the derivative is taken from them rather than from a perturbation of the discharge,
+
+\begin{equation}
+	\label{eqn:sfr-dsection}
+	\frac{\partial q_{\mathrm{man}}}{\partial d} = K \sqrt{S} \sum_{i}
+	\frac{1}{n_{i}} \left(
+	\frac{5}{3} \frac{a_{i}^{2/3}}{p_{i}^{2/3}}
+	\frac{\partial a_{i}}{\partial d} -
+	\frac{2}{3} \frac{a_{i}^{5/3}}{p_{i}^{5/3}}
+	\frac{\partial p_{i}}{\partial d} \right).
+\end{equation}
+
+The area of a segment grows with the depth at its wetted top width, and its perimeter grows at the length of the wetted face, so both derivatives in equation~\ref{eqn:sfr-dsection} come from the geometry of the section and neither needs the discharge. Both step where the water surface passes a point of the section, and the derivative is taken on the side the depth is on.
+
+A cross section carries a second consequence. The streambed conductance of a reach is proportional to its wetted perimeter, and for a section that perimeter follows the depth, so the leakage responds to the depth through the conductance as well as through the stage,
+
+\begin{equation}
+	\label{eqn:sfr-dleak}
+	\frac{\partial Q_{\mathrm{leak}}}{\partial d} = C \left(
+	1 + \frac{1}{P} \frac{\partial P}{\partial d}
+	\left( h_{s} - h \right) \right),
+\end{equation}
+
+\noindent where $C$ is the streambed conductance (L$^{2}$T$^{-1}$), $P$ is the wetted perimeter of the whole section (L), $h_{s}$ is the reach stage (L), and $h$ is the head beneath the reach (L), taken at the bottom of the streambed where the reach is perched. A reach without a cross section has a perimeter that does not follow the depth, the bracket in equation~\ref{eqn:sfr-dleak} is one, and the leakage derivative is the conductance alone. Only the bracket is formed from the section, so the conductance the package reports sets the magnitude and a reach on an inactive cell stays at zero.
+
 \section*{Routing}
 
 The flow entering a reach is the sum of the flows leaving the reaches upstream of it, apportioned by the diversion fractions specified for the network. The connectivity is that of the stream network itself, which identifies the reaches upstream of each reach.
@@ -77,10 +114,8 @@ A chain of reaches crossing a single layer model was pumped from a cell away fro
 
 A branching network, in which one reach receives water from two upstream reaches and the apportionment fractions therefore matter, reproduces its finite-difference sensitivities to the same tolerance.
 
+The same model was run again with a trapezoidal cross section on every reach. The rating of equation~\ref{eqn:sfr-section} reproduces the discharge the forward model solved each depth against to eleven significant figures, which is the check that established the geometry before any derivative was taken from it, and the derivative of equation~\ref{eqn:sfr-dsection} matches a central difference of that rating to nine, on both sides of a break in the section. Holding the depths of those reaches fixed gave a capture sensitivity in error by 1.7 percent, and carrying equations~\ref{eqn:sfr-dsection} and \ref{eqn:sfr-dleak} reduced it to 0.002 percent.
+
 \section*{Limitations}
 
-Two cases are left with a fixed depth, and \adj{} reports each rather than returning a partial derivative silently.
-
-A reach with more than one cross-section point takes its discharge from a section rating rather than from equation~\ref{eqn:sfr-manning}, so the exponent in equation~\ref{eqn:sfr-dqdd} does not hold. The station, height, and roughness that define the section are available, so the rating can be reproduced and differentiated.
-
-A diversion removes water from a reach under one of four rules, each with a simple derivative in the flow available to it, and each scaling a routing coefficient the reach equations already carry. Which rule is in effect is not currently recoverable from the simulation, so the derivative cannot be selected.
+A diversion removes water from a reach under one of four rules, each with a simple derivative in the flow available to it, and each scaling a routing coefficient the reach equations already carry. Which rule is in effect is not currently recoverable from the simulation, so the derivative cannot be selected, and \adj{} reports the diversion rather than returning a partial derivative silently.

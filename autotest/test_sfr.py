@@ -31,8 +31,8 @@ Cases:
                        conductance follows the depth as well as the stage.
   - diversion_rule   : the derivative of each diversion rule is recovered from
                        the flows, in both regimes of the piecewise ones.
-  - diversion_unknown: flows that do not determine the rule are reported as
-                       undetermined rather than guessed at.
+  - diversion_unknown: flows that leave two rules diverting the same amount
+                       are reported as undetermined rather than guessed at.
   - sfr_diversion    : a stream carrying a diversion under each of the four
                        rules.
 """
@@ -871,11 +871,20 @@ def test_diversion_rule(available, requested, taken, expected):
     assert derivative == pytest.approx(expected)
 
 
-def test_diversion_unknown():
+@pytest.mark.parametrize(
+    "available, requested, taken",
+    [
+        # EXCESS passes on the rate and takes the rest, so where the flow is
+        # exactly twice the rate it takes the rate itself, as UPTO and
+        # THRESHOLD do, and the three do not agree on how that would change
+        (2000.0, 1000.0, 1000.0),
+        # FRACTION takes the rate itself where the flow available is one
+        (1.0, 0.4, 0.4),
+    ],
+)
+def test_diversion_unknown(available, requested, taken):
     """Flows that leave the rule open are reported rather than guessed at."""
-    # a reach with nothing to give diverts nothing under every rule, and the
-    # rules do not agree on how that would change
-    derivative, determined = diversion_derivative(0.0, 0.5, 0.0)
+    derivative, determined = diversion_derivative(available, requested, taken)
     assert not determined
     assert derivative == 0.0
 

@@ -11,6 +11,11 @@ Cases:
                                      rate.
   - test_recharge_scales_with_area : the recharge sensitivity is the well
                                      sensitivity times the cell area.
+  - test_specified_flux_measure_rejected : measuring the flow of a well, list
+                                     recharge, or array recharge is an error
+                                     rather than a silently zero sensitivity.
+  - test_head_dependent_measure_allowed : measuring a head-dependent boundary in
+                                     the same model is unaffected.
 """
 
 import pathlib as pl
@@ -20,6 +25,7 @@ import sys
 import flopy
 import h5py
 import numpy as np
+import pytest
 
 try:
     import mf6adj
@@ -38,7 +44,7 @@ OBS_CELL = (0, 3, 3)
 BASE_RECHARGE = 1.0e-3
 
 
-def _build_model(ws, recharge):
+def _build_model(ws, recharge, array_recharge=False):
     ws = pl.Path(ws)
     if ws.exists():
         shutil.rmtree(ws)
@@ -59,14 +65,18 @@ def _build_model(ws, recharge):
         stress_period_data=[[(0, i, 0), 0.0, 100.0] for i in range(NROW)],
         pname="ghb-1",
     )
-    # a list recharge package, so the sensitivity is written as rch6_recharge
-    flopy.mf6.ModflowGwfrch(
-        gwf,
-        stress_period_data=[
-            [(0, i, j), recharge] for i in range(NROW) for j in range(NCOL)
-        ],
-        pname="rch-1",
-    )
+    # both recharge forms are rch6 in the name file; the array form is
+    # distinguished only by reading its input as arrays
+    if array_recharge:
+        flopy.mf6.ModflowGwfrcha(gwf, recharge=recharge, pname="rcha-1")
+    else:
+        flopy.mf6.ModflowGwfrch(
+            gwf,
+            stress_period_data=[
+                [(0, i, j), recharge] for i in range(NROW) for j in range(NCOL)
+            ],
+            pname="rch-1",
+        )
     flopy.mf6.ModflowGwfwel(gwf, stress_period_data=[[OBS_CELL, 0.0]], pname="wel-1")
     flopy.mf6.ModflowGwfoc(
         gwf,
@@ -129,4 +139,58 @@ def test_recharge_scales_with_area(function_tmpdir):
 
     assert np.allclose(recharge_sens, well_sens * CELL_AREA, rtol=1e-10), (
         "the recharge sensitivity does not carry the cell area"
+    )
+
+
+def _write_measure(ws, package):
+    """Write a flux measure over every cell of one package."""
+    ws = pl.Path(ws)
+    with open(ws / "pm.dat", "w") as f:
+        f.write("begin performance_measure flux\n")
+        for i in range(NROW):
+            for j in range(NCOL):
+                f.write(f"  1 1 1 {i + 1} {j + 1} {package} direct 1.0 -1.0e+30\n")
+        f.write("end performance_measure\n\n")
+
+
+@pytest.mark.parametrize(
+    "package, array_recharge",
+    [("wel-1", False), ("rch-1", False), ("rcha-1", True)],
+    ids=["wel", "rch", "rcha"],
+)
+def test_specified_flux_measure_rejected(function_tmpdir, package, array_recharge):
+    """Measuring the flow of a specified-flux package is an error.
+
+    A well rate and a recharge rate are both applied as specified, so neither
+    flow follows the head and the sensitivity of a measure of either is zero
+    everywhere. Reporting those zeros looks like an answer.
+    """
+    ws = _build_model(function_tmpdir / package, BASE_RECHARGE, array_recharge)
+    _write_measure(ws, package)
+
+    with pytest.raises(Exception, match="specified rather than calculated"):
+        mf6adj.Mf6Adj(
+            "pm.dat", lib_name, logging_level="WARNING", working_directory=str(ws)
+        )
+
+
+def test_head_dependent_measure_allowed(function_tmpdir):
+    """A head-dependent boundary in the same model is still accepted."""
+    ws = _build_model(function_tmpdir / "allowed", BASE_RECHARGE)
+    with open(pl.Path(ws) / "pm.dat", "w") as f:
+        f.write("begin performance_measure flux\n")
+        for i in range(NROW):
+            f.write(f"  1 1 1 {i + 1} 1 ghb-1 direct 1.0 -1.0e+30\n")
+        f.write("end performance_measure\n\n")
+
+    adj = mf6adj.Mf6Adj(
+        "pm.dat", lib_name, logging_level="WARNING", working_directory=str(ws)
+    )
+    adj.solve_forward_model(hdf5_name="fwd.hd5")
+    adj.solve_adjoint()
+    adj.finalize()
+    with h5py.File(pl.Path(ws) / "adjoint_solution_flux.hd5", "r") as hf:
+        sensitivity = hf["composite"]["wel6_q"][:]
+    assert np.abs(sensitivity).max() > 0.0, (
+        "a head-dependent measure should have a non-zero sensitivity"
     )

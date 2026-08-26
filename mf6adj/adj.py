@@ -33,6 +33,12 @@ from .utils.utils_pm_read import (
 )
 
 DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+# Packages whose flow is specified rather than calculated from head. Their
+# flow does not respond to head, so it has no derivative with respect to it.
+# Array-based recharge is named rch6 in the name file as the list form is, so
+# both are covered by the one entry.
+SPECIFIED_FLUX_PACKAGES = ("wel6", "rch6")
 PathLike = Union[str, pl.Path]
 
 
@@ -231,6 +237,24 @@ class Mf6Adj:
                 + f"({flux_types}) and is a residual 'pm_form', "
                 + "this is not supported"
             )
+        specified = {
+            name.lower().strip()
+            for package_type in SPECIFIED_FLUX_PACKAGES
+            for name in self._gwf_package_dict.get(package_type, [])
+        }
+        # the flow of a specified-flux boundary does not follow the head, so a
+        # measure of it has no derivative and would be reported as zero
+        offending = sorted(flux_types & specified)
+        if offending:
+            raise Exception(
+                f"performance measure {pm_name} measures the flow of "
+                + f"({', '.join(offending)}), which is specified rather than "
+                + "calculated from head. That flow does not respond to head, so "
+                + "its sensitivity is zero everywhere. Measure a head-dependent "
+                + "boundary, such as drn6, ghb6, riv6, evt6, sfr6, or lak6, or "
+                + "measure head directly."
+            )
+
         if pm_name in [pm._name for pm in self._performance_measures]:
             raise Exception(f"PM {pm_name} multiply defined")
 

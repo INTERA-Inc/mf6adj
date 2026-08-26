@@ -11,7 +11,7 @@ The right-hand side at time step $k$ depends on the head at step $k-1$ through t
 	\frac{\partial Q_{SY}}{\partial h^{k-1}} \right),
 \end{equation}
 
-\noindent where $Q_{SS}$ and $Q_{SY}$ are the volumetric flow rates from specific storage and specific yield.
+\noindent where $Q_{SS}$ and $Q_{SY}$ are the volumetric flow rates from specific storage and specific yield (L$^{3}$T$^{-1}$).
 
 The quantity in equation~\ref{eqn:drhsdh} is formed while the forward model runs and stored with that time step. It is paired with the adjoint state of the \emph{following} step, so the saturation it requires is the one at the step where it is formed, which the following step sees as the previous saturation.
 
@@ -28,7 +28,7 @@ Specific yield enters the previous-head derivative only through the saturation. 
 	\frac{\partial Q_{SY}}{\partial h^{k-1}} = \frac{S_y A}{\Delta t^{k}},
 \end{equation}
 
-\noindent where $S_y$ is the specific yield. Once the cell is full or dry the saturation stops changing with head, the derivative in equation~\ref{eqn:dsy} vanishes, and specific yield drops out.
+\noindent where $S_y$ is the specific yield (dimensionless), $A$ is the horizontal area of the cell (L$^{2}$), and $\Delta t^{k}$ is the length of the time step (T). Once the cell is full or dry the saturation stops changing with head, the derivative in equation~\ref{eqn:dsy} vanishes, and specific yield drops out.
 
 \subsection*{Specific storage}
 
@@ -40,7 +40,7 @@ The specific-storage contribution depends on which formulation is active. Under 
 	\frac{SC1}{\Delta t^{k}} S_F^{k-1}, \qquad SC1 = S_s A \Delta z,
 \end{equation}
 
-\noindent where $S_s$ is the specific storage coefficient. Under the \texttt{SS\_CONFINED\_ONLY} option, specific storage acts only where the cell is full, and the term is removed rather than scaled:
+\noindent where $S_s$ is the specific storage coefficient (L$^{-1}$), $SC1$ is the primary storage coefficient (L$^{2}$), and $\Delta z$ is the cell thickness (L). Under the \texttt{SS\_CONFINED\_ONLY} option, specific storage acts only where the cell is full, and the term is removed rather than scaled:
 
 \begin{equation}
 	\label{eqn:dss-confined}

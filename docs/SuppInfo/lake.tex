@@ -29,7 +29,7 @@ A lake with a specified stage contributes no unknown and is left out of the bord
 
 \subsection*{Connection terms}
 
-Each lake-aquifer connection carries a conductance $C_{n,\ell}$ between cell $n$ and lake $\ell$. The exchange depends on both the head in the cell and the stage of the lake, giving the off-diagonal blocks
+Each lake-aquifer connection carries a conductance $C_{n,\ell}$ (L$^{2}$T$^{-1}$) between cell $n$ and lake $\ell$. The exchange depends on both the head in the cell and the stage of the lake, giving the off-diagonal blocks
 
 \begin{equation}
 	\label{eqn:lak-offdiag}
@@ -43,7 +43,7 @@ The two halves of equation~\ref{eqn:lak-offdiag} are not written the same way, a
 
 \subsection*{Storage and surface area}
 
-A transient step adds the change in lake storage to the diagonal, $\partial V / \partial s$ divided by the time step length, where $V$ is the lake volume. A steady-state step adds nothing.
+A transient step adds the change in lake storage to the diagonal, $\partial V / \partial s$ divided by the time step length, where $V$ is the lake volume (L$^{3}$) and $s$ is the lake stage (L). A steady-state step adds nothing.
 
 A lake whose surface area grows with stage evaporates more as it rises and catches more rain, and those act in opposite senses, so the diagonal also carries
 
@@ -52,7 +52,7 @@ A lake whose surface area grows with stage evaporates more as it rises and catch
 	\left( E - P \right) \frac{\partial S_{A}}{\partial s},
 \end{equation}
 
-\noindent where $E$ is the evaporation rate, $P$ the rainfall rate, and $S_{A}$ the lake surface area. Where the lake geometry is given as a table of stage against volume and area, the derivatives $\partial V / \partial s$ and $\partial S_A / \partial s$ are the slopes of the interval of the table holding the current stage, matching the interpolation \mf{} performs.
+\noindent where $E$ is the evaporation rate (LT$^{-1}$), $P$ the rainfall rate (LT$^{-1}$), and $S_{A}$ the lake surface area (L$^{2}$). Where the lake geometry is given as a table of stage against volume and area, the derivatives $\partial V / \partial s$ and $\partial S_A / \partial s$ are the slopes of the interval of the table holding the current stage, matching the interpolation \mf{} performs.
 
 As with the aquifer, the lake storage term also couples one time step to the next, and the stage part of the adjoint solution is carried backward in the same way. An instantaneous measure, for which the time steps are independent, does not carry it (Chapter~\ref{ch:instantaneous}).
 

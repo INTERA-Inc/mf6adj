@@ -11,14 +11,14 @@ A reach depth follows the flow through the reach, so like a lake stage it is a d
 	Q_{\mathrm{out}} = Q_{\mathrm{in}} - Q_{\mathrm{leak}},
 \end{equation}
 
-\noindent where $Q_{\mathrm{leak}}$ is the exchange with the aquifer. For a reach without a cross section the wetted perimeter is the reach width, which carries no dependence on depth, so the discharge is a power of the depth,
+\noindent where $Q_{\mathrm{leak}}$ is the exchange with the aquifer (L$^{3}$T$^{-1}$) and $d$ is the reach depth (L). For a reach without a cross section the wetted perimeter is the reach width, which carries no dependence on depth, so the discharge is a power of the depth,
 
 \begin{equation}
 	\label{eqn:sfr-manning}
 	q_{\mathrm{man}}(d) = \frac{K w \sqrt{S}}{n}\, d^{5/3},
 \end{equation}
 
-\noindent with $w$ the width, $S$ the slope, $n$ Manning's roughness, and $K$ a unit conversion. The derivative needed for the border follows directly,
+\noindent with $w$ the width (L), $S$ the slope (dimensionless), $n$ Manning's roughness, and $K$ a unit conversion. The derivative needed for the border follows directly,
 
 \begin{equation}
 	\label{eqn:sfr-dqdd}
@@ -43,7 +43,7 @@ Because $Q_{\mathrm{out}}$ of an upstream reach depends on that reach's depth an
 	{\partial d_{u}},
 \end{equation}
 
-\noindent where $\sigma$ is the fraction of the upstream reach's outflow routed to this one. The second reaches back into the aquifer, because the flow leaving the upstream reach carries half of that reach's leakage,
+\noindent where $\sigma$ is the fraction of the upstream reach's outflow routed to this one (dimensionless). The second reaches back into the aquifer, because the flow leaving the upstream reach carries half of that reach's leakage,
 
 \begin{equation}
 	\label{eqn:sfr-uphead}

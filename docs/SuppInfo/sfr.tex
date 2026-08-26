@@ -114,8 +114,52 @@ A chain of reaches crossing a single layer model was pumped from a cell away fro
 
 A branching network, in which one reach receives water from two upstream reaches and the apportionment fractions therefore matter, reproduces its finite-difference sensitivities to the same tolerance.
 
+A diversion was added to the same model and run under each of the four rules. Holding the diverted flow fixed gave sensitivities in error by 0.03 to 0.11 percent under the three rules whose derivative is not zero, and carrying equations~\ref{eqn:sfr-passed} and \ref{eqn:sfr-diverted} brought all four to within 0.001 percent. Under \texttt{THRESHOLD} the derivative is zero, and holding the flow fixed was already exact.
+
 The same model was run again with a trapezoidal cross section on every reach. The rating of equation~\ref{eqn:sfr-section} reproduces the discharge the forward model solved each depth against to eleven significant figures, which is the check that established the geometry before any derivative was taken from it, and the derivative of equation~\ref{eqn:sfr-dsection} matches a central difference of that rating to nine, on both sides of a break in the section. Holding the depths of those reaches fixed gave a capture sensitivity in error by 1.7 percent, and carrying equations~\ref{eqn:sfr-dsection} and \ref{eqn:sfr-dleak} reduced it to 0.002 percent.
+
+\section*{Diversions}
+
+A diversion takes water out of the flow a reach passes on, under one of four rules. Writing $v$ for the rate the diversion is given (L$^{3}$T$^{-1}$, or dimensionless for a fraction) and $q$ for the flow available to it when its turn comes (L$^{3}$T$^{-1}$), the rules and the derivative each carries are given in Table~\ref{tab:sfr-rules}.
+
+\begin{table}[htb]
+	\centering
+	\caption{The four diversion rules, the flow each takes, and how that flow
+	follows the flow available to the diversion.}
+	\label{tab:sfr-rules}
+	\small
+	\begin{tabular}{lll}
+		\toprule
+		Rule & Diverted & $\partial / \partial q$ \\
+		\midrule
+		\texttt{FRACTION}  & $q v$          & $v$ \\
+		\texttt{EXCESS}    & $\max(q - v, 0)$ & 1 above $v$ \\
+		\texttt{UPTO}      & $\min(v, q)$     & 1 below $v$ \\
+		\texttt{THRESHOLD} & $v$ if $q \geq v$ & 0 \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+Three of the four are piecewise, so the derivative steps where the rule switches, in the same way that the derivative of a lake connection steps as the connection becomes perched. That is workable away from the switch.
+
+Which rule is in effect cannot be read from the simulation, because \mf{} keeps it as text rather than among the quantities it exposes. It does not have to be. The flow available to a diversion, the rate it was given, and the flow it took are all recoverable, and those three determine the derivative. Where two rules give the same diverted flow they also give the same derivative: \texttt{THRESHOLD} and \texttt{UPTO} both hold at the rate once the flow exceeds it, and \texttt{THRESHOLD} and \texttt{EXCESS} both take nothing below it. The rule itself can therefore stay unknown.
+
+The diversions of a reach are applied in turn, each taking from what the one before it left, so writing $g_{i}$ for the derivative of diversion $i$ the flow passed on to the reaches below carries
+
+\begin{equation}
+	\label{eqn:sfr-passed}
+	\frac{\partial q_{\mathrm{out}}}{\partial q} = \prod_{i} \left( 1 - g_{i} \right),
+\end{equation}
+
+\noindent and the reach a diversion feeds receives
+
+\begin{equation}
+	\label{eqn:sfr-diverted}
+	\frac{\partial q_{i}}{\partial q} = g_{i} \prod_{j < i} \left( 1 - g_{j} \right).
+\end{equation}
+
+Equations~\ref{eqn:sfr-passed} and \ref{eqn:sfr-diverted} scale the routing coefficient of equation~\ref{eqn:sfr-updepth} rather than adding structure of their own, so a diversion enters the bordered system only through the share one reach sends another. The share itself is taken from the total \mf{} keeps for each reach, which leaves out both a diversion and an inactive reach, rather than summed from the fractions given to the reaches below, which would count a diversion in the denominator.
 
 \section*{Limitations}
 
-A diversion removes water from a reach under one of four rules, each with a simple derivative in the flow available to it, and each scaling a routing coefficient the reach equations already carry. Which rule is in effect is not currently recoverable from the simulation, so the derivative cannot be selected, and \adj{} reports the diversion rather than returning a partial derivative silently.
+Where the flows do not determine the rule, which happens when a reach has nothing to give and every rule diverts nothing, \adj{} reports the diversion and holds its flow fixed rather than returning a partial derivative silently.

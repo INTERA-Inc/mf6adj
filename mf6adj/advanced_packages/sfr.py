@@ -25,6 +25,7 @@ import numpy as np
 import scipy.sparse as sparse
 
 from .sfr_cross_section import mannings_section, wetted_perimeter
+from .sfr_diversion import reach_coefficients
 
 # The Manning discharge of a reach without a cross section is this power of the
 # depth over the streambed, so its derivative is the exponent times the
@@ -169,21 +170,63 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
     idir = value("IDIR")
     ustrf = value("USTRF")
 
-    # the share of an upstream reach's outflow this reach receives
-    total = np.zeros(nreach)
+    # MODFLOW keeps the total of the shares its downstream reaches are given,
+    # which leaves out both a diversion and an inactive reach, so it is read
+    # rather than summed here
+    ftotnd = value("FTOTND")
+
+    ndiv = optional("NDIV", 0, nreach)
+    idiv = optional("IDIV", 0, ja.shape[0])
+    if ndiv.max() > 0:
+        iadiv = value("IADIV") - 1
+        divflow = value("DIVFLOW")
+        divq = value("DIVQ")
+
+    # what each diversion takes out of the flow a reach passes on, and what is
+    # left for the reaches below it
+    div_coefficient = np.zeros(ja.shape[0])
+    outflow_factor = np.ones(nreach)
+    undetermined = np.zeros(nreach, dtype=int)
     for n in range(nreach):
-        for icon in range(ia[n], ia[n + 1]):
-            if idir[icon] > 0:
-                # ja[icon] is upstream of n, so n is one of its outflows
-                total[ja[icon]] += ustrf[n]
+        taken_at = [
+            icon
+            for icon in range(ia[n], ia[n + 1])
+            if idir[icon] <= 0 and idiv[icon] > 0
+        ]
+        if not taken_at or dsflow[n] <= 0.0:
+            continue
+        # the diversions are applied in the order of the connections, each
+        # taking from what the one before it left
+        positions = [int(iadiv[n] + idiv[icon] - 1) for icon in taken_at]
+        coefficients, remaining, determined = reach_coefficients(
+            float(dsflow[n]),
+            [float(divflow[j]) for j in positions],
+            [float(divq[j]) for j in positions],
+        )
+        for icon, coefficient in zip(taken_at, coefficients):
+            div_coefficient[icon] = coefficient
+        outflow_factor[n] = remaining
+        undetermined[n] = 0 if determined else 1
+
+    # The share of an upstream reach's outflow this reach receives. MODFLOW
+    # pairs the two by looking down the upstream reach's own connections, and
+    # the same pairing is made here so that a diversion is met on the
+    # connection it is taken on.
     fraction = np.zeros(ja.shape[0])
     for n in range(nreach):
         for icon in range(ia[n], ia[n + 1]):
-            if idir[icon] > 0:
-                share = total[ja[icon]]
-                fraction[icon] = ustrf[n] / share if share > 0.0 else 0.0
-
-    ndiv = optional("NDIV", 0, nreach)
+            if idir[icon] <= 0:
+                continue
+            iup = int(ja[icon])
+            for jcon in range(ia[iup], ia[iup + 1]):
+                if idir[jcon] > 0 or int(ja[jcon]) != n:
+                    continue
+                if idiv[jcon] > 0:
+                    # this reach is fed by a diversion rather than by a share
+                    fraction[icon] = div_coefficient[jcon]
+                elif ftotnd[iup] > 0.0:
+                    fraction[icon] = ustrf[n] / ftotnd[iup] * outflow_factor[iup]
+                break
 
     return {
         "reach_ddischarge": ddischarge,
@@ -198,6 +241,7 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
         "reach_is_free": is_free,
         "reach_ja": ja,
         "reach_ndiv": ndiv,
+        "reach_undetermined_diversion": undetermined,
     }
 
 
@@ -242,11 +286,11 @@ class SfrCoupling:
                 "above them rather than their own stage, and that coupling is "
                 "not formed, so the sensitivity is approximate."
             )
-        if grp["reach_ndiv"][:].max() > 0:
+        if grp["reach_undetermined_diversion"][:].max() > 0:
             self._warn(
-                f"streamflow-routing package '{pname}' has diversions. The flow "
-                "they take is not differentiated, so the sensitivity is "
-                "approximate."
+                f"streamflow-routing package '{pname}' has diversions whose rule "
+                "the flows do not determine. The flow they take is held fixed, "
+                "so the sensitivity is approximate."
             )
 
     def blocks(self, sol_dataset, gwf_package_dict) -> list:

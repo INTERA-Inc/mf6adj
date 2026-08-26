@@ -151,3 +151,4 @@ docs/SuppInfo/*.log
 docs/SuppInfo/*.out
 docs/SuppInfo/*.toc
 docs/SuppInfo/mf6adjsuppinfo.pdf
+docs/SuppInfo/Figures/*.png

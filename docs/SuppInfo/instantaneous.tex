@@ -1,51 +1,52 @@
-A performance measure is declared in the adjoint input file with one of three forms. The \emph{direct} form accumulates a quantity, the \emph{residual} form accumulates the squared difference between a quantity and an observed counterpart, and the \emph{instantaneous} form averages a quantity over the times at which it is observed. This chapter describes the third.
+A performance measure is declared in the adjoint input file with one of three forms. The \emph{direct} form accumulates a quantity, the \emph{residual} form accumulates the squared difference between a quantity and an observed counterpart, and the \emph{instantaneous} form treats each observation time on its own. This chapter describes the third, and is explicit about what it does and does not answer.
 
-\section*{Motivation}
+\section*{What it computes}
 
-The direct form answers a question about a total: how much water left through a set of boundaries over the simulation, and how does that total respond to a parameter. Written over the time steps $k$ at which the measure has entries,
+The adjoint solution runs backward through the saved time steps, and the storage terms of Chapter~\ref{ch:storage} pass the result of one step to the step before it. A direct measure keeps that passing, so the adjoint state it reports at time step $k$ is the derivative of the accumulated measure, carrying the influence of every observation that follows.
+
+An instantaneous measure drops it. Each observed time step is solved on its own, and a time step with no observation is not solved at all. What it reports at an observed step is the response of the measured quantity at that instant to a stress applied during that same step, at every cell in the model. Written for a head measured at cell $o$ and a rate applied at cell $c$,
 
 \begin{equation}
-	\label{eqn:direct}
-	J_{\mathrm{direct}} = \sum_{k} F^{k}.
+	\label{eqn:inst-kernel}
+	\lambda^{k}_{c} = \frac{\partial h_{o}(t_{k})}{\partial q_{c}(t_{k})},
 \end{equation}
 
-That total depends on how the simulation is discretized in time. Splitting a stress period into more time steps adds terms to the sum. When the question is instead about a state at a particular time, such as the head at an observation well or the rate a stream is losing at the end of a season, a sum over time steps is not the quantity of interest and its value moves with the time discretization.
+\noindent which is a map over the model of the immediate effect of pumping. Because the steps are solved independently, this map does not change when other observation times are added to the same measure.
 
-The instantaneous form is the time-weighted mean
+The measure value itself is the time-weighted mean of the observed steps,
 
 \begin{equation}
 	\label{eqn:instantaneous}
-	J_{\mathrm{inst}} = \frac{\sum_{k} \Delta t^{k} F^{k}}
-	{\sum_{k} \Delta t^{k}},
+	J_{\mathrm{inst}} = \frac{\sum_{k} \Delta t^{k} F^{k}}{\sum_{k} \Delta t^{k}},
 \end{equation}
 
-\noindent where $\Delta t^{k}$ is the length of time step $k$ and the sums run only over the time steps at which the measure has entries. Refining the time discretization leaves equation~\ref{eqn:instantaneous} unchanged, because both sums scale together.
+\noindent rather than the sum equation~\ref{eqn:pm} gives.
 
-\section*{Implementation}
+\section*{Where it agrees with a direct measure}
 
-Two things follow from equation~\ref{eqn:instantaneous}, and both differ from the direct and residual forms.
+The two forms differ only where there is something to pass backward, which gives two cases in which they agree exactly.
 
-\subsection*{Time steps are independent}
+A steady-state time step has no storage, so nothing is carried and the question a direct measure asks is already the question an instantaneous measure asks. The last time step solved agrees for the same reason: the adjoint begins there, so nothing has fed back into it yet.
 
-A direct or residual measure accumulates through time, so the adjoint solution at one time step feeds the step before it. That coupling is carried by the storage term $\partial \mathbf{b}^{k} / \partial \mathbf{h}^{k-1}$ described in Chapter~\ref{ch:storage}: the right-hand side of the adjoint problem at step $k$ is
+Figure~\ref{fig:instantaneous} shows both. The sensitivity of a head to a well rate was computed with each form on a model whose first stress period is steady state and whose remaining five are transient, with an observation at every time step. The two agree through the steady period and again at the final step, and differ at the twenty transient steps between them, where the direct form carries the influence of the later observations and the instantaneous form does not.
 
-\begin{equation}
-	\label{eqn:carryback}
-	\frac{\partial \mathbf{b}^{k+1}}{\partial \mathbf{h}^{k}}
-	\bm{\lambda}^{k+1}
-	- \frac{\partial F^{k}}{\partial \mathbf{h}^{k}},
-\end{equation}
+\begin{figure}[htb]
+	\centering
+	\includegraphics{Figures/instantaneous.pdf}
+	\caption{Sensitivity of head at an observation cell to the rate of a well, computed as a direct measure and as an instantaneous measure, for a model whose first stress period is steady state (shaded) and whose remaining periods are transient. Both forms carry an observation at every time step. The two agree at the four steady-state steps and at the last step solved, and differ at the transient steps between them.}
+	\label{fig:instantaneous}
+\end{figure}
 
-\noindent which propagates the later step's adjoint state backward in time.
+\section*{What it is for}
 
-An instantaneous measure asks a separate question at each observation time, so no such propagation applies and the first term of equation~\ref{eqn:carryback} is dropped. Each observed time step is solved on its own and the results are combined by equation~\ref{eqn:instantaneous}. The same reasoning removes the carry-back of a lake stage, described in Chapter~\ref{ch:lake}.
+The map of equation~\ref{eqn:inst-kernel} answers a question about the present: where does a stress applied now have the most effect on the measured quantity now. Held against a stream or a lake, it locates the cells whose pumping is felt immediately by that boundary, which is the quantity a short-horizon management problem is written in terms of. It is also inexpensive, because only the observed steps are solved: a measure observed at one time in a two hundred step simulation costs one solve rather than two hundred.
 
-\subsection*{Unobserved time steps are skipped}
+The independence of the observed steps is the other reason to prefer it. Every entry of an instantaneous measure reports the same map it would report alone, so the entries of one measure can be read as separate answers. The entries of a direct measure cannot, because each carries the influence of those after it.
 
-Because the steps are independent, a time step at which the measure has no entries contributes nothing and is not solved at all. For a measure observed at one time in a long simulation this is the difference between one adjoint solve and one per time step.
+\section*{What it is not for}
 
-\section*{On examples}
+An instantaneous measure does not give the response of the measured quantity to a stress applied at an earlier time. That response is what makes drawdown deepen while a well runs, and it is carried by exactly the passing between time steps that this form drops. Adding the maps of successive steps together does not recover it, because each map reports the effect of a stress applied within its own step and none of them reports the effect that stress continues to have afterward.
 
-The chapters that follow close with a numerical comparison, because in each case a sensitivity can be checked against a finite-difference derivative and the agreement is the evidence that the formulation is right. No comparable example is given here. The instantaneous form does not change any single sensitivity; it changes which time steps are solved and how their results are combined. A worked example would show the same per-step sensitivities as the direct form, rescaled by a constant, which demonstrates nothing that equation~\ref{eqn:instantaneous} does not already state.
+The consequence is worth stating plainly, because the sum is a natural thing to try. Accumulated over a simulation in which a well pumps at a constant rate, the maps grow the drawdown linearly with the number of steps, while the drawdown of a confined aquifer grows with the logarithm of time. The accumulation is therefore exact after the first time step, where there is no earlier stress to account for, and departs from the simulated drawdown thereafter.
 
-The property worth testing is the one that motivates the form: that the result does not depend on the time discretization. Halving the time step length while holding the simulated period fixed leaves an instantaneous measure unchanged and doubles the number of terms in a direct measure.
+A measure whose answer depends on the history of the stresses, including drawdown through time and the response matrix that reconstructs it, needs the direct form.

@@ -2,7 +2,7 @@ Storage is the only term in the groundwater flow equations that connects one tim
 
 \section*{Coupling between time steps}
 
-The right-hand side at time step $k$ depends on the head at step $k-1$ through the storage terms. Differentiating the adjoint problem with respect to that earlier head gives the term that carries the later adjoint state backward, as in equation~\ref{eqn:carryback}. Writing it per cell,
+The right-hand side at time step $k$ depends on the head at step $k-1$ through the storage terms. Differentiating the adjoint problem with respect to that earlier head gives the term that carries the later adjoint state backward, which is what an instantaneous measure drops (Chapter~\ref{ch:instantaneous}). Writing it per cell,
 
 \begin{equation}
 	\label{eqn:drhsdh}

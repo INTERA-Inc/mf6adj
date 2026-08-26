@@ -411,6 +411,28 @@ class Mf6Adj:
             logger=self.logger.logger,
         )
 
+    def _initial_saturation(self) -> np.ndarray:
+        """Return the saturation the initial heads imply.
+
+        Called before the first solve, where the saturation MODFLOW 6 reports is
+        the value it was allocated with rather than one computed from the heads.
+        """
+        head = self._gwf.get_value(
+            self._gwf.get_var_address("X", self._gwf_name.upper())
+        )
+        top = get_ptr_from_gwf(self._gwf_name, "DIS", "TOP", self._gwf)
+        bot = get_ptr_from_gwf(self._gwf_name, "DIS", "BOT", self._gwf)
+        head = np.asarray(head)[: top.shape[0]]
+
+        thickness = top - bot
+        saturation = np.ones_like(thickness, dtype=float)
+        wet = thickness > 0.0
+        saturation[wet] = np.clip((head[wet] - bot[wet]) / thickness[wet], 0.0, 1.0)
+        # a cell that never converts is full whatever its head
+        icelltype = get_ptr_from_gwf(self._gwf_name, "NPF", "ICELLTYPE", self._gwf)
+        saturation[icelltype == 0] = 1.0
+        return saturation
+
     def _dresdss_h(
         self,
         head: np.ndarray,
@@ -419,25 +441,28 @@ class Mf6Adj:
         sat: np.ndarray,
         sat_old: np.ndarray,
     ) -> np.ndarray:
-        """Return the storage contribution to the residual derivative.
+        """Return the specific-storage contribution to the residual derivative.
 
-        This term represents the derivative of the transient groundwater-flow
-        residual with respect to specific storage for the current time step. It
-        accounts for partially saturated conditions by forcing confined cells
-        (``ICONVERT == 0``) to remain fully saturated in the calculation.
+        The derivative of the transient groundwater flow residual with respect
+        to specific storage for one time step, taken over the saturations the
+        step starts and ends at. Under SS_CONFINED_ONLY specific storage acts
+        only while a cell is full, and the saturation is one at or above the top
+        of the cell and zero below it, so the derivative reduces to the terms of
+        the full cells. A cell that never converts is treated as full. See
+        SsTerms in GwfStorageUtils.f90.
 
         Parameters
         ----------
         head : ndarray
-            Current heads.
+            Head at the end of the step.
         head_old : ndarray
-            Heads from the previous solution step.
+            Head at the start of the step.
         dt : float
             Length of the current solution step in model time.
         sat : ndarray
-            Current saturation.
+            Saturation at the end of the step.
         sat_old : ndarray
-            Saturation from the previous solution step.
+            Saturation at the start of the step.
 
         Returns
         -------
@@ -457,18 +482,67 @@ class Mf6Adj:
         sat_old_mod[iconvert == 0] = 1.0
 
         height = top - bot
-
-        # result = np.zeros_like(head)
         dSC1 = area * height
-        result = (
-            (dSC1 / dt) * (sat_old_mod * head_old - sat_mod * head)
-            + (dSC1 / dt) * bot * (sat_mod - sat_old_mod)
-            + (dSC1 / (2.0 * dt)) * height * (sat_mod**2 - sat_old_mod**2)
+
+        iconf_ss = int(
+            np.asarray(
+                get_ptr_from_gwf(self._gwf_name, "STO", "ICONF_SS", self._gwf)
+            ).ravel()[0]
         )
+        if iconf_ss != 0:
+            # specific storage acts only while the cell is full, and the
+            # saturation is one at or above the top of the cell and zero below
+            full = sat_mod >= 1.0
+            full_old = sat_old_mod >= 1.0
+            result = (dSC1 / dt) * (
+                np.where(full, top - head, 0.0)
+                + np.where(full_old, head_old - top, 0.0)
+            )
+        else:
+            result = (
+                (dSC1 / dt) * (sat_old_mod * head_old - sat_mod * head)
+                + (dSC1 / dt) * bot * (sat_mod - sat_old_mod)
+                + (dSC1 / (2.0 * dt)) * height * (sat_mod**2 - sat_old_mod**2)
+            )
         # zero out dry cells
         result[head <= bot] = 0.0
         result[head_old <= bot] = 0.0
 
+        return result
+
+    def _dresdsy_h(
+        self,
+        dt: float,
+        sat: np.ndarray,
+        sat_old: np.ndarray,
+    ) -> np.ndarray:
+        """Return the specific-yield contribution to the residual derivative.
+
+        Specific yield releases the water a cell holds between the saturations
+        it starts and ends the time step at. See SyTerms in GwfStorageUtils.f90.
+
+        Parameters
+        ----------
+        dt : float
+            Length of the current solution step in model time.
+        sat : ndarray
+            Saturation at the end of the step.
+        sat_old : ndarray
+            Saturation at the start of the step.
+
+        Returns
+        -------
+        ndarray
+            Per-cell derivative of the residual with respect to specific yield.
+        """
+        top = get_ptr_from_gwf(self._gwf_name, "DIS", "TOP", self._gwf)
+        bot = get_ptr_from_gwf(self._gwf_name, "DIS", "BOT", self._gwf)
+        area = get_ptr_from_gwf(self._gwf_name, "DIS", "AREA", self._gwf)
+        iconvert = get_ptr_from_gwf(self._gwf_name, "STO", "ICONVERT", self._gwf)
+
+        result = area * (top - bot) * (sat_old - sat) / dt
+        # a cell that never converts stays full, so specific yield never acts
+        result[iconvert == 0] = 0.0
         return result
 
     def _drhsdh(
@@ -704,9 +778,10 @@ class Mf6Adj:
 
                 self._gwf.prepare_solve(1)
                 if sat_old is None:
-                    sat_old = self._gwf.get_value(
-                        self._gwf.get_var_address("SAT", self._gwf_name, "NPF")
-                    )
+                    # MODFLOW 6 has not filled the saturation for the first time
+                    # step yet, so it still holds the value it was allocated
+                    # with. Take the saturation the initial heads imply instead.
+                    sat_old = self._initial_saturation()
 
                 # solve until converged
                 while kiter < max_iter:
@@ -800,13 +875,18 @@ class Mf6Adj:
                 data_dict["sat"] = sat
                 data_dict["sat_old"] = sat_old
 
-                # drhsdh stored here couples this time step to the next one, so
-                # the saturation it needs is this step's: the next step sees it
-                # as the old one. Do not move this below the calls.
+                # The storage terms need two different saturations. A residual
+                # derivative belongs to this time step, so it takes the
+                # saturation the step started from. drhsdh couples this step to
+                # the next one, so it takes the saturation the step ended at,
+                # which the next step sees as the old one.
+                sat_prev = sat_old
                 sat_old = sat.copy()
                 if has_sto:  # has storage
-                    dresdss_h = self._dresdss_h(head, head_old, dt1, sat, sat_old)
+                    dresdss_h = self._dresdss_h(head, head_old, dt1, sat, sat_prev)
                     data_dict["dresdss_h"] = dresdss_h
+                    dresdsy_h = self._dresdsy_h(dt1, sat, sat_prev)
+                    data_dict["dresdsy_h"] = dresdsy_h
                     drhsdh = self._drhsdh(dt1, sat_old)
                     data_dict["drhsdh"] = drhsdh
                 else:

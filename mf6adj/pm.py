@@ -621,10 +621,12 @@ class PerfMeas:
         comp_k33_sens = np.zeros(nnodes)
         comp_k_sens = np.zeros(nnodes)
         comp_ss_sens = None
+        comp_sy_sens = None
 
         has_sto = hdf[sol_keys[0]].attrs["has_sto"]
         if has_sto:
             comp_ss_sens = np.zeros(nnodes)
+            comp_sy_sens = np.zeros(nnodes)
 
         # An "instantaneous" measure looks at each time step on its own and
         # ignores how later time steps would otherwise feed back into earlier
@@ -1091,10 +1093,19 @@ class PerfMeas:
 
                 if iss == 0:
                     ss_sens = lamb * hdf[sol_key]["dresdss_h"][:]
+                    # written by solve_forward_model; an older forward file
+                    # carries only the specific-storage half
+                    if "dresdsy_h" in hdf[sol_key]:
+                        sy_sens = lamb * hdf[sol_key]["dresdsy_h"][:]
+                    else:
+                        sy_sens = np.zeros_like(lamb)
                 else:
                     ss_sens = np.zeros_like(lamb)
+                    sy_sens = np.zeros_like(lamb)
                 data["ss"] = ss_sens
+                data["sy"] = sy_sens
                 comp_ss_sens += ss_sens * w
+                comp_sy_sens += sy_sens * w
                 self.logger.logger.debug(
                     (
                         "Formulating storage took: "
@@ -1190,6 +1201,7 @@ class PerfMeas:
             comp_rch_sens /= wsum
             if has_sto:
                 comp_ss_sens /= wsum
+                comp_sy_sens /= wsum
             for name in comp_bnd_results:
                 comp_bnd_results[name] /= wsum
         data = {}
@@ -1198,6 +1210,7 @@ class PerfMeas:
 
         if has_sto:
             data["ss"] = comp_ss_sens
+            data["sy"] = comp_sy_sens
         data["wel6_q"] = comp_welq_sens
         data["rch6_recharge"] = comp_rch_sens
 
@@ -1230,6 +1243,7 @@ class PerfMeas:
             df[name] = vals
         if has_sto:
             df["ss"] = comp_ss_sens
+            df["sy"] = comp_sy_sens
 
         df.index.name = "node"
         if csv_summary:

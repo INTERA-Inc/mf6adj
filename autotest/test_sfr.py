@@ -235,7 +235,7 @@ def _build_model(
     sim.write_simulation(silent=True)
     success, buff = sim.run_simulation(silent=True)
     assert success, "\n".join(buff[-15:])
-    return ws
+    return sim
 
 
 def _write_adj(ws, diversion=None):
@@ -275,10 +275,10 @@ def _measure_value(ws):
 def _compare(tmpdir, **kwargs):
     """Return the adjoint sensitivity and its finite-difference counterpart."""
     dq = -50.0
-    base = _build_model(tmpdir / "base", WELL_RATE, **kwargs)
+    base = pl.Path(_build_model(tmpdir / "base", WELL_RATE, **kwargs).sim_path)
     _write_adj(base, diversion=kwargs.get("diversion"))
     _solve(base)
-    pert = _build_model(tmpdir / "pert", WELL_RATE + dq, **kwargs)
+    pert = pl.Path(_build_model(tmpdir / "pert", WELL_RATE + dq, **kwargs).sim_path)
     _write_adj(pert, diversion=kwargs.get("diversion"))
     _solve(pert)
 
@@ -767,7 +767,11 @@ def _section_terms(ws):
 @pytest.mark.parametrize("section", [None, WALLED_SECTION])
 def test_xs_rating(tmp_path, section):
     """The rating reproduces the discharge the reach depth was solved against."""
-    ws = _build_model(tmp_path / "xs", WELL_RATE, cross_section=True, section=section)
+    ws = pl.Path(
+        _build_model(
+            tmp_path / "xs", WELL_RATE, cross_section=True, section=section
+        ).sim_path
+    )
     terms = _section_terms(ws)
     for n in range(1, NCOL):
         # the first reach is left out because its inflow is specified rather

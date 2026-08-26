@@ -5,13 +5,22 @@ the figures redraw from a clone without running a simulation.
 """
 
 import pathlib as pl
+import tempfile
 import sys
 
+import flopy
 import flopy.plot.styles as styles
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 
+ROOT = pl.Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(ROOT / "autotest"))
+import test_lak
+import test_sfr
+
 DATA = pl.Path(sys.argv[1])
+WORK = pl.Path(tempfile.mkdtemp(prefix="suppinfo-"))
 OUTDIR = pl.Path(sys.argv[2])
 OUTDIR.mkdir(parents=True, exist_ok=True)
 
@@ -69,59 +78,49 @@ def draw_instantaneous(archive, outfile):
 draw_instantaneous(DATA / "instantaneous-comparison.npz", OUTDIR / "instantaneous.pdf")
 
 
-def draw_package(archive, boundary_label, bar_label, outfile):
-    """Map the capture a lake or a stream takes, on the model it is tested on."""
+def draw_package(archive, builder, boundary, bar_label, outfile):
+    """Map the capture a lake or a stream takes, on the model it is tested on.
+
+    The capture comes from the archive. The model is rebuilt so the boundaries
+    can be drawn from the packages themselves rather than from a list of cells
+    kept beside them.
+    """
     data = np.load(archive)
     nlay, nrow, ncol = (int(v) for v in data["shape"])
-    delrc = float(data["delrc"][0])
     arr = np.array(data["capture"], dtype=float).reshape((nlay, nrow, ncol))
     totals = [np.nansum(np.abs(arr[k])) for k in range(nlay)]
     k = int(np.argmax(totals))
     layer = arr[k]
     vmax = float(np.nanpercentile(np.abs(layer[np.isfinite(layer)]), 99.5))
 
-    centers = (np.arange(ncol) + 0.5) * delrc
-    rows = (np.arange(nrow) + 0.5) * delrc
-    cells = data["boundary_cells"]
-    well = data["well_cell"]
-
+    gwf = builder()
     with styles.USGSMap():
-        fig, ax = plt.subplots(figsize=(3.5, 3.2), layout="constrained")
-        img = ax.pcolormesh(
-            np.append(np.arange(ncol) * delrc, ncol * delrc),
-            np.append(np.arange(nrow) * delrc, nrow * delrc),
-            layer,
-            cmap="viridis",
-            vmin=0.0,
-            vmax=vmax,
-        )
-        ax.plot(
-            centers[cells[:, 2]],
-            rows[cells[:, 1]],
-            "o",
-            markersize=3.5,
-            markerfacecolor="none",
-            markeredgecolor="white",
-            markeredgewidth=0.8,
-            linestyle="none",
-            label=boundary_label,
-        )
-        ax.plot(
-            centers[well[2]],
-            rows[well[1]],
-            "s",
-            markersize=5,
-            markerfacecolor="none",
-            markeredgecolor="red",
-            markeredgewidth=1.0,
-            linestyle="none",
-            label="Pumped cell",
-        )
+        fig, ax = plt.subplots(figsize=(3.7, 3.6), layout="constrained")
+        mv = flopy.plot.PlotMapView(model=gwf, ax=ax, layer=k)
+        img = mv.plot_array(layer, cmap="viridis", vmin=0.0, vmax=vmax)
+        mv.plot_grid(lw=0.3, color="0.6")
+        # the boundaries the capture is shared with, drawn from the packages
+        for name, color in boundary:
+            try:
+                mv.plot_bc(name=name, color=color, plotAll=True)
+            except Exception:
+                continue
+        handles = [
+            mpatches.Patch(facecolor=color, edgecolor="none", label=name)
+            for name, color in boundary
+        ]
         ax.set_aspect("equal")
-        ax.invert_yaxis()
         styles.xlabel(ax=ax, label="x position, in meters")
         styles.ylabel(ax=ax, label="y position, in meters")
-        styles.graph_legend(ax=ax, loc="upper left")
+        # below the axes, so the legend covers none of the capture
+        styles.graph_legend(
+            ax=ax,
+            handles=handles,
+            labels=[h.get_label() for h in handles],
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.16),
+            ncol=len(handles),
+        )
         cbar = fig.colorbar(img, ax=ax, shrink=0.75)
         cbar.set_label(bar_label)
         styles.remove_edge_ticks(ax=ax)
@@ -134,15 +133,34 @@ def draw_package(archive, boundary_label, bar_label, outfile):
     )
 
 
+def _lake_model():
+    """The model the lake tests use."""
+    sim, _ = test_lak._build_model(
+        WORK / "lake",
+        boundary="lak",
+        constant_stage=False,
+        well_rate=test_lak.WELL_RATE,
+    )
+    return sim.get_model()
+
+
+def _stream_model():
+    """The model the streamflow tests use."""
+    sim = test_sfr._build_model(WORK / "stream", well_rate=test_sfr.WELL_RATE)
+    return sim.get_model()
+
+
 draw_package(
     DATA / "lake-capture.npz",
-    "Lake cell",
+    _lake_model,
+    [("LAK", "tab:blue"), ("GHB", "tab:green"), ("WEL", "tab:red")],
     "Lake capture fraction, dimensionless",
     OUTDIR / "lake-capture.pdf",
 )
 draw_package(
     DATA / "stream-capture.npz",
-    "Stream reach",
+    _stream_model,
+    [("SFR", "tab:blue"), ("GHB", "tab:green"), ("WEL", "tab:red")],
     "Streamflow capture fraction, dimensionless",
     OUTDIR / "sfr-capture.pdf",
 )

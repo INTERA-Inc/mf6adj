@@ -80,9 +80,6 @@ html_static_path = ["_static"]
 # renders in the browser rather than only downloading; it arrives with the
 # rendered notebooks and is absent from a clean checkout
 html_extra_path = []
-_suppinfo = Path(__file__).parent / "examples" / "mf6adjsuppinfo.pdf"
-if _suppinfo.is_file():
-    html_extra_path.append(str(_suppinfo))
 html_css_files = ["custom.css"]
 
 nbsphinx_execute = "never"
@@ -99,6 +96,20 @@ def _skip_selected_members(app, what, name, obj, skip, options):
     return skip
 
 
+def _serve_suppinfo(app, config):
+    """Serve the supplemental document beside the pages, once it is there.
+
+    On Read the Docs the document is downloaded with the rendered notebooks by
+    rtds_action, which does that on this same event, so the file is not on disk
+    while conf.py is read. This runs at a later priority than the download.
+    """
+    pdf = Path(app.srcdir) / "examples" / "mf6adjsuppinfo.pdf"
+    if pdf.is_file() and str(pdf) not in config.html_extra_path:
+        config.html_extra_path.append(str(pdf))
+
+
 def setup(app):
     """Register Sphinx event hooks."""
     app.connect("autodoc-skip-member", _skip_selected_members)
+    # after rtds_action, which downloads the document on the same event
+    app.connect("config-inited", _serve_suppinfo, priority=800)

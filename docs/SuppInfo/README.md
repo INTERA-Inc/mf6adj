@@ -23,15 +23,15 @@ which `scripts/make_figures.py` reads:
 python scripts/make_figures.py data/synthetic-valley-capture.npz Figures
 ```
 
-The archive itself is recomputed only when the results change, by
-`scripts/make_summary.py`. That step runs the synthetic valley model and the
-adjoint solution, and needs a clone of the MODFLOW 6 training repository, which
-is where that model lives:
+The archives are recomputed only when the results change:
 
 ```shell
-python scripts/make_summary.py <mf6-training clone> \
-    data/synthetic-valley-capture.npz /tmp/sv
+python scripts/make_package_summary.py data        # lake and streamflow
+python scripts/make_instantaneous_summary.py /tmp/inst data/instantaneous-comparison.npz
 ```
+
+The lake and streamflow archives are built from the models the mf6adj tests use,
+so the figures show the lake and the stream whose behavior those tests check.
 
 ## Adding a chapter
 

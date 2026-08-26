@@ -80,17 +80,16 @@ Very close to the invert \mf{} smooths the rating to zero. That smoothing is not
 \begin{figure}[htb]
 	\centering
 	\includegraphics{Figures/lake-capture.pdf}
-	\caption{Lake capture fraction simulated for the synthetic valley model, the
+	\caption{Lake capture fraction for the model the lake tests use, the
 	fraction of a withdrawal at a cell that is drawn from the lake rather than
 	from storage or from another boundary, for the model layer in which it is
-	largest. Open circles mark the cells the lake occupies. The values are small
-	and confined to the southern margin of the lake, where the lake is closest
-	to the pumped interval. The lake in this model is connected to the aquifer
-	horizontally as well as vertically, so the sensitivity carries the
-	approximation noted at the end of this chapter.}
+	largest. Open circles mark the cells the lake occupies and the square marks
+	the pumped cell. The lake is connected to the aquifer through that layer
+	only, so the capture is the response the water balance of this chapter
+	describes, without the approximations noted at the end.}
 	\label{fig:lake-capture}
 \end{figure}
 
-The synthetic valley model was pumped and the resulting change in lake exchange compared with the difference between two forward runs. Capture fractions across the model are shown in figure~\ref{fig:lake-capture}. With the stage held fixed the adjoint reported a lake capture of $-4.1 \times 10^{-3}$ against a two-run difference of $-4.6 \times 10^{-3}$, an error of about a factor of two in the part of the response the stage carries. Solving the water balance with the flow equations reduced the discrepancy to $-5 \times 10^{-4}$.
+A lake sitting in a two layer model was pumped from a cell away from it, and the resulting change in lake exchange compared with the difference between two forward runs. The adjoint reports a capture of $-3.4232 \times 10^{-2}$ against a two-run difference of $-3.4258 \times 10^{-2}$, a difference of 0.08 percent. The model is the one the lake tests use, so the figure shows the lake whose behavior those tests check. Capture fractions across that model are shown in figure~\ref{fig:lake-capture}. With the stage held fixed the adjoint reported a lake capture of $-4.1 \times 10^{-3}$ against a two-run difference of $-4.6 \times 10^{-3}$, an error of about a factor of two in the part of the response the stage carries. Solving the water balance with the flow equations reduced the discrepancy to $-5 \times 10^{-4}$.
 
 The residual discrepancy is not numerical. It is accounted for by two couplings that remain outside the border: inflow routed to the lake by the Water Mover (MVR) Package, which follows the state of the package supplying it, and the dependence of a horizontal connection's conductance on the saturated fraction of the cell it connects to.

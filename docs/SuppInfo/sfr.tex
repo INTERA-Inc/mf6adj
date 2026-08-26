@@ -64,17 +64,15 @@ The derivative structure changes accordingly. The reach's own depth no longer se
 \begin{figure}[htb]
 	\centering
 	\includegraphics{Figures/sfr-capture.pdf}
-	\caption{Streamflow capture fraction simulated for the synthetic valley
-	model, the fraction of a withdrawal at a cell that is drawn from the stream
-	rather than from storage or from another boundary, for the model layer in
-	which it is largest. Open circles mark the cells the streamflow routing
-	package occupies. Capture is reported for a withdrawal applied through the
-	final stress period, and the reach depths are solved with the flow equations
-	as described in this chapter.}
+	\caption{Streamflow capture fraction for the model the streamflow tests
+	use, the fraction of a withdrawal at a cell that is drawn from the stream
+	rather than from storage or from another boundary. Open circles mark the
+	cells the reaches occupy and the square marks the pumped cell. The reach
+	depths are solved with the flow equations as described in this chapter.}
 	\label{fig:sfr-capture}
 \end{figure}
 
-The synthetic valley model was pumped and the resulting change in streamflow compared with the difference between two forward runs. Capture fractions across the model are shown in figure~\ref{fig:sfr-capture}. Holding the reach depths fixed gave a discrepancy of about 26\%. Solving the reach equations with the flow equations reduced it to 0.04\%.
+A chain of reaches crossing a single layer model was pumped from a cell away from the stream, and the resulting change in reach exchange compared with the difference between two forward runs. The adjoint reports a capture of $-2.32472 \times 10^{-1}$ against a two-run difference of $-2.32470 \times 10^{-1}$. Capture fractions across that model are shown in figure~\ref{fig:sfr-capture}. On a valley model routing a longer network, holding the reach depths fixed gave a discrepancy of about 26 percent, and solving the reach equations with the flow equations reduced it to 0.04 percent.
 
 A branching network, in which one reach receives water from two upstream reaches and the apportionment fractions therefore matter, reproduces its finite-difference sensitivities to the same tolerance.
 

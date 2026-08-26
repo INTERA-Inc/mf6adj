@@ -274,23 +274,40 @@ class SfrCoupling:
             self.logger.warning(message)
 
     def _warn_once(self, pname: str, grp) -> None:
-        """Warn where a reach's routing is differentiated only in part."""
-        if pname in self._warned:
-            return
-        self._warned.add(pname)
+        """Warn where a reach's routing is differentiated only in part.
 
-        if grp["reach_flow_limited"][:].max() > 0:
+        Each condition is reported the first time step it is met on, rather
+        than only where it is met on the first step of the sweep.
+        """
+        conditions = (
+            (
+                "reach_flow_limited",
+                "{reaches} give up all of the water they carry. Their leakage "
+                "follows the reaches above them rather than their own stage, "
+                "and that coupling is not formed",
+            ),
+            (
+                "reach_undetermined_diversion",
+                "the flows at {reaches} leave the rule of a diversion open, "
+                "because two rules divert the same amount there and respond "
+                "differently. The flow the diversion takes is held fixed",
+            ),
+        )
+        for flag, message in conditions:
+            if (pname, flag) in self._warned or flag not in grp:
+                continue
+            marked = np.flatnonzero(np.asarray(grp[flag][:]) > 0)
+            if marked.size == 0:
+                continue
+            self._warned.add((pname, flag))
+            listed = ", ".join(str(int(n) + 1) for n in marked[:5])
+            if marked.size > 5:
+                listed += f", and {marked.size - 5} more"
+            reaches = f"reach {listed}" if marked.size == 1 else f"reaches {listed}"
             self._warn(
-                f"streamflow-routing package '{pname}' has reaches that give up "
-                "all of the water they carry. Their leakage follows the reaches "
-                "above them rather than their own stage, and that coupling is "
-                "not formed, so the sensitivity is approximate."
-            )
-        if grp["reach_undetermined_diversion"][:].max() > 0:
-            self._warn(
-                f"streamflow-routing package '{pname}' has diversions whose rule "
-                "the flows do not determine. The flow they take is held fixed, "
-                "so the sensitivity is approximate."
+                f"streamflow-routing package '{pname}': "
+                + message.format(reaches=reaches)
+                + ", so the sensitivity is approximate."
             )
 
     def blocks(self, sol_dataset, gwf_package_dict) -> list:

@@ -33,6 +33,8 @@ Cases:
                        the flows, in both regimes of the piecewise ones.
   - diversion_unknown: flows that leave two rules diverting the same amount
                        are reported as undetermined rather than guessed at.
+  - diversion_warned : an undetermined rule is reported on whichever time step
+                       it arises, and named, and reported only once.
   - sfr_diversion    : a stream carrying a diversion under each of the four
                        rules.
 """
@@ -54,6 +56,7 @@ except ImportError:
     sys.path.insert(0, str(pl.Path("../").resolve()))
     import mf6adj
 
+import mf6adj.advanced_packages.sfr
 from mf6adj.advanced_packages.sfr import leakage_ratio
 from mf6adj.advanced_packages.sfr_cross_section import (
     mannings_section,
@@ -904,3 +907,37 @@ def test_sfr_diversion(tmp_path, rule, rate):
     assert abs(adjoint - finite_difference) < 5.0e-5 * abs(finite_difference), (
         f"{rule} adjoint {adjoint} against a finite difference of {finite_difference}"
     )
+
+
+def test_diversion_warned():
+    """An undetermined rule is reported on the step it arises, and named once."""
+
+    class Recorder:
+        def __init__(self):
+            self.messages = []
+
+        def warning(self, message):
+            self.messages.append(message)
+
+    log = Recorder()
+    coupling = mf6adj.advanced_packages.sfr.SfrCoupling(logger=log)
+    clean = {
+        "reach_flow_limited": np.zeros(9, dtype=int),
+        "reach_undetermined_diversion": np.zeros(9, dtype=int),
+    }
+    tied = dict(clean)
+    tied["reach_undetermined_diversion"] = np.array(
+        [0, 0, 0, 1, 0, 0, 0, 0, 0], dtype=int
+    )
+
+    # the sweep meets a step with nothing to report before the one that has it
+    coupling._warn_once("sfr-1", clean)
+    assert not log.messages
+
+    coupling._warn_once("sfr-1", tied)
+    assert len(log.messages) == 1
+    assert "reach 4" in log.messages[0]
+
+    # and the same condition is not reported again on later steps
+    coupling._warn_once("sfr-1", tied)
+    assert len(log.messages) == 1

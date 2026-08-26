@@ -19,10 +19,18 @@ publication. Each chapter is self-contained.
 
 The document is written in LaTeX and lives in ``docs/SuppInfo``. Build it
 locally with ``make`` in that directory, which writes ``mf6adjsuppinfo.pdf``.
-The copy offered below is built by the documentation workflow and downloaded
-into this site with the rendered notebooks.
+The copy shown below is built by the documentation workflow and downloaded into
+this site with the rendered notebooks.
 
 .. only:: html
+
+   .. raw:: html
+
+      <object data="mf6adjsuppinfo.pdf" type="application/pdf"
+              width="100%" height="900px" style="border: 1px solid #ccc;">
+        <p>This browser will not display the document in the page.
+           <a href="mf6adjsuppinfo.pdf">Open it in a new tab</a> instead.</p>
+      </object>
 
    :download:`Download the supplemental technical information (PDF)
    <examples/mf6adjsuppinfo.pdf>`

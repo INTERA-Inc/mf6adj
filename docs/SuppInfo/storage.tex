@@ -62,11 +62,13 @@ Both follow from the same flows. Differentiating the specific-storage flow of eq
 
 \begin{equation}
 	\label{eqn:dqdss}
+	\begin{split}
 	\frac{\partial Q_{SS}}{\partial S_s} = \frac{A \Delta z}{\Delta t^{k}}
-	\left[ S_F^{k-1} h^{k-1} - S_F^{k} h^{k}
-	+ BOT \left( S_F^{k} - S_F^{k-1} \right)
-	+ \frac{\Delta z}{2} \left( \left(S_F^{k}\right)^{2}
-	- \left(S_F^{k-1}\right)^{2} \right) \right],
+	\Big[ & S_F^{k-1} h^{k-1} - S_F^{k} h^{k} \\
+	& + BOT \left( S_F^{k} - S_F^{k-1} \right) \\
+	& + \frac{\Delta z}{2} \left( \left(S_F^{k}\right)^{2}
+	- \left(S_F^{k-1}\right)^{2} \right) \Big],
+	\end{split}
 \end{equation}
 
 \noindent and the specific-yield flow, which is the water held between the saturations at the two ends of the step, gives
@@ -83,9 +85,11 @@ Under \texttt{SS\_CONFINED\_ONLY} the saturation is one at or above the top of t
 
 \begin{equation}
 	\label{eqn:dqdss-confined}
+	\begin{split}
 	\frac{\partial Q_{SS}}{\partial S_s} = \frac{A \Delta z}{\Delta t^{k}}
-	\left[ \left. \left( TOP - h^{k} \right) \right|_{S_F^{k} = 1}
-	+ \left. \left( h^{k-1} - TOP \right) \right|_{S_F^{k-1} = 1} \right].
+	\Big[ & \left. \left( TOP - h^{k} \right) \right|_{S_F^{k} = 1} \\
+	& + \left. \left( h^{k-1} - TOP \right) \right|_{S_F^{k-1} = 1} \Big].
+	\end{split}
 \end{equation}
 
 The two halves are taken on the saturation at their own end of the step, so a cell that is full at the start and not at the end carries the first half and not the second.
@@ -94,15 +98,18 @@ The two halves are taken on the saturation at their own end of the step, so a ce
 
 A seven by seven single-layer model was drawn down by a well over four time steps, leaving the cells between about half and four-fifths saturated. The sensitivity of the head at an observation cell to the pumping rate was compared with a finite-difference derivative taken by perturbing that rate.
 
-\begin{table}[h]
+\begin{table}[htb]
 	\centering
 	\caption{Error in the head sensitivity against a finite-difference
 	derivative, before and after the contributions were selected as described
 	in this chapter.}
 	\label{tab:sto-verify}
+	\small
 	\begin{tabular}{lrr}
 		\toprule
-		Formulation & Applying $SC1$ throughout & Selecting on saturation \\
+		Formulation &
+		\shortstack[r]{Applying $SC1$\\throughout} &
+		\shortstack[r]{Selecting on\\saturation} \\
 		\midrule
 		\texttt{SS\_CONFINED\_ONLY} & 10.7\% & 0.17\% \\
 		Default                     & 2.6\%  & 0.15\% \\
@@ -114,18 +121,21 @@ Applying $SC1$ at full cell thickness everywhere gives a partially saturated cel
 
 The sensitivities to the storage parameters themselves were checked on the same model, against finite-difference derivatives taken by perturbing each parameter in turn.
 
-\begin{table}[h]
+\begin{table}[htb]
 	\centering
 	\caption{Sensitivity to each storage parameter as a fraction of a
 	finite-difference derivative in that parameter, before and after the
 	derivatives were taken over the saturations at both ends of the time step.}
 	\label{tab:sto-parameters}
+	\small
 	\begin{tabular}{lrr}
 		\toprule
-		Parameter & Saturation taken once & Saturation at both ends \\
+		Parameter &
+		\shortstack[r]{Saturation\\taken once} &
+		\shortstack[r]{Saturation at\\both ends} \\
 		\midrule
-		Specific storage & 0.9844        & 1.0000 \\
-		Specific yield   & not reported  & 1.0010 \\
+		Specific storage & 0.9844       & 1.0000 \\
+		Specific yield   & not reported & 1.0010 \\
 		\bottomrule
 	\end{tabular}
 \end{table}

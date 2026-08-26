@@ -75,6 +75,14 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
+
+# the supplemental technical information is served beside the pages so that it
+# renders in the browser rather than only downloading; it arrives with the
+# rendered notebooks and is absent from a clean checkout
+html_extra_path = []
+_suppinfo = Path(__file__).parent / "examples" / "mf6adjsuppinfo.pdf"
+if _suppinfo.is_file():
+    html_extra_path.append(str(_suppinfo))
 html_css_files = ["custom.css"]
 
 nbsphinx_execute = "never"

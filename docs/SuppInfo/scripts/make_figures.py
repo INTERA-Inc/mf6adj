@@ -21,6 +21,9 @@ import test_sfr
 
 DATA = pl.Path(sys.argv[1])
 WORK = pl.Path(tempfile.mkdtemp(prefix="suppinfo-"))
+
+# the width of a column of the document, so no figure is scaled in LaTeX
+COLUMN_WIDTH = 3.43
 OUTDIR = pl.Path(sys.argv[2])
 OUTDIR.mkdir(parents=True, exist_ok=True)
 
@@ -38,7 +41,7 @@ def draw_instantaneous(archive, outfile):
     steady_end = int(data["nstp"][0])
 
     with styles.USGSPlot():
-        fig, ax = plt.subplots(figsize=(3.5, 2.9), layout="constrained")
+        fig, ax = plt.subplots(figsize=(COLUMN_WIDTH, 2.9), layout="constrained")
         ax.axvspan(0.5, steady_end + 0.5, color="0.90", zorder=0)
         ax.plot(steps, direct, "-", color="black", lw=1.2, label="direct")
         ax.plot(
@@ -95,7 +98,7 @@ def draw_package(archive, builder, boundary, bar_label, outfile):
 
     gwf = builder()
     with styles.USGSMap():
-        fig, ax = plt.subplots(figsize=(3.7, 3.6), layout="constrained")
+        fig, ax = plt.subplots(figsize=(COLUMN_WIDTH, 3.4), layout="constrained")
         mv = flopy.plot.PlotMapView(model=gwf, ax=ax, layer=k)
         img = mv.plot_array(layer, cmap="viridis", vmin=0.0, vmax=vmax)
         mv.plot_grid(lw=0.3, color="0.6")

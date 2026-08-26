@@ -1115,9 +1115,27 @@ class PerfMeas:
 
             data["wel6_q"] = lamb
             comp_welq_sens += lamb * w
-            # a well rate is already a flow, but recharge is a rate over the
-            # cell area, so the flow it produces is recharge * area
-            rch_sens = lamb * area
+            # A well rate is already a flow, but recharge is a rate over the
+            # cell area, and a package may scale it further by an auxiliary
+            # multiplier. Both are carried by the right-hand side MODFLOW
+            # formed, which is the rate times whatever it applies, so the flow
+            # a recharge value produces is taken from there rather than from
+            # the area alone. Where a package does not recharge a cell, or
+            # recharges it at zero, the right-hand side says nothing about the
+            # factor and the cell area stands.
+            rch_factor = area.copy()
+            for rch_name in gwf_package_dict.get("rch6", []):
+                if rch_name not in hdf[sol_key]:
+                    continue
+                grp = hdf[sol_key][rch_name]
+                if "recharge" not in grp:
+                    continue
+                rate = grp["recharge"][:]
+                applied = -grp["rhs"][:]
+                nodes = grp["nodelist"][:] - 1
+                given = rate != 0.0
+                rch_factor[nodes[given]] = applied[given] / rate[given]
+            rch_sens = lamb * rch_factor
             comp_rch_sens += rch_sens * w
             data["rch6_recharge"] = rch_sens
 

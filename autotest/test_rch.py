@@ -11,6 +11,9 @@ Cases:
                                      rate.
   - test_recharge_scales_with_area : the recharge sensitivity is the well
                                      sensitivity times the cell area.
+  - test_recharge_auxmult          : an auxiliary multiplier scales the flow a
+                                     recharge value produces, and the
+                                     sensitivity carries it.
   - test_specified_flux_measure_rejected : measuring the flow of a well, list
                                      recharge, or array recharge is an error
                                      rather than a silently zero sensitivity.
@@ -44,7 +47,7 @@ OBS_CELL = (0, 3, 3)
 BASE_RECHARGE = 1.0e-3
 
 
-def _build_model(ws, recharge, array_recharge=False):
+def _build_model(ws, recharge, array_recharge=False, auxmult=None):
     ws = pl.Path(ws)
     if ws.exists():
         shutil.rmtree(ws)
@@ -69,6 +72,18 @@ def _build_model(ws, recharge, array_recharge=False):
     # applied at a specified rate, so neither flow follows the head
     if array_recharge:
         flopy.mf6.ModflowGwfrcha(gwf, recharge=recharge, pname="rcha-1")
+    elif auxmult is not None:
+        # an auxiliary multiplier scales the rate, so the flow a recharge value
+        # produces is the rate times the area times the multiplier
+        flopy.mf6.ModflowGwfrch(
+            gwf,
+            stress_period_data=[
+                [(0, i, j), recharge, auxmult] for i in range(NROW) for j in range(NCOL)
+            ],
+            auxiliary=["mult"],
+            auxmultname="mult",
+            pname="rch-1",
+        )
     else:
         flopy.mf6.ModflowGwfrch(
             gwf,
@@ -193,4 +208,24 @@ def test_head_dependent_measure_allowed(function_tmpdir):
         sensitivity = hf["composite"]["wel6_q"][:]
     assert np.abs(sensitivity).max() > 0.0, (
         "a head-dependent measure should have a non-zero sensitivity"
+    )
+
+
+@pytest.mark.parametrize("auxmult", [0.4, 1.0, 2.5])
+def test_recharge_auxmult(function_tmpdir, auxmult):
+    """An auxiliary multiplier scales the recharge, and the sensitivity with it."""
+    dr = 1.0e-5
+
+    base_ws = _build_model(function_tmpdir / "base", BASE_RECHARGE, auxmult=auxmult)
+    pert_ws = _build_model(
+        function_tmpdir / "pert", BASE_RECHARGE + dr, auxmult=auxmult
+    )
+    finite_difference = (_head(pert_ws) - _head(base_ws)) / dr
+
+    recharge_sens, _ = _solve_adjoint(base_ws)
+    adjoint = float(np.sum(recharge_sens))
+
+    assert np.isclose(adjoint, finite_difference, rtol=1e-3), (
+        f"with a multiplier of {auxmult} the adjoint {adjoint:.6e} does not "
+        f"match the finite-difference derivative {finite_difference:.6e}"
     )

@@ -19,6 +19,12 @@ Cases:
                        together.
   - branching        : a stream that splits sends its flow on in the shares the
                        reaches below it are given.
+  - xs_rating        : the cross-section rating reproduces the discharge the
+                       forward model solved the reach depth against.
+  - xs_derivative    : the derivative of that rating matches a central
+                       difference through a break in the section.
+  - sfr_cross_section: a stream whose reaches carry a cross section, whose
+                       conductance follows the depth as well as the stage.
 """
 
 import glob
@@ -28,6 +34,7 @@ import sys
 
 import flopy
 import h5py
+import modflowapi
 import numpy as np
 import pytest
 
@@ -36,6 +43,8 @@ try:
 except ImportError:
     sys.path.insert(0, str(pl.Path("../").resolve()))
     import mf6adj
+
+from mf6adj.advanced_packages.sfr_cross_section import mannings_section
 
 mf6_bin, lib_name = mf6adj.get_conda_mf6_paths()
 
@@ -46,7 +55,19 @@ WELL_RATE = -2000.0
 STRTOP = 6.0
 
 
-def _build_model(ws, well_rate, inflow=5000.0, rhk=5.0, rgrd=1.0e-3, man=0.03):
+# a trapezoidal section, given as a fraction of the reach width and a height
+# over the streambed, with a roughness of the reach roughness throughout
+CROSS_SECTION = [
+    (0.0, 1.2, 1.0),
+    (0.2, 0.0, 1.0),
+    (0.8, 0.0, 1.0),
+    (1.0, 1.2, 1.0),
+]
+
+
+def _build_model(
+    ws, well_rate, inflow=5000.0, rhk=5.0, rgrd=1.0e-3, man=0.03, cross_section=False
+):
     """Build a single-layer model with a chain of reaches across it."""
     ws = pl.Path(ws)
     if ws.exists():
@@ -109,11 +130,26 @@ def _build_model(ws, well_rate, inflow=5000.0, rhk=5.0, rgrd=1.0e-3, man=0.03):
             # a downstream connection is given as a negative reach number
             conn.append(-(n + 1))
         connectiondata.append(conn)
+    crosssections = None
+    if cross_section:
+        crosssections = []
+        for n in range(NCOL):
+            name = f"xs{n}"
+            flopy.mf6.ModflowUtlsfrtab(
+                gwf,
+                nrow=len(CROSS_SECTION),
+                ncol=3,
+                table=CROSS_SECTION,
+                filename=f"{name}.txt",
+                pname=name,
+            )
+            crosssections.append([n, f"{name}.txt"])
     flopy.mf6.ModflowGwfsfr(
         gwf,
         nreaches=NCOL,
         packagedata=packagedata,
         connectiondata=connectiondata,
+        crosssections=crosssections,
         perioddata={0: [[0, "inflow", inflow]]},
         unit_conversion=128390.0,
         pname="sfr-1",
@@ -615,4 +651,87 @@ def test_sfr_branching(tmp_path):
         adjoint = float(hf["composite"]["wel6_q"][WELL_CELL])
     assert np.isclose(adjoint, finite_difference, rtol=2e-2), (
         f"adjoint {adjoint:.6e} against finite difference {finite_difference:.6e}"
+    )
+
+
+def _section_terms(ws):
+    """Return what the forward model holds for a reach with a cross section."""
+    mf6 = modflowapi.ModflowApi(str(lib_name), working_directory=str(ws))
+    mf6.initialize()
+    mf6.update()
+
+    def value(name):
+        return mf6.get_value(mf6.get_var_address(name, "SF", "SFR-1")).copy()
+
+    terms = {
+        name: value(name)
+        for name in (
+            "DEPTH",
+            "USFLOW",
+            "DSFLOW",
+            "STATION",
+            "XSHEIGHT",
+            "XSROUGH",
+            "ROUGH",
+            "SLOPE",
+        )
+    }
+    terms["IACROSS"] = value("IACROSS") - 1
+    terms["UNITCONV"] = float(value("UNITCONV")[0])
+    mf6.finalize()
+    return terms
+
+
+def test_xs_rating(tmp_path):
+    """The rating reproduces the discharge the reach depth was solved against."""
+    ws = _build_model(tmp_path / "xs", WELL_RATE, cross_section=True)
+    terms = _section_terms(ws)
+    for n in range(1, NCOL):
+        # the first reach is left out because its inflow is specified rather
+        # than routed, so the flow entering it is not reported
+        i0, i1 = int(terms["IACROSS"][n]), int(terms["IACROSS"][n + 1])
+        discharge, _ = mannings_section(
+            terms["STATION"][i0:i1],
+            terms["XSHEIGHT"][i0:i1],
+            terms["XSROUGH"][i0:i1],
+            terms["ROUGH"][n],
+            terms["UNITCONV"],
+            terms["SLOPE"][n],
+            terms["DEPTH"][n],
+        )
+        # MODFLOW sets the depth so the discharge is the mean of the flow in
+        # and the flow out
+        routed = 0.5 * (terms["USFLOW"][n] + terms["DSFLOW"][n])
+        assert abs(discharge - routed) < 1.0e-6 * abs(routed), (
+            f"reach {n} rating {discharge} against a routed flow of {routed}"
+        )
+
+
+@pytest.mark.parametrize("depth", [0.05, 0.3, 0.7, 0.999, 1.001, 1.5, 2.5])
+def test_xs_derivative(depth):
+    """The derivative of the rating matches a central difference."""
+    # a flat bed between sloping banks that end in a vertical wall at a height
+    # of one, so the section breaks at that depth
+    station = np.array([0.0, 0.0, 1.0, 4.0, 5.0, 5.0])
+    heights = np.array([3.0, 1.0, 0.0, 0.0, 1.0, 3.0])
+    roughfracs = np.array([1.0, 0.8, 1.0, 1.0, 1.2, 1.0])
+
+    def rating(d):
+        return mannings_section(station, heights, roughfracs, 0.03, 1.0, 1e-3, d)
+
+    _, derivative = rating(depth)
+    step = 1.0e-7
+    central = (rating(depth + step)[0] - rating(depth - step)[0]) / (2.0 * step)
+    assert abs(derivative - central) < 1.0e-6 * abs(central), (
+        f"depth {depth} derivative {derivative} against {central}"
+    )
+
+
+def test_sfr_cross_section(tmp_path):
+    """A reach with a cross section carries the rating and the conductance."""
+    adjoint, finite_difference = _compare(tmp_path, cross_section=True)
+    # the conductance follows the wetted perimeter, so both it and the rating
+    # move with the depth
+    assert abs(adjoint - finite_difference) < 1.0e-3 * abs(finite_difference), (
+        f"adjoint {adjoint} against a finite difference of {finite_difference}"
     )

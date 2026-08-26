@@ -15,13 +15,16 @@ with no depth dependence, so the discharge is a power of the depth::
 
     qman(d) = unitconv * width * d ** (5 / 3) * sqrt(slope) / roughness
 
-and its derivative is that exponent times the discharge over the depth. Taking
-the discharge MODFLOW reports rather than rebuilding the rating keeps this
-correct whatever the unit conversion is.
+and its derivative is that exponent times the discharge over the depth. A reach
+with a cross section takes its discharge from the conveyance of the wetted
+section instead, and that rating and its derivative are formed in
+``sfr_cross_section``.
 """
 
 import numpy as np
 import scipy.sparse as sparse
+
+from .sfr_cross_section import mannings_section, wetted_perimeter
 
 # The Manning discharge of a reach without a cross section is this power of the
 # depth over the streambed, so its derivative is the exponent times the
@@ -54,8 +57,10 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
     -------
     dict
         Depth, discharge, the derivative of discharge with respect to depth,
-        and the reach network. ``reach_is_free`` marks a reach whose depth is
-        solved, as opposed to one that is dry or holds a specified stage.
+        the derivative of the leakage with respect to depth as a multiple of
+        the conductance, and the reach network. ``reach_is_free`` marks a reach
+        whose depth is solved, as opposed to one that is dry or holds a
+        specified stage.
     """
 
     def value(name):
@@ -77,19 +82,64 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
     rough = value("ROUGH")
     unitconv = float(value("UNITCONV")[0])
 
-    # a reach with a cross section follows a rating this does not reproduce
     ncrosspts = optional("NCROSSPTS", 1, nreach)
     has_section = (ncrosspts > 1).astype(int)
+    if has_section.max() > 0:
+        iacross = value("IACROSS") - 1
+        station = value("STATION")
+        xsheight = value("XSHEIGHT")
+        xsrough = value("XSROUGH")
+
+    # the leakage of a reach follows its depth through the stage, and, where a
+    # cross section sets the wetted perimeter, through the conductance as well
+    hk = value("HK")
+    length = value("LENGTH")
+    bthick = value("BTHICK")
+    gwflow = value("GWFLOW")
+    perimeter = width.copy()
+    dperimeter = np.zeros(nreach)
 
     discharge = np.zeros(nreach)
     ddischarge = np.zeros(nreach)
     for n in range(nreach):
-        if depth[n] <= MIN_DEPTH or has_section[n]:
+        if depth[n] <= MIN_DEPTH:
             continue
-        discharge[n] = _rating_discharge(
-            width[n], depth[n], slope[n], rough[n], unitconv
-        )
-        ddischarge[n] = MANNING_EXPONENT * discharge[n] / depth[n]
+        if has_section[n]:
+            i0, i1 = int(iacross[n]), int(iacross[n + 1])
+            perimeter[n], dperimeter[n] = wetted_perimeter(
+                station[i0:i1], xsheight[i0:i1], depth[n]
+            )
+            discharge[n], ddischarge[n] = mannings_section(
+                station[i0:i1],
+                xsheight[i0:i1],
+                xsrough[i0:i1],
+                rough[n],
+                unitconv,
+                slope[n],
+                depth[n],
+            )
+        else:
+            discharge[n] = _rating_discharge(
+                width[n], depth[n], slope[n], rough[n], unitconv
+            )
+            ddischarge[n] = MANNING_EXPONENT * discharge[n] / depth[n]
+
+    # The leakage is the conductance times the head difference across the
+    # streambed, and the conductance is the wetted perimeter times a factor the
+    # depth does not enter, so the leakage follows the depth as
+    #
+    #     dleak / ddepth = cond * (1 + (dP / P) * head difference)
+    #
+    # Only the bracket is formed here, so the conductance the package reports
+    # sets the magnitude and a reach on an inactive cell stays at zero. The head
+    # difference is taken from the leakage, which MODFLOW reports positive where
+    # a reach loses water, so a perched reach needs no separate treatment.
+    cond = hk * length * perimeter / bthick
+    head_difference = np.divide(gwflow, cond, out=np.zeros(nreach), where=cond > 0.0)
+    ratio = np.divide(
+        dperimeter, perimeter, out=np.zeros(nreach), where=perimeter > 0.0
+    )
+    dleak_ratio = 1.0 + ratio * head_difference
 
     # A reach that gives up every drop it carries leaks its own inflow rather
     # than a head-dependent amount, which MODFLOW marks by leaving hcof at zero
@@ -97,12 +147,9 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
     # it rather than its own stage, and that coupling is not formed here.
     flow_limited = ((hcof == 0.0) & (depth > MIN_DEPTH) & (dsflow <= 0.0)).astype(int)
 
-    # a reach that carries no water, whose stage follows a cross section, or
-    # whose leakage is limited by the flow it carries, has no depth for the
-    # adjoint to solve for
-    is_free = ((depth > MIN_DEPTH) & (has_section == 0) & (flow_limited == 0)).astype(
-        int
-    )
+    # a reach that carries no water, or whose leakage is limited by the flow it
+    # carries, has no depth for the adjoint to solve for
+    is_free = ((depth > MIN_DEPTH) & (flow_limited == 0)).astype(int)
 
     # the reach network: idir is positive for a connection to an upstream reach
     ia = value("IA") - 1
@@ -129,6 +176,7 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
     return {
         "reach_ddischarge": ddischarge,
         "reach_depth": depth,
+        "reach_dleak_ratio": dleak_ratio,
         "reach_discharge": discharge,
         "reach_fraction": fraction,
         "reach_has_section": has_section,
@@ -175,14 +223,6 @@ class SfrCoupling:
             return
         self._warned.add(pname)
 
-        if grp["reach_has_section"][:].max() > 0:
-            self._warn(
-                f"streamflow-routing package '{pname}' has reaches with a cross "
-                "section. Their discharge follows the section rather than a "
-                "power of the depth, and that derivative is not formed, so "
-                "those reaches keep a fixed stage and the sensitivity is "
-                "approximate."
-            )
         if grp["reach_flow_limited"][:].max() > 0:
             self._warn(
                 f"streamflow-routing package '{pname}' has reaches that give up "
@@ -203,8 +243,8 @@ class SfrCoupling:
         Returns
         -------
         list
-            One entry per streamflow-routing package. A reach that is dry, or
-            that follows a cross section, is left out.
+            One entry per streamflow-routing package. A reach that is dry is
+            left out.
         """
         found = []
         for ptype, pnames in gwf_package_dict.items():
@@ -229,6 +269,7 @@ class SfrCoupling:
                         "cond": grp["bound"][:, 1],
                         "hcof": grp["hcof"][:],
                         "ddischarge": grp["reach_ddischarge"][:],
+                        "dleak": grp["bound"][:, 1] * grp["reach_dleak_ratio"][:],
                         "flow_limited": grp["reach_flow_limited"][:] == 1,
                         "fraction": grp["reach_fraction"][:],
                         "free": free,
@@ -270,7 +311,7 @@ class SfrCoupling:
                     continue
                 key = (block["name"], ireach)
                 result[key] = result.get(key, 0.0) + weights[node] * float(
-                    block["cond"][ireach]
+                    block["dleak"][ireach]
                 )
         return result
 
@@ -292,7 +333,7 @@ class SfrCoupling:
         The flow leaving a reach is its Manning discharge less half of its
         leakage, so it follows the reach depth and the head beneath it.
         """
-        ddepth = float(block["ddischarge"][iup]) - 0.5 * float(block["cond"][iup])
+        ddepth = float(block["ddischarge"][iup]) - 0.5 * float(block["dleak"][iup])
         dhead = 0.5 * float(block["cond"][iup])
         return ddepth, dhead
 
@@ -370,14 +411,14 @@ class SfrCoupling:
                     continue
                 icol = self.columns[key]
                 node = int(block["node"][n])
-                cond = float(block["cond"][n])
+                dleak = float(block["dleak"][n])
 
                 # the aquifer sees the reach through its stage
-                drds[node, icol] += cond
+                drds[node, icol] += dleak
 
                 # the reach equation: the Manning discharge against the mean of
                 # the flow in and out, so half of the leakage appears here
-                drdr[icol, icol] += float(block["ddischarge"][n]) + 0.5 * cond
+                drdr[icol, icol] += float(block["ddischarge"][n]) + 0.5 * dleak
                 drdh[icol, node] += 0.5 * float(block["hcof"][n])
 
                 # what this reach receives from the reaches above it
@@ -391,7 +432,7 @@ class SfrCoupling:
                     jcol = self.columns[upstream]
                     iup = int(ja[icon])
                     drdr[icol, jcol] -= share * float(block["ddischarge"][iup])
-                    drdr[icol, jcol] += 0.5 * share * float(block["cond"][iup])
+                    drdr[icol, jcol] += 0.5 * share * float(block["dleak"][iup])
                     # the flow leaving the upstream reach carries half of its
                     # leakage, so the head there enters with the same sign as
                     # this reach's own

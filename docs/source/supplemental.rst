@@ -27,7 +27,7 @@ this site with the rendered notebooks.
    .. raw:: html
 
       <object data="mf6adjsuppinfo.pdf" type="application/pdf"
-              width="100%" height="900px" style="border: 1px solid #ccc;">
+              width="100%" height="1040px" style="border: 1px solid #ccc;">
         <p>This browser will not display the document in the page.
            <a href="mf6adjsuppinfo.pdf">Open it in a new tab</a> instead.</p>
       </object>

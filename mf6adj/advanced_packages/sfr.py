@@ -41,6 +41,32 @@ def _rating_discharge(width, depth, slope, rough, unitconv):
     return unitconv * width * depth**MANNING_EXPONENT * np.sqrt(slope) / rough
 
 
+def leakage_ratio(perimeter, dperimeter, cond, gwflow):
+    """Return the leakage derivative in depth as a multiple of the conductance.
+
+    The leakage is the conductance times the head difference across the
+    streambed, and the conductance is the wetted perimeter times a factor the
+    depth does not enter, so the leakage follows the depth as
+
+        dleak / ddepth = cond * (1 + (dP / dd) / P * (stage - head))
+
+    Only the bracket is returned, so the conductance the package reports sets
+    the magnitude and a reach on an inactive cell stays at zero. The head
+    difference is taken from the leakage, which MODFLOW reports positive where a
+    reach loses water, so a perched reach needs no separate treatment.
+    """
+    # both divisions are guarded against a zero denominator rather than against
+    # a negative one: a section whose wetted perimeter has gone negative still
+    # has a conductance, and both quotients carry their sign correctly
+    head_difference = np.divide(
+        gwflow, cond, out=np.zeros_like(cond), where=cond != 0.0
+    )
+    ratio = np.divide(
+        dperimeter, perimeter, out=np.zeros_like(perimeter), where=perimeter != 0.0
+    )
+    return 1.0 + ratio * head_difference
+
+
 def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
     """Return the routing terms of a streamflow-routing package for one time step.
 
@@ -124,22 +150,8 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
             )
             ddischarge[n] = MANNING_EXPONENT * discharge[n] / depth[n]
 
-    # The leakage is the conductance times the head difference across the
-    # streambed, and the conductance is the wetted perimeter times a factor the
-    # depth does not enter, so the leakage follows the depth as
-    #
-    #     dleak / ddepth = cond * (1 + (dP / P) * head difference)
-    #
-    # Only the bracket is formed here, so the conductance the package reports
-    # sets the magnitude and a reach on an inactive cell stays at zero. The head
-    # difference is taken from the leakage, which MODFLOW reports positive where
-    # a reach loses water, so a perched reach needs no separate treatment.
     cond = hk * length * perimeter / bthick
-    head_difference = np.divide(gwflow, cond, out=np.zeros(nreach), where=cond > 0.0)
-    ratio = np.divide(
-        dperimeter, perimeter, out=np.zeros(nreach), where=perimeter > 0.0
-    )
-    dleak_ratio = 1.0 + ratio * head_difference
+    dleak_ratio = leakage_ratio(perimeter, dperimeter, cond, gwflow)
 
     # A reach that gives up every drop it carries leaks its own inflow rather
     # than a head-dependent amount, which MODFLOW marks by leaving hcof at zero

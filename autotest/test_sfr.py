@@ -25,6 +25,8 @@ Cases:
                        vertical wall.
   - xs_derivative    : the derivative of that rating matches a central
                        difference through a break in the section.
+  - xs_negative_p    : a section whose wetted perimeter has gone negative, as
+                       MODFLOW lets it, still carries a leakage derivative.
   - sfr_cross_section: a stream whose reaches carry a cross section, whose
                        conductance follows the depth as well as the stage.
 """
@@ -46,7 +48,11 @@ except ImportError:
     sys.path.insert(0, str(pl.Path("../").resolve()))
     import mf6adj
 
-from mf6adj.advanced_packages.sfr_cross_section import mannings_section
+from mf6adj.advanced_packages.sfr import leakage_ratio
+from mf6adj.advanced_packages.sfr_cross_section import (
+    mannings_section,
+    wetted_perimeter,
+)
 
 mf6_bin, lib_name = mf6adj.get_conda_mf6_paths()
 
@@ -757,3 +763,34 @@ def test_sfr_cross_section(tmp_path):
     assert abs(adjoint - finite_difference) < 1.0e-3 * abs(finite_difference), (
         f"adjoint {adjoint} against a finite difference of {finite_difference}"
     )
+
+
+def test_xs_negative_perimeter():
+    """A section left with a negative perimeter still follows the depth.
+
+    MODFLOW subtracts the height of a vertical face standing above the water
+    surface, which can leave the wetted perimeter of a section negative. The
+    conductance is then negative rather than absent, and the leakage still
+    follows the depth through it.
+    """
+    # a tall wall over a short bank, so the face the water does not reach is
+    # longer than everything it does
+    station = np.array([0.0, 0.0, 0.1, 0.2])
+    heights = np.array([10.0, 5.0, 0.0, 5.0])
+    perimeter, dperimeter = wetted_perimeter(station, heights, 1.0)
+    assert perimeter < 0.0, f"expected a negative perimeter, got {perimeter}"
+
+    # a reach losing water, so the head difference across the streambed is
+    # positive whatever the sign of the conductance
+    cond = np.array([5.0 * 100.0 * perimeter / 1.0])
+    head_difference = 0.5
+    ratio = leakage_ratio(
+        np.array([perimeter]),
+        np.array([dperimeter]),
+        cond,
+        cond * head_difference,
+    )
+    expected = 1.0 + dperimeter / perimeter * head_difference
+    assert ratio[0] == pytest.approx(expected)
+    # the conductance alone would be the answer only if the section were flat
+    assert ratio[0] != pytest.approx(1.0)

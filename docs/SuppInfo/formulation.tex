@@ -1,0 +1,57 @@
+The adjoint solution is taken from the matrix \mf{} assembled while it solved the flow model. Whether that matrix is the derivative of the flow equations, or only the operator used to iterate toward their solution, depends on the formulation the flow model was run under. This chapter describes when a sensitivity is exact, when it is a partial derivative, and what \adj{} reports.
+
+\section*{Two matrices}
+
+A cell that converts between confined and unconfined carries a transmissivity that follows the head, because the saturated thickness does. Writing the flow between cells $n$ and $m$ as
+
+\begin{equation}
+	\label{eqn:formulation-flow}
+	Q_{nm} = C_{nm}(h)\left( h_{m} - h_{n} \right),
+\end{equation}
+
+\noindent where $C_{nm}$ is the conductance between the two cells (L$^{2}$T$^{-1}$), the derivative of the residual with respect to the head carries two terms,
+
+\begin{equation}
+	\label{eqn:formulation-jacobian}
+	\frac{\partial r_{n}}{\partial h_{n}} = -\sum_{m} C_{nm}
+	+ \sum_{m} \frac{\partial C_{nm}}{\partial h_{n}}
+	\left( h_{m} - h_{n} \right).
+\end{equation}
+
+Under the Newton-Raphson formulation \mf{} assembles both terms of equation~\ref{eqn:formulation-jacobian}, because that is what the method requires. Under the standard formulation it assembles only the first and lags the second, recomputing the conductance between iterations until the heads stop moving. Both converge to a solution of the same physical problem, but only the first leaves behind a matrix that is the derivative of the equations.
+
+The adjoint needs that derivative. Given the first term alone it returns a partial derivative, holding the transmissivity fixed in the same way that holding a lake stage fixed returns a partial derivative (Chapter~\ref{ch:lake}).
+
+\section*{How far it is out}
+
+A single-layer unconfined model was pumped by a well against a general-head boundary, and the sensitivity of a head to the well rate compared with a central difference. The model was run twice at each rate, once under each formulation.
+
+\begin{table}[htb]
+	\centering
+	\caption{Error in the sensitivity of a head to a well rate, against a
+	finite-difference derivative, under each formulation.}
+	\label{tab:formulation}
+	\small
+	\begin{tabular}{lrr}
+		\toprule
+		\shortstack[l]{Head in the\\pumped cell} &
+		\shortstack[r]{Newton-\\Raphson} &
+		\shortstack[r]{Standard\\formulation} \\
+		\midrule
+		5.46 & 0.000\% & 5.9\%   \\
+		2.20 & 0.000\% & 10.2\%  \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+The error under the standard formulation grows as the cell empties, which is what the neglected term in equation~\ref{eqn:formulation-jacobian} would give: the conductance follows the head most steeply where the saturated thickness is least. A confined model is unaffected, because there the conductance does not follow the head at all and the two matrices are the same.
+
+A second head-dependent term compounds this. A well given \texttt{AUTO\_FLOW\_REDUCE} has its rate scaled by a smooth function of the head in its cell, and that dependence is likewise carried into the matrix only under the Newton-Raphson formulation. On the same model the sensitivity was in error by 146 percent with the reduction active and the standard formulation in use, against 10 percent for the same model with no reduction at all. Under the Newton-Raphson formulation the reduced well is exact, matching a central difference to six figures, where neglecting the reduction entirely would be out by a factor of nearly five.
+
+\section*{What is reported}
+
+\adj{} reports a flow model that has convertible cells and was not run under the Newton-Raphson formulation, and reports a reduced well separately, rather than returning either as though it were exact. Neither is reported for a model run under Newton-Raphson, where both are carried.
+
+\section*{Limitation}
+
+The neglected term is not recovered. It cannot be taken from the Newton-Raphson assembly, because the two formulations do not solve the same discrete equations: the Newton-Raphson formulation weights the conductance upstream, and the converged heads of the two runs differ. Recovering it means differentiating the conductance the standard formulation actually used, which is one of three cell-averaging schemes, over horizontal, vertical, and vertically staggered connections. Running the flow model under the Newton-Raphson formulation is the shorter path to an exact sensitivity, and is what \adj{} recommends where it reports the condition.

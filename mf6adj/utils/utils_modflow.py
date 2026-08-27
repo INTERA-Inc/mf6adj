@@ -361,3 +361,29 @@ def auto_flow_reduce(gwf_name, pak_name, gwf) -> int:
         )
     except Exception:
         return 0
+
+
+def convertible_cells(gwf_name, gwf) -> bool:
+    """Return whether any cell converts between confined and unconfined.
+
+    The transmissivity of such a cell follows the head through its saturated
+    thickness, which is the dependence the Newton-Raphson formulation carries
+    into the matrix and the standard formulation does not.
+
+    Parameters
+    ----------
+    gwf_name : str
+        Name of the groundwater-flow model.
+    gwf : modflowapi.ModflowApi
+        MODFLOW 6 groundwater-flow instance.
+
+    Returns
+    -------
+    bool
+        True where at least one cell is convertible.
+    """
+    try:
+        icelltype = get_ptr_from_gwf(gwf_name, "NPF", "ICELLTYPE", gwf)
+    except Exception:
+        return False
+    return bool(np.any(np.asarray(icelltype) != 0))

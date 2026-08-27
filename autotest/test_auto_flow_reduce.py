@@ -14,6 +14,9 @@ Cases:
                       vacuous.
   - no_newton_warns : the same model without Newton is reported rather than
                       returned as though it were exact.
+  - picard_warns    : a convertible cell without Newton is reported on its own
+                      account, whatever the wells are doing.
+  - newton_quiet    : neither is reported where the model used Newton.
 """
 
 import pathlib as pl
@@ -154,3 +157,26 @@ def test_no_newton_warns(function_tmpdir, caplog):
     assert any("reduces its rates" in record.message for record in caplog.records), (
         "the reduced well was not reported"
     )
+
+
+def test_picard_warns(function_tmpdir, caplog):
+    """A convertible cell without Newton is reported on its own account.
+
+    The matrix leaves out how the transmissivity follows the head, which is a
+    limitation of the model formulation rather than of any one package.
+    """
+    ws = _build_model(function_tmpdir / "picard", rate=-250.0, newton=False)
+    _solve_adjoint(ws)
+    assert any("convertible cells" in record.message for record in caplog.records), (
+        "the standard formulation was not reported"
+    )
+
+
+def test_newton_quiet(function_tmpdir, caplog):
+    """Neither condition is reported where the flow model used Newton."""
+    ws = _build_model(function_tmpdir / "newton")
+    _solve_adjoint(ws)
+    assert not any(
+        "convertible cells" in record.message or "reduces its rates" in record.message
+        for record in caplog.records
+    ), "an exact model was reported as approximate"

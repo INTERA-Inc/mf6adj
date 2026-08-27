@@ -22,6 +22,7 @@ from .utils.utils_fileio import _write_group_to_hdf
 from .utils.utils_logger import _LoggerUtil
 from .utils.utils_modflow import (
     auto_flow_reduce,
+    convertible_cells,
     get_auxiliary_multiplier,
     get_lrc,
     get_mf6_bound_dict,
@@ -517,6 +518,19 @@ class Mf6Adj:
             is_newton = self._gwf.get_value(
                 self._gwf.get_var_address("INEWTON", self._gwf_name)
             )[0]
+            # The adjoint is taken from the matrix MODFLOW assembled. Under the
+            # Newton-Raphson formulation that matrix is the Jacobian. Without
+            # it the matrix leaves out how the transmissivity of a convertible
+            # cell follows the head, and the sensitivity is a partial
+            # derivative that grows worse as the cell empties.
+            if not is_newton and convertible_cells(self._gwf_name, self._gwf):
+                self.logger.logger.warning(
+                    "the flow model has convertible cells and did not use the "
+                    "Newton-Raphson formulation, so the matrix leaves out how "
+                    "their transmissivity follows the head and the "
+                    "sensitivities are approximate. Running the flow model "
+                    "under Newton-Raphson makes them exact."
+                )
             has_sto = False
             if has_sto_iconvert(self._gwf):
                 has_sto = True

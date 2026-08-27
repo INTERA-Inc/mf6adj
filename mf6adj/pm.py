@@ -651,6 +651,8 @@ class PerfMeas:
 
         bnd_dict = get_mf6_bound_dict()
         comp_bnd_results = {}
+        # a reduced well rate is reported once per package, not once per step
+        warned_flow_reduce = set()
         for ptype, pnames in gwf_package_dict.items():
             if ptype in bnd_dict:
                 for pname in pnames:
@@ -1124,6 +1126,24 @@ class PerfMeas:
                     if name in hdf[sol_key]
                 ),
             )
+            for name in well.reduced_without_newton(
+                (
+                    (name, hdf[sol_key][name])
+                    for name in gwf_package_dict.get("wel6", [])
+                    if name in hdf[sol_key]
+                ),
+                is_newton,
+            ):
+                if name in warned_flow_reduce:
+                    continue
+                warned_flow_reduce.add(name)
+                self.logger.logger.warning(
+                    f"well package '{name}' reduces its rates as its cells "
+                    "drain, and the flow model did not use the Newton-Raphson "
+                    "formulation, so the matrix does not carry how that "
+                    "reduction follows the head and the sensitivity is "
+                    "approximate."
+                )
             welq_sens = lamb * wel_factor
             data["wel6_q"] = welq_sens
             comp_welq_sens += welq_sens * w

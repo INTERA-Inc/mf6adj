@@ -21,6 +21,7 @@ from .utils.utils import _utils_cd
 from .utils.utils_fileio import _write_group_to_hdf
 from .utils.utils_logger import _LoggerUtil
 from .utils.utils_modflow import (
+    auto_flow_reduce,
     get_auxiliary_multiplier,
     get_lrc,
     get_mf6_bound_dict,
@@ -830,6 +831,17 @@ class Mf6Adj:
                                         len(nodelist),
                                     ),
                                 }
+                                if package_type == "wel6":
+                                    # a reduced well rate follows the head, and
+                                    # that is only carried into the matrix by
+                                    # the Newton-Raphson formulation
+                                    data_dict[tag]["auto_flow_reduce"] = np.array(
+                                        [
+                                            auto_flow_reduce(
+                                                self._gwf_name, tag.upper(), self._gwf
+                                            )
+                                        ]
+                                    )
                                 for key, val in bnd_attrs.items():
                                     assert key not in data_dict[tag], (
                                         f"boundary attribute '{key}' already in "

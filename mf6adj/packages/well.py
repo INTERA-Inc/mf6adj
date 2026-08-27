@@ -56,3 +56,34 @@ def rate_factor(nnodes, groups):
     idle = (wells > 0.0) & ~pumped
     factor[idle] = multiplier[idle] / wells[idle]
     return factor
+
+
+def reduced_without_newton(groups, is_newton):
+    """Return the packages whose reduced rates are not carried by the matrix.
+
+    A well given ``AUTO_FLOW_REDUCE`` has its rate scaled by a function of the
+    head in its cell, so the flow follows the head. MODFLOW 6 puts that
+    dependence into the matrix only under the Newton-Raphson formulation. Where
+    it does not, the matrix the adjoint is taken from is missing the term, and
+    the sensitivity is a partial derivative.
+
+    Parameters
+    ----------
+    groups : iterable of tuple
+        Package name and stored group, each group holding
+        ``auto_flow_reduce`` where the package was given the option.
+    is_newton : bool
+        Whether the flow model used the Newton-Raphson formulation.
+
+    Returns
+    -------
+    list
+        Names of the packages to report. Empty under Newton.
+    """
+    if is_newton:
+        return []
+    return [
+        name
+        for name, group in groups
+        if "auto_flow_reduce" in group and int(group["auto_flow_reduce"][0]) != 0
+    ]

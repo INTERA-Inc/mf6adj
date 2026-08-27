@@ -334,3 +334,30 @@ def get_auxiliary_multiplier(gwf_name, pak_name, gwf, nbound) -> np.ndarray:
         if np.any(values != 0.0):
             return values.copy()
     return ones
+
+
+def auto_flow_reduce(gwf_name, pak_name, gwf) -> int:
+    """Return whether a well package reduces its rates as its cells drain.
+
+    Parameters
+    ----------
+    gwf_name : str
+        Name of the groundwater-flow model.
+    pak_name : str
+        Package name from the model name file.
+    gwf : modflowapi.ModflowApi
+        MODFLOW 6 groundwater-flow instance.
+
+    Returns
+    -------
+    int
+        Nonzero where the package was given AUTO_FLOW_REDUCE.
+    """
+    try:
+        return int(
+            np.asarray(
+                gwf.get_value(gwf.get_var_address("IFLOWRED", gwf_name, pak_name))
+            ).ravel()[0]
+        )
+    except Exception:
+        return 0

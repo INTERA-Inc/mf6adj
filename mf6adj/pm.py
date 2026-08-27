@@ -22,7 +22,8 @@ from scipy.sparse.linalg import (
 )
 
 from .advanced_packages import LakeCoupling, SfrCoupling
-from .boundary import DRAIN_CORNER_TOL, drop_corner_entries
+from .packages import head_dependent, npf, recharge
+from .packages.head_dependent import DRAIN_CORNER_TOL, drop_corner_entries
 from .utils.utils import SolverCallback
 from .utils.utils_fileio import _write_group_to_hdf
 from .utils.utils_logger import _LoggerUtil
@@ -1055,7 +1056,7 @@ class PerfMeas:
 
             start = datetime.now()
             self.logger.logger.debug("Formulating lam_dresdk_h")
-            k_sens, k33_sens = self.__lam_dresdk_h(
+            k_sens, k33_sens = npf.lam_dresdk_h(
                 is_newton,
                 ihighcellsat,
                 lamb,
@@ -1115,34 +1116,17 @@ class PerfMeas:
 
             data["wel6_q"] = lamb
             comp_welq_sens += lamb * w
-            # A well rate is already a flow, but recharge is a rate over the
-            # cell area, and a package may scale it further by an auxiliary
-            # multiplier. Both are carried by the right-hand side MODFLOW
-            # formed, which is the rate times whatever it applies, so the flow
-            # a recharge value produces is read from there. A cell recharged at
-            # zero has a right-hand side of zero, which says nothing about
-            # either, so the area and the multiplier are taken separately
-            # there. A cell no package recharges keeps the area alone.
-            rch_factor = area.copy()
-            for rch_name in gwf_package_dict.get("rch6", []):
-                if rch_name not in hdf[sol_key]:
-                    continue
-                grp = hdf[sol_key][rch_name]
-                if "recharge" not in grp:
-                    continue
-                rate = grp["recharge"][:]
-                applied = -grp["rhs"][:]
-                nodes = grp["nodelist"][:] - 1
-                given = rate != 0.0
-                rch_factor[nodes[given]] = applied[given] / rate[given]
-                if not given.all():
-                    auxmult = (
-                        grp["auxmult"][:]
-                        if "auxmult" in grp
-                        else np.ones(rate.shape[0])
-                    )
-                    idle = nodes[~given]
-                    rch_factor[idle] = area[idle] * auxmult[~given]
+            # recharge is a rate over the cell area, which a package may
+            # scale further, so the flow a value produces is read from the
+            # terms MODFLOW formed rather than from the area alone
+            rch_factor = recharge.rate_factor(
+                area,
+                (
+                    hdf[sol_key][name]
+                    for name in gwf_package_dict.get("rch6", [])
+                    if name in hdf[sol_key]
+                ),
+            )
             rch_sens = lamb * rch_factor
             comp_rch_sens += rch_sens * w
             data["rch6_recharge"] = rch_sens
@@ -1167,7 +1151,7 @@ class PerfMeas:
                             for pfr in self._entries
                             if pfr.kperkstp == kk and pfr.pm_type == pname
                         }
-                        sens_level, sens_cond = self.__lam_drhs_dbnd(
+                        sens_level, sens_cond = head_dependent.lam_drhs_dbnd(
                             lamb, head, sp_bnd_dict, direct_weights
                         )
                         comp_bnd_results[pname + "_" + bnd_dict[ptype][0]] += (
@@ -1287,70 +1271,6 @@ class PerfMeas:
 
         return df
 
-    def __dconddhk(self, k1, k2, cl1, cl2, width, height1, height2) -> float:
-        """Return the derivative of intercell conductance with respect to ``K``.
-
-        The expression follows the MODFLOW-style conductance formulation for a
-        two-cell connection and is used when building hydraulic-conductivity
-        sensitivities.
-
-        Parameters
-        ----------
-        k1 : float
-            Hydraulic conductivity for connection 1.
-        k2 : float
-            Hydraulic conductivity for connection 2.
-        cl1 : float
-            Length of connection 1.
-        cl2 : float
-            Length of connection 2.
-        width : float
-            Connection width.
-        height1 : float
-            Saturated height of connection 1.
-        height2 : float
-            Saturated height of connection 2.
-
-        Returns
-        -------
-        float
-            Derivative of connection conductance with respect to hydraulic
-            conductivity.
-        """
-
-        # todo: upstream weighting - could use height1 and height2 to check...
-        # todo: vertically staggered
-        d = (width * cl1 * height1 * (height2**2) * (k2**2)) / (
-            ((cl2 * height1 * k1) + (cl1 * height2 * k2)) ** 2
-        )
-        return d
-
-    def __smooth_sat_simple(self, sat) -> float:
-        """Smooth saturation using the MODFLOW 6 sigmoid-style function.
-
-        Parameters
-        ----------
-        sat : float
-            Saturation value.
-
-        Returns
-        -------
-        float
-            Smoothed saturation bounded between 0 and 1.
-        """
-        satomega = 1.0e-6
-        A_omega = 1 / (1 - satomega)
-        s_sat = 1.0
-        if sat < 0:
-            s_sat = 0
-        elif sat >= 0 and sat < satomega:
-            s_sat = (A_omega / (2 * satomega)) * sat**2
-        elif sat >= satomega and sat < 1 - satomega:
-            s_sat = A_omega * sat + 0.5 * (1 - A_omega)
-        elif sat >= 1 - satomega and sat < 1:
-            s_sat = 1 - (A_omega / (2 * satomega)) * ((1 - sat) ** 2)
-        return s_sat
-
     def __d_smooth_sat_dh_simple(self, sat, top, bot) -> float:
         """Return the derivative of smoothed saturation with respect to head.
 
@@ -1379,73 +1299,6 @@ class PerfMeas:
             d_s_sat_dh = (A_omega / satomega) * (1 - sat) / (top - bot)
         return d_s_sat_dh
 
-    def __cell_sat(self, top, bot, h) -> float:
-        """Return cell saturation from cell top, bottom, and head.
-
-        Parameters
-        ----------
-        top : float
-            Cell top elevation.
-        bot : float
-            Cell bottom elevation.
-        h : float
-            Cell head.
-
-        Returns
-        -------
-        float
-            Cell saturation clipped to the interval ``[0, 1]``.
-        """
-        if h > top:
-            sat = 1.0
-        elif h < bot:
-            sat = 0.0
-        else:
-            sat = (h - bot) / (top - bot)
-        return sat
-
-    def __smooth_sat(self, ihighcellsat, top1, top2, bot1, bot2, h1, h2) -> float:
-        """Return smoothed saturation for the upstream cell.
-
-        Parameters
-        ----------
-        ihighcellsat : int
-            Whether to use the highest cell bottom when calculating saturation.
-        top1 : float
-            Top elevation of node 1.
-        top2 : float
-            Top elevation of node 2.
-        bot1 : float
-            Bottom elevation of node 1.
-        bot2 : float
-            Bottom elevation of node 2.
-        h1 : float
-            Head of node 1.
-        h2 : float
-            Head of node 2.
-
-        Returns
-        -------
-        float
-            Smoothed saturation of the upstream node selected from the
-            connection pair.
-        """
-        bot = None
-        if ihighcellsat != 0:
-            if (abs(bot1) - abs(bot2)) > 1e-2:
-                bot = max(bot1, bot2)
-        if h1 > h2:
-            if bot is None:
-                sat = self.__cell_sat(top1, bot1, h1)
-            else:
-                sat = self.__cell_sat(top1, bot, h1)
-        else:
-            if bot is None:
-                sat = self.__cell_sat(top2, bot2, h2)
-            else:
-                sat = self.__cell_sat(top2, bot, h2)
-        return self.__smooth_sat_simple(sat)
-
     def __d_smooth_sat_dh(self, sat, h1, h2, top, bot) -> float:
         """Return the derivative of smoothed saturation with respect to upstream head.
 
@@ -1472,223 +1325,6 @@ class PerfMeas:
         if h1 >= h2:
             value = self.__d_smooth_sat_dh_simple(sat, top, bot)
         return value
-
-    def __lam_dresdk_h(
-        self,
-        is_newton,
-        ihighcellsat,
-        lamb,
-        sat,
-        head,
-        ihc,
-        ia,
-        ja,
-        jas,
-        cl1,
-        cl2,
-        hwva,
-        top,
-        bot,
-        icelltype,
-        k11,
-        k33,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Return adjoint-weighted residual derivatives.
-
-        Derivatives are with respect to ``k11`` and ``k33``.
-
-        Parameters
-        ----------
-        is_newton : bool
-            Whether Newton terms are active.
-        ihighcellsat : int
-            Whether to use the highest cell bottom when calculating saturation.
-        lamb : ndarray
-            Adjoint state array.
-        sat : ndarray
-            Saturation array.
-        head : ndarray
-            Head array.
-        ihc : ndarray
-            Horizontal connection indicator array.
-        ia : ndarray
-            Connection index array in compressed sparse row format.
-        ja : ndarray
-            Connection array in compressed sparse row format.
-        jas : ndarray
-            Full connectivity array.
-        cl1 : ndarray
-            Connection length array for connection 1.
-        cl2 : ndarray
-            Connection length array for connection 2.
-        hwva : ndarray
-            Horizontal-width/vertical-area array.
-        top : ndarray
-            Top elevations.
-        bot : ndarray
-            Bottom elevations.
-        icelltype : ndarray
-            Convertible-cell type indicator array.
-        k11 : ndarray
-            Horizontal hydraulic conductivity array.
-        k33 : ndarray
-            Vertical hydraulic conductivity array.
-
-        Returns
-        -------
-        tuple[ndarray, ndarray]
-            Adjoint-weighted residual derivatives with respect to ``k11`` and
-            ``k33``.
-        """
-        iac = np.array([ia[i + 1] - ia[i] for i in range(len(ia) - 1)])
-        # array of number of connections per node (size nodes)
-
-        sat_mod = sat.copy()
-        sat_mod[icelltype == 0] = 1.0
-
-        height = top - bot
-
-        result33 = np.zeros_like(head)
-        result = np.zeros_like(head)
-
-        for node, (offset, ncon) in enumerate(zip(ia, iac)):
-            sum1 = 0.0
-            sum2 = 0.0
-            height1 = height[node]
-
-            for ii in range(offset + 1, offset + ncon):
-                mnode = ja[ii]
-                height2 = height[mnode]
-
-                jj = jas[ii]
-                if jj < 0:
-                    raise Exception()
-                iihc = ihc[jj]
-
-                if iihc == 0:  # vertical con
-                    dconddk33 = self.__dconddhk(
-                        k33[node],
-                        k33[mnode],
-                        0.5 * height1,
-                        0.5 * height2,
-                        hwva[jj],
-                        1.0,
-                        1.0,
-                    )
-                    t2 = (
-                        dconddk33
-                        * (head[mnode] - head[node])
-                        * (lamb[node] - lamb[mnode])
-                    )
-                    sum1 += t2
-
-                else:
-                    # TODO: check if one cell is convertible (??is this required??)
-                    if is_newton:
-                        dconddk = self.__dconddhk(
-                            k11[node],
-                            k11[mnode],
-                            cl1[jj],
-                            cl2[jj],
-                            hwva[jj],
-                            height1,
-                            height2,
-                        )
-                        SF = self.__smooth_sat(
-                            ihighcellsat,
-                            top[node],
-                            top[mnode],
-                            bot[node],
-                            bot[mnode],
-                            head[node],
-                            head[mnode],
-                        )
-
-                    else:
-                        dconddk = self.__dconddhk(
-                            k11[node],
-                            k11[mnode],
-                            cl1[jj],
-                            cl2[jj],
-                            hwva[jj],
-                            height1 * sat_mod[node],
-                            height2 * sat_mod[mnode],
-                        )
-                        SF = 1.0
-
-                    t1 = (
-                        SF
-                        * dconddk
-                        * (head[mnode] - head[node])
-                        * (lamb[node] - lamb[mnode])
-                    )
-                    sum2 += t1
-
-            result33[node] = sum1
-            result[node] = sum2
-        return result, result33
-
-    def __lam_drhs_dbnd(
-        self,
-        lamb: np.ndarray,
-        head: np.ndarray,
-        sp_dict: dict,
-        direct_weights: dict,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Return adjoint-weighted derivatives with respect to boundary terms.
-
-        The ``sp_dict["bound"]`` array is interpreted positionally with
-        ``bound[0]`` as boundary head and optional ``bound[1]`` as boundary
-        conductance.
-
-        Parameters
-        ----------
-        lamb : ndarray
-            Adjoint state array.
-        head : ndarray
-            Head array.
-        sp_dict : dict
-            Stress-package data for a single time step containing at least
-            ``node`` and ``bound`` arrays.
-        direct_weights : dict
-            Node to weight for the entries this measure takes from this package.
-            A boundary the measure does not name has no direct contribution.
-
-        Returns
-        -------
-        tuple[ndarray, ndarray]
-            Two arrays containing derivatives with respect to the head-like
-            boundary term and the conductance-like boundary term,
-            respectively.
-        """
-        result_head = np.zeros_like(lamb)
-        result_cond = np.zeros_like(lamb)
-
-        # for id in sp_dict:
-        # A cell can carry more than one boundary from the same package - a
-        # lake connected both vertically and horizontally to the same cell, or
-        # two river reaches in one cell - and each one contributes to that
-        # cell's residual, so the derivatives accumulate rather than overwrite.
-        for node, bound in zip(sp_dict["node"], sp_dict["bound"]):
-            n = node - 1
-            boundcond = 1e10
-            if len(bound) > 1:
-                boundcond = bound[1]
-            # the second item in bound should be cond
-            result_head[n] += lamb[n] * boundcond
-            # Add the direct effect, only where the measure sums this
-            # package's flux, and weighted the way the measure weights it
-            weight = direct_weights.get(n, 0.0)
-            if weight != 0.0:
-                result_head[n] += weight * boundcond
-            # the first item in bound should be head
-            lam_drhs_dcond = lamb[n] * bound[0]
-            lam_dadcond_h = -1.0 * lamb[n] * head[n]
-            result_cond[n] += lam_drhs_dcond + lam_dadcond_h
-            if weight != 0.0:
-                result_cond[n] += weight * (bound[0] - head[n])
-
-        return result_head, result_cond
 
     def __pm_available(self, kk) -> bool:
         """Return whether a performance measure entry exists for a given time.

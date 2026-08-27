@@ -26,10 +26,10 @@ import numpy as np
 import pytest
 
 try:
-    from mf6adj.boundary import drain_corner_entries, drop_corner_entries
+    from mf6adj.packages.head_dependent import drain_corner_entries, drop_corner_entries
 except ImportError:
     sys.path.insert(0, str(pl.Path("../").resolve()))
-    from mf6adj.boundary import drain_corner_entries, drop_corner_entries
+    from mf6adj.packages.head_dependent import drain_corner_entries, drop_corner_entries
 
 
 class FakeGroup(dict):

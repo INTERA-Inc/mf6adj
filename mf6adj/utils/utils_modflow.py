@@ -279,3 +279,58 @@ def has_sto_iconvert(gwf) -> bool:
         n for n in list(gwf.get_input_var_names()) if "STO" in n and "ICONVERT" in n
     ]
     return len(names) > 0
+
+
+def get_auxiliary_multiplier(gwf_name, pak_name, gwf, nbound) -> np.ndarray:
+    """Return the auxiliary multiplier of a package, one where it has none.
+
+    A package given ``AUXMULTNAME`` scales its values by an auxiliary variable,
+    which MODFLOW 6 applies where it forms its terms rather than folding into
+    the values it keeps. The package points its arrays at the input memory
+    path, so the multiplier is under the entry checked in from there; the entry
+    under the package path is a separate array that is left at zero. Both are
+    read, and the one carrying values is taken.
+
+    Parameters
+    ----------
+    gwf_name : str
+        Name of the groundwater-flow model.
+    pak_name : str
+        Package name from the model name file.
+    gwf : modflowapi.ModflowApi
+        MODFLOW 6 groundwater-flow instance.
+    nbound : int
+        Number of boundaries in the package.
+
+    Returns
+    -------
+    numpy.ndarray
+        Multiplier for each boundary. A package with no multiplier, or one
+        whose multiplier cannot be read, returns one for every boundary.
+    """
+    ones = np.ones(nbound)
+    try:
+        column = int(
+            np.asarray(
+                gwf.get_value(gwf.get_var_address("IAUXMULTCOL", gwf_name, pak_name))
+            ).ravel()[0]
+        )
+    except Exception:
+        return ones
+    if column <= 0:
+        return ones
+    for name in ("AUXVAR_IDM", "AUXVAR"):
+        try:
+            auxvar = np.asarray(
+                gwf.get_value(gwf.get_var_address(name, gwf_name, pak_name))
+            )
+        except Exception:
+            continue
+        if auxvar.ndim != 2 or auxvar.shape[0] != nbound or auxvar.shape[1] < column:
+            continue
+        values = auxvar[:, column - 1]
+        # a multiplier of zero everywhere would apply nothing at all, so it is
+        # read as the array that was never filled rather than as a rate of zero
+        if np.any(values != 0.0):
+            return values.copy()
+    return ones

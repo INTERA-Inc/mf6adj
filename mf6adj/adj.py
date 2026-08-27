@@ -20,6 +20,7 @@ from .utils.utils import _utils_cd
 from .utils.utils_fileio import _write_group_to_hdf
 from .utils.utils_logger import _LoggerUtil
 from .utils.utils_modflow import (
+    get_auxiliary_multiplier,
     get_lrc,
     get_mf6_bound_dict,
     get_model_names_from_mfsim,
@@ -1018,6 +1019,12 @@ class Mf6Adj:
                                     "hcof": hcof,
                                     "rhs": rhs,
                                     "simvals": simvals,
+                                    "auxmult": get_auxiliary_multiplier(
+                                        self._gwf_name,
+                                        tag.upper(),
+                                        self._gwf,
+                                        len(nodelist),
+                                    ),
                                 }
                                 for key, val in bnd_attrs.items():
                                     assert key not in data_dict[tag], (

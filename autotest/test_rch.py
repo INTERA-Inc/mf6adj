@@ -14,6 +14,9 @@ Cases:
   - test_recharge_auxmult          : an auxiliary multiplier scales the flow a
                                      recharge value produces, and the
                                      sensitivity carries it.
+  - test_recharge_auxmult_zero_rate : a cell recharged at zero carries the
+                                     multiplier too, where the flow it
+                                     produces says nothing about it.
   - test_specified_flux_measure_rejected : measuring the flow of a well, list
                                      recharge, or array recharge is an error
                                      rather than a silently zero sensitivity.
@@ -47,7 +50,9 @@ OBS_CELL = (0, 3, 3)
 BASE_RECHARGE = 1.0e-3
 
 
-def _build_model(ws, recharge, array_recharge=False, auxmult=None):
+def _build_model(
+    ws, recharge, array_recharge=False, auxmult=None, idle_cell=None, idle_rate=0.0
+):
     ws = pl.Path(ws)
     if ws.exists():
         shutil.rmtree(ws)
@@ -78,7 +83,13 @@ def _build_model(ws, recharge, array_recharge=False, auxmult=None):
         flopy.mf6.ModflowGwfrch(
             gwf,
             stress_period_data=[
-                [(0, i, j), recharge, auxmult] for i in range(NROW) for j in range(NCOL)
+                [
+                    (0, i, j),
+                    idle_rate if (0, i, j) == idle_cell else recharge,
+                    auxmult,
+                ]
+                for i in range(NROW)
+                for j in range(NCOL)
             ],
             auxiliary=["mult"],
             auxmultname="mult",
@@ -228,4 +239,35 @@ def test_recharge_auxmult(function_tmpdir, auxmult):
     assert np.isclose(adjoint, finite_difference, rtol=1e-3), (
         f"with a multiplier of {auxmult} the adjoint {adjoint:.6e} does not "
         f"match the finite-difference derivative {finite_difference:.6e}"
+    )
+
+
+def test_recharge_auxmult_zero_rate(function_tmpdir):
+    """A cell recharged at zero still carries the multiplier.
+
+    The flow such a cell produces is zero whatever the area and the multiplier
+    are, so the factor cannot be read back from it and has to be taken from the
+    multiplier itself.
+    """
+    auxmult, dr = 0.4, 1.0e-5
+    idle = (0, 2, 2)
+
+    base_ws = _build_model(
+        function_tmpdir / "base", BASE_RECHARGE, auxmult=auxmult, idle_cell=idle
+    )
+    pert_ws = _build_model(
+        function_tmpdir / "pert",
+        BASE_RECHARGE,
+        auxmult=auxmult,
+        idle_cell=idle,
+        idle_rate=dr,
+    )
+    finite_difference = (_head(pert_ws) - _head(base_ws)) / dr
+
+    recharge_sens, _ = _solve_adjoint(base_ws)
+    adjoint = float(recharge_sens[idle])
+
+    assert np.isclose(adjoint, finite_difference, rtol=1e-3), (
+        f"at a cell recharged at zero the adjoint {adjoint:.6e} does not match "
+        f"the finite-difference derivative {finite_difference:.6e}"
     )

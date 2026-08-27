@@ -23,24 +23,36 @@ def rate_factor(nnodes, groups):
     Returns
     -------
     numpy.ndarray
-        Factor for every cell. A well given a nonzero rate takes the factor
-        from the right-hand side, which carries whatever the package applied. A
-        well given a rate of zero produces no flow whatever the multiplier is,
-        so the multiplier is taken on its own there. A cell holding no well
-        keeps one, so its sensitivity is that of a unit flow.
+        Factor for every cell. A cell holding no well keeps one, so its
+        sensitivity is that of a unit flow.
+
+    Notes
+    -----
+    A cell can hold more than one well, from one package or from several, and
+    the field carries one value per cell. The flow the cell produces is summed
+    and divided by the rate it was given, so the factor is the response to
+    changing the rate of the cell as a whole, shared out as the rates already
+    are. Where every well in a cell is given a rate of zero, that ratio says
+    nothing, and the multipliers are averaged instead.
     """
-    factor = np.ones(nnodes)
+    applied = np.zeros(nnodes)
+    given = np.zeros(nnodes)
+    multiplier = np.zeros(nnodes)
+    wells = np.zeros(nnodes)
     for group in groups:
         if "q" not in group:
             continue
         rate = group["q"][:]
-        applied = -group["rhs"][:]
         nodes = group["nodelist"][:] - 1
-        given = rate != 0.0
-        factor[nodes[given]] = applied[given] / rate[given]
-        if not given.all():
-            multiplier = (
-                group["auxmult"][:] if "auxmult" in group else np.ones(rate.shape[0])
-            )
-            factor[nodes[~given]] = multiplier[~given]
+        scale = group["auxmult"][:] if "auxmult" in group else np.ones(rate.shape[0])
+        np.add.at(applied, nodes, -group["rhs"][:])
+        np.add.at(given, nodes, rate)
+        np.add.at(multiplier, nodes, scale)
+        np.add.at(wells, nodes, 1.0)
+
+    factor = np.ones(nnodes)
+    pumped = given != 0.0
+    factor[pumped] = applied[pumped] / given[pumped]
+    idle = (wells > 0.0) & ~pumped
+    factor[idle] = multiplier[idle] / wells[idle]
     return factor

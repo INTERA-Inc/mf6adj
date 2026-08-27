@@ -16,6 +16,8 @@ Cases:
   - ghb_bhead      : the head of a general-head boundary.
   - riv_cond       : the conductance of a river.
   - drn_cond       : the conductance of a drain, which is active here.
+  - two_wells      : two wells in one cell, given different multipliers, share
+                     the one value the field carries for that cell.
 """
 
 import pathlib as pl
@@ -212,4 +214,76 @@ def test_well_zero_rate(function_tmpdir):
     assert np.isclose(adjoint, finite_difference, rtol=1e-3), (
         f"at a well given a rate of zero the adjoint {adjoint:.6e} does not "
         f"match the finite-difference derivative {finite_difference:.6e}"
+    )
+
+
+def test_two_wells_in_one_cell(function_tmpdir):
+    """Two wells in one cell share the one value the field carries for it.
+
+    The flow the cell produces is summed and divided by the rate it was given,
+    so the factor is the response to changing the rate of the cell as a whole,
+    shared out as the two rates already are.
+    """
+    first, second = -300.0, -700.0
+    mult_first, mult_second = 0.4, 0.9
+
+    def build(ws, scale=1.0):
+        ws = pl.Path(ws)
+        if ws.exists():
+            shutil.rmtree(ws)
+        ws.mkdir(parents=True)
+        sim = flopy.mf6.MFSimulation(sim_name=NAME, sim_ws=str(ws), exe_name=mf6_bin)
+        flopy.mf6.ModflowTdis(sim, nper=1, perioddata=[(1.0, 1, 1.0)])
+        flopy.mf6.ModflowIms(
+            sim, complexity="simple", outer_dvclose=1e-11, inner_dvclose=1e-12
+        )
+        gwf = flopy.mf6.ModflowGwf(sim, modelname=NAME, save_flows=True)
+        flopy.mf6.ModflowGwfdis(
+            gwf,
+            nlay=1,
+            nrow=NROW,
+            ncol=NCOL,
+            delr=DELRC,
+            delc=DELRC,
+            top=10.0,
+            botm=[-20.0],
+        )
+        flopy.mf6.ModflowGwfic(gwf, strt=0.0)
+        flopy.mf6.ModflowGwfnpf(gwf, icelltype=0, k=10.0)
+        flopy.mf6.ModflowGwfghb(
+            gwf,
+            stress_period_data=[[(0, i, 0), GHB_HEAD, GHB_COND] for i in range(NROW)],
+            pname="ghb-1",
+        )
+        # both wells sit in the same cell, with a multiplier of their own
+        flopy.mf6.ModflowGwfwel(
+            gwf,
+            stress_period_data=[
+                [WELL_CELL, first * scale, mult_first],
+                [WELL_CELL, second * scale, mult_second],
+            ],
+            auxiliary=["mult"],
+            auxmultname="mult",
+            pname="wel-1",
+        )
+        flopy.mf6.ModflowGwfoc(
+            gwf, head_filerecord=f"{NAME}.hds", saverecord=[("HEAD", "ALL")]
+        )
+        sim.write_simulation(silent=True)
+        success, buff = sim.run_simulation(silent=True)
+        assert success, "\n".join(buff[-15:])
+        return ws
+
+    # scaling both rates together is the perturbation the shared value answers
+    step = 1.0e-3
+    base_ws = build(function_tmpdir / "base")
+    pert_ws = build(function_tmpdir / "pert", scale=1.0 + step)
+    finite_difference = (_head(pert_ws) - _head(base_ws)) / (step * (first + second))
+
+    sens = _solve_adjoint(base_ws, "wel6_q")
+    adjoint = float(sens[WELL_CELL])
+
+    assert np.isclose(adjoint, finite_difference, rtol=1e-3), (
+        f"two wells in one cell: adjoint {adjoint:.6e} against a finite "
+        f"difference of {finite_difference:.6e}"
     )

@@ -94,7 +94,8 @@ def lam_drhs_dbnd(
         Head array.
     sp_dict : dict
         Stress-package data for a single time step containing at least
-        ``node`` and ``bound`` arrays.
+        ``node`` and ``bound`` arrays, and ``auxmult`` where the package
+        scales its values by an auxiliary multiplier.
     direct_weights : dict
         Node to weight for the entries this measure takes from this package.
         A boundary the measure does not name has no direct contribution.
@@ -114,11 +115,17 @@ def lam_drhs_dbnd(
     # lake connected both vertically and horizontally to the same cell, or
     # two river reaches in one cell - and each one contributes to that
     # cell's residual, so the derivatives accumulate rather than overwrite.
-    for node, bound in zip(sp_dict["node"], sp_dict["bound"]):
+    auxmult = sp_dict.get("auxmult")
+    for i, (node, bound) in enumerate(zip(sp_dict["node"], sp_dict["bound"])):
         n = node - 1
+        # A package may scale the values it is given by an auxiliary
+        # multiplier, which MODFLOW applies to the conductance where it forms
+        # its terms. The conductance sensitivity therefore carries it, and so
+        # does the head sensitivity, which is the conductance itself.
+        multiplier = 1.0 if auxmult is None else float(auxmult[i])
         boundcond = 1e10
         if len(bound) > 1:
-            boundcond = bound[1]
+            boundcond = bound[1] * multiplier
         # the second item in bound should be cond
         result_head[n] += lamb[n] * boundcond
         # Add the direct effect, only where the measure sums this
@@ -129,8 +136,8 @@ def lam_drhs_dbnd(
         # the first item in bound should be head
         lam_drhs_dcond = lamb[n] * bound[0]
         lam_dadcond_h = -1.0 * lamb[n] * head[n]
-        result_cond[n] += lam_drhs_dcond + lam_dadcond_h
+        result_cond[n] += (lam_drhs_dcond + lam_dadcond_h) * multiplier
         if weight != 0.0:
-            result_cond[n] += weight * (bound[0] - head[n])
+            result_cond[n] += weight * (bound[0] - head[n]) * multiplier
 
     return result_head, result_cond

@@ -22,7 +22,7 @@ from scipy.sparse.linalg import (
 )
 
 from .advanced_packages import LakeCoupling, SfrCoupling
-from .packages import head_dependent, npf, recharge
+from .packages import head_dependent, npf, recharge, well
 from .packages.head_dependent import DRAIN_CORNER_TOL, drop_corner_entries
 from .utils.utils import SolverCallback
 from .utils.utils_fileio import _write_group_to_hdf
@@ -1114,8 +1114,19 @@ class PerfMeas:
                     )
                 )
 
-            data["wel6_q"] = lamb
-            comp_welq_sens += lamb * w
+            # a well rate is already a flow, unless the package scales the
+            # rate it is given
+            wel_factor = well.rate_factor(
+                nnodes,
+                (
+                    hdf[sol_key][name]
+                    for name in gwf_package_dict.get("wel6", [])
+                    if name in hdf[sol_key]
+                ),
+            )
+            welq_sens = lamb * wel_factor
+            data["wel6_q"] = welq_sens
+            comp_welq_sens += welq_sens * w
             # recharge is a rate over the cell area, which a package may
             # scale further, so the flow a value produces is read from the
             # terms MODFLOW formed rather than from the area alone
@@ -1142,10 +1153,13 @@ class PerfMeas:
 
                         self.logger.logger.debug(f"Formulating {ptype}, {pname}")
 
+                        group = hdf[sol_key][pname]
                         sp_bnd_dict = {
-                            "bound": hdf[sol_key][pname]["bound"][:],
-                            "node": hdf[sol_key][pname]["nodelist"][:],
+                            "bound": group["bound"][:],
+                            "node": group["nodelist"][:],
                         }
+                        if "auxmult" in group:
+                            sp_bnd_dict["auxmult"] = group["auxmult"][:]
                         direct_weights = {
                             pfr.inode: pfr.weight
                             for pfr in self._entries

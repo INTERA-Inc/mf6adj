@@ -21,6 +21,8 @@ from .utils.utils import _utils_cd
 from .utils.utils_fileio import _write_group_to_hdf
 from .utils.utils_logger import _LoggerUtil
 from .utils.utils_modflow import (
+    SUPPORTED_PACKAGE_TYPES,
+    UNSUPPORTED_STRESS_TYPES,
     auto_flow_reduce,
     convertible_cells,
     get_auxiliary_multiplier,
@@ -104,6 +106,24 @@ class Mf6Adj:
             self._gwf_name = next(iter(self._gwf_model_dict.keys()))
             self._gwf_namfile = namfile_dict[self._gwf_name]
             self._gwf_package_dict = get_package_names_from_gwfname(self._gwf_namfile)
+            # A package the adjoint forms no terms for still exchanges water
+            # with the aquifer, and that exchange is in the flow matrix, so the
+            # head sensitivities are usable and only the package's own are
+            # missing. Report it here rather than leave it to be noticed in the
+            # output, or not noticed at all.
+            unsupported = sorted(
+                f"{name} ({package_type})"
+                for package_type in UNSUPPORTED_STRESS_TYPES
+                for name in self._gwf_package_dict.get(package_type, [])
+            )
+            if unsupported:
+                self.logger.logger.warning(
+                    "the flow model has packages the adjoint forms no terms "
+                    f"for: {', '.join(unsupported)}. Their exchange with the "
+                    "aquifer is carried by the flow matrix, so the head "
+                    "sensitivities account for it, but those packages have no "
+                    "sensitivities of their own and cannot be measured."
+                )
             if self._gwf_model_dict[self._gwf_name] != "gwf6":
                 raise Exception(
                     f"model is not a gwf6 type: {self._gwf_model_dict[self._gwf_name]}"
@@ -152,17 +172,7 @@ class Mf6Adj:
                 self._shape = (nlay, nrow, ncol)
             self._performance_measures = []
             self._read_adj_file()
-            self._gwf_package_types = [
-                "chd6",
-                "wel6",
-                "ghb6",
-                "riv6",
-                "drn6",
-                "sfr6",
-                "lak6",
-                "rch6",
-                "evt6",
-            ]
+            self._gwf_package_types = list(SUPPORTED_PACKAGE_TYPES)
             self._gwf_boundary_attr_dict = {
                 "chd6": ["head"],
                 "ghb6": ["bhead", "cond"],

@@ -6,6 +6,31 @@ import numpy as np
 PathLike = Union[str, pl.Path]
 
 
+# the package types the adjoint forms terms for
+SUPPORTED_PACKAGE_TYPES = (
+    "chd6",
+    "wel6",
+    "ghb6",
+    "riv6",
+    "drn6",
+    "sfr6",
+    "lak6",
+    "rch6",
+    "evt6",
+)
+
+# packages that exchange water with the aquifer but whose terms are not formed.
+# A model carrying one still has usable head sensitivities, because the
+# exchange is in the flow matrix, but the package itself has none.
+UNSUPPORTED_STRESS_TYPES = (
+    "uzf6",
+    "maw6",
+    "csub6",
+    "api6",
+    "mvr6",
+)
+
+
 def parse_models_block(f) -> tuple[dict[str, str], dict[str, str]]:
     """Parse the `MODELS` block from an `mfsim.nam` file.
 

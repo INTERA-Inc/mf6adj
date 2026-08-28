@@ -3,7 +3,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from .utils_modflow import get_node
+from .utils_modflow import SUPPORTED_PACKAGE_TYPES, get_node
 
 PathLike = str | pl.Path
 
@@ -309,9 +309,19 @@ def validate_pm_type(
 
     found = False
     ppnames = []
-    for _, pnames in gwf_package_dict.items():
+    for package_type, pnames in gwf_package_dict.items():
         if pm_type in pnames:
             found = True
+            # the package is in the model, but its terms may not be formed, and
+            # a measure of it would otherwise fail much later with no
+            # explanation of why
+            if package_type not in SUPPORTED_PACKAGE_TYPES:
+                raise Exception(
+                    f"`pm_type` {pm_type} is a {package_type} package, which "
+                    "the adjoint does not form terms for, so a measure of it "
+                    "has no sensitivity. The supported package types are "
+                    + f"{', '.join(SUPPORTED_PACKAGE_TYPES)}."
+                )
             break
         ppnames.extend(pnames)
     if not found:

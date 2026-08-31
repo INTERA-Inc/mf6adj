@@ -61,7 +61,7 @@ jobs:
           sudo apt-get install -y texlive-latex-base texlive-latex-recommended texlive-fonts-recommended texlive-binaries
 
       - name: Setup pixi
-        uses: prefix-dev/setup-pixi@v0.10.1
+        uses: prefix-dev/setup-pixi@v0.10.2
         with:
           pixi-version: v0.69.0
 

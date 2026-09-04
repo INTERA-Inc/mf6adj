@@ -662,12 +662,21 @@ class PerfMeas:
         # Mf6Adj rejects such a model as it reads it; this is the same
         # condition seen from the forward solution file.
         nsln = len(sln_ia) - 1
-        if nsln != nnode:
+        if nsln > nnode:
             raise Exception(
                 "the matrix MODFLOW assembled has "
                 + f"{nsln - nnode} equations beyond the {nnode} of the flow "
                 + "grid, which a package such as maw6 added to the solution. "
                 + "The adjoint does not form the terms for those equations yet."
+            )
+        if nsln < nnode:
+            # the solution holds one equation per cell and one for every
+            # equation a package adds, so it is never short of the grid
+            raise Exception(
+                f"the matrix MODFLOW assembled has {nsln} equations, fewer "
+                + f"than the {nnode} of the flow grid, so the sparsity in "
+                + f"forward solution file '{hdf5_forward_solution_fname}' does "
+                + "not belong to that grid."
             )
         self._lake = LakeCoupling(logger=self.logger.logger)
         self._sfr = SfrCoupling(logger=self.logger.logger)

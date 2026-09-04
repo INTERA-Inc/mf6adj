@@ -202,8 +202,41 @@ def assemble_matrix(amat: np.ndarray, ia: np.ndarray, ja: np.ndarray):
     -------
     scipy.sparse.csr_matrix
         The assembled matrix.
+
+    Raises
+    ------
+    Exception
+        If the three arrays do not describe one matrix. A forward solution file
+        written by another run, or one written before the sparsity it carries
+        was the solution's, fails here rather than further on, where a matrix
+        assembled from mismatched arrays has no symptom that names its cause.
     """
     nrow = len(ia) - 1
+    if nrow < 1:
+        raise Exception(
+            f"the row pointer has {len(ia)} entries, which describes no rows"
+        )
+    if ia[0] != 0:
+        raise Exception(
+            f"the row pointer starts at {ia[0]} rather than 0, so it is not "
+            + "the zero-based pointer this expects"
+        )
+    if ia[-1] != ja.shape[0]:
+        raise Exception(
+            f"the row pointer ends at {ia[-1]} and the column index has "
+            + f"{ja.shape[0]} entries, so the two do not describe the same "
+            + "matrix"
+        )
+    if amat.shape[0] < ja.shape[0]:
+        raise Exception(
+            f"the matrix has {amat.shape[0]} coefficients, fewer than the "
+            + f"{ja.shape[0]} entries the column index locates"
+        )
+    if ja.shape[0] > 0 and (ja.min() < 0 or ja.max() >= nrow):
+        raise Exception(
+            f"the column index runs from {ja.min()} to {ja.max()}, outside "
+            + f"the {nrow} rows the row pointer describes"
+        )
     return sparse.csr_matrix(
         (amat[: ja.shape[0]].copy(), ja.copy(), ia.copy()),
         shape=(nrow, nrow),

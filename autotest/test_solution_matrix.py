@@ -23,6 +23,13 @@ Cases:
                                                  beyond the flow grid's is
                                                  refused rather than solved
                                                  short of equations.
+  - test_missing_equations_are_refused         : a solution carrying fewer
+                                                 equations than the flow grid
+                                                 is refused as a sparsity that
+                                                 does not belong to the grid.
+  - test_mismatched_arrays_are_refused         : arrays that do not describe one
+                                                 matrix are refused where the
+                                                 matrix is assembled.
 """
 
 import pathlib as pl
@@ -184,16 +191,8 @@ def test_forward_file_carries_solution_ia_ja(function_tmpdir):
         assert np.array_equal(info["sln_ja"][:], info["ja"][:])
 
 
-def test_extra_equations_are_refused(function_tmpdir):
-    """A solution with more equations than the flow grid has is refused.
-
-    Mf6Adj rejects such a model as it reads it, so the forward file of a
-    supported model is given one more equation than the grid has to reach the
-    adjoint's own guard. This is the tripwire for the day a package that adds
-    equations is read: the adjoint has to form their terms, not solve without
-    them.
-    """
-    ws = _build_model(function_tmpdir / "m", maw=False)
+def _forward_run(ws):
+    """Run the forward model of a supported model and keep the adjoint open."""
     k, i, j = WELL_CELL
     with open(ws / "pm.dat", "w") as f:
         f.write("begin performance_measure obs\n")
@@ -204,13 +203,83 @@ def test_extra_equations_are_refused(function_tmpdir):
     )
     adj.solve_forward_model(hdf5_name="fwd.hd5")
     adj.finalize()
+    return adj
 
-    shutil.copy(ws / "fwd.hd5", ws / "extra.hd5")
-    with h5py.File(ws / "extra.hd5", "r+") as hf:
+
+def _with_row_count(ws, name, delta):
+    """Copy the forward file, giving its solution sparsity delta more rows."""
+    shutil.copy(ws / "fwd.hd5", ws / name)
+    with h5py.File(ws / name, "r+") as hf:
         sln_ia = hf["gwf_info"]["sln_ia"][:]
         del hf["gwf_info"]["sln_ia"]
-        hf["gwf_info"]["sln_ia"] = np.append(sln_ia, sln_ia[-1])
+        if delta > 0:
+            sln_ia = np.append(sln_ia, [sln_ia[-1]] * delta)
+        else:
+            sln_ia = sln_ia[:delta]
+        hf["gwf_info"]["sln_ia"] = sln_ia
+    return name
 
-    adj._hdf5_name = "extra.hd5"
+
+def test_extra_equations_are_refused(function_tmpdir):
+    """A solution with more equations than the flow grid has is refused.
+
+    Mf6Adj rejects such a model as it reads it, so the forward file of a
+    supported model is given one more equation than the grid has to reach the
+    adjoint's own guard. This is the tripwire for the day a package that adds
+    equations is read: the adjoint has to form their terms, not solve without
+    them.
+    """
+    ws = _build_model(function_tmpdir / "m", maw=False)
+    adj = _forward_run(ws)
+
+    adj._hdf5_name = _with_row_count(ws, "extra.hd5", 1)
     with pytest.raises(Exception, match="equations beyond"):
         adj.solve_adjoint()
+
+
+def test_missing_equations_are_refused(function_tmpdir):
+    """A solution with fewer equations than the flow grid is refused.
+
+    The two conditions are not the same fault. A solution larger than the grid
+    is a package that added equations, which is a model the adjoint may one day
+    carry; a solution smaller than it is a sparsity that never belonged to the
+    grid, and reporting the second as the first would send a reader looking for
+    a package that is not there.
+    """
+    ws = _build_model(function_tmpdir / "m", maw=False)
+    adj = _forward_run(ws)
+
+    adj._hdf5_name = _with_row_count(ws, "short.hd5", -1)
+    with pytest.raises(Exception, match="fewer than"):
+        adj.solve_adjoint()
+
+
+@pytest.mark.parametrize(
+    "case,message",
+    [
+        ("empty", "describes no rows"),
+        ("offset", "rather than 0"),
+        ("short_ja", "do not describe the same matrix"),
+        ("short_amat", "fewer than"),
+        ("out_of_range", "outside"),
+    ],
+)
+def test_mismatched_arrays_are_refused(case, message):
+    """Arrays that do not describe one matrix are refused where it is assembled."""
+    ia = np.array([0, 2, 4], dtype=int)
+    ja = np.array([0, 1, 0, 1], dtype=int)
+    amat = np.array([4.0, -1.0, -1.0, 4.0])
+
+    if case == "empty":
+        ia = np.array([0], dtype=int)
+    elif case == "offset":
+        ia = ia + 1
+    elif case == "short_ja":
+        ja = ja[:-1]
+    elif case == "short_amat":
+        amat = amat[:-1]
+    elif case == "out_of_range":
+        ja = np.array([0, 1, 0, 2], dtype=int)
+
+    with pytest.raises(Exception, match=message):
+        assemble_matrix(amat, ia, ja)

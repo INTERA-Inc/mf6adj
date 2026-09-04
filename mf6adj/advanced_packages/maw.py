@@ -98,10 +98,13 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
     well_of_conn = value("IMAP") - 1
 
     # MODFLOW keeps a well's status in the model ibound, in the entry for the
-    # row its equation occupies: zero for an inactive well and negative for one
-    # held at a constant head, neither of which has a water balance to solve
+    # row its equation occupies: positive for a well whose head is solved, zero
+    # for an inactive one, and negative for one held at a constant head. Only
+    # the first has a water balance to solve, and the sign separates the other
+    # two, which do not have the same terms.
     ibound = gwf.get_value(gwf.get_var_address("IBOUND", gwf_name))
-    is_free = (ibound[row] > 0).astype(int)
+    status = ibound[row]
+    is_free = (status > 0).astype(int)
 
     # The well stores water over its own area, and MODFLOW clips the head it
     # stores against to the screen, so a well whose head left the screen
@@ -170,6 +173,7 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
         "well_of_conn": well_of_conn,
         "well_rate_limited": limited,
         "well_row": row,
+        "well_status": status,
         "well_sat": sat,
         "well_stores": stores,
     }
@@ -271,6 +275,7 @@ class MawCoupling:
                         "free": grp["well_is_free"][:] == 1,
                         "iss": grp["well_iss"][:],
                         "row": grp["well_row"][:],
+                        "status": grp["well_status"][:],
                         "sat": grp["well_sat"][:],
                         "stores": grp["well_stores"][:],
                         "well_of_conn": grp["well_of_conn"][:],
@@ -373,9 +378,19 @@ class MawCoupling:
     def sensitivities(self, lamb, head, blocks, entries, kk) -> dict:
         """Return the sensitivity of the measure to the terms of each package.
 
-        The rate a well is given enters only its own equation, so the
-        sensitivity to it is the adjoint state of that equation. The
-        conductance of a connection enters the equation of the cell and the
+        A well solves its head against the rate it is given, or holds the head
+        it is given and solves for nothing. Only one of the two is a term of
+        the model in either case, and an inactive well exchanges nothing, so
+        neither is. The two are reported separately rather than as one number
+        whose meaning changes with the status of the well.
+
+        The rate enters only the well's own equation, so the sensitivity to it
+        is the adjoint state of that equation. Where the head is held instead,
+        MODFLOW has replaced that equation with the head it is given, and the
+        sensitivity to that head is the same adjoint state with its sign
+        reversed.
+
+        The conductance of a connection enters the equation of the cell and the
         equation of the well with opposite signs, and a measure of the exchange
         through that connection depends on it directly as well.
 
@@ -397,13 +412,17 @@ class MawCoupling:
         -------
         dict
             Package name mapped to the well numbers, the nodes the connections
-            reach, and the sensitivity to the rate of each well and to the
+            reach, the sensitivity to the rate of each well and to the head of
+            each well that is held at one, and the sensitivity to the
             conductance of each connection.
         """
         result = {}
         for block in blocks:
             weights = self._weights(entries, kk, block)
-            rate = np.array([lamb[int(row)] for row in block["row"]], dtype=float)
+            state = np.array([lamb[int(row)] for row in block["row"]], dtype=float)
+            status = block["status"]
+            rate = np.where(status > 0, state, 0.0)
+            well_head = np.where(status < 0, -state, 0.0)
             cond = np.zeros(block["node"].shape[0])
             for iconn in range(block["node"].shape[0]):
                 node = int(block["node"][iconn])
@@ -413,7 +432,7 @@ class MawCoupling:
                 drop = float(block["head"][iwell]) - float(head[node])
                 # a well whose head is held or is inactive has no equation for
                 # the connection to enter, so only the cell it reaches responds
-                well = rate[iwell] if block["free"][iwell] else 0.0
+                well = state[iwell] if block["free"][iwell] else 0.0
                 # the conductance a user gives is scaled by the saturated
                 # fraction of the screen before MODFLOW uses it
                 cond[iconn] = float(block["sat"][iconn]) * (
@@ -423,6 +442,7 @@ class MawCoupling:
                 "well": np.arange(block["row"].shape[0]) + 1,
                 "node": block["node"] + 1,
                 "rate": rate,
+                "head": well_head,
                 "cond": cond,
             }
         return result

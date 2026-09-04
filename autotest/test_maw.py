@@ -29,6 +29,10 @@ Cases:
   - test_rate_sensitivity        : the sensitivity of the measure to the rate a
                                    well is given matches a finite-difference
                                    derivative.
+  - test_head_sensitivity        : the same for the head a well is held at.
+  - test_terms_match_the_status  : a well carries a sensitivity to the rate it
+                                   is given or to the head it is held at, never
+                                   to both, and an inactive well to neither.
   - test_conductance_sensitivity : the same for the conductance of each
                                    connection, including one whose screen is
                                    partly saturated and one whose well head is
@@ -361,6 +365,49 @@ def test_rate_sensitivity(function_tmpdir, nstp):
     assert composite["maw-1"]["rate"].sum() == pytest.approx(
         finite_difference, rel=1.0e-3
     )
+
+
+@pytest.mark.parametrize("nstp", [1, 4])
+def test_head_sensitivity(function_tmpdir, nstp):
+    """The sensitivity to the head a well is held at matches a finite difference."""
+    head = -6.0
+    dh = 0.02
+
+    kwargs = {"status": "CONSTANT", "nstp": nstp}
+    base = _build_model(function_tmpdir / "base", maw_head=head, **kwargs)
+    plus = _build_model(function_tmpdir / "plus", maw_head=head + dh, **kwargs)
+    minus = _build_model(function_tmpdir / "minus", maw_head=head - dh, **kwargs)
+    finite_difference = (_connection_flux(plus) - _connection_flux(minus)) / (2.0 * dh)
+
+    composite = _solve_adjoint(base, _measure_entry("maw-1"), nstp=nstp)
+    # the head is given for the whole stress period, so it perturbs every step
+    assert composite["maw-1"]["head"].sum() == pytest.approx(
+        finite_difference, rel=1.0e-3
+    )
+
+
+@pytest.mark.parametrize(
+    "status,expected",
+    [("ACTIVE", "rate"), ("CONSTANT", "head"), ("INACTIVE", None)],
+)
+def test_terms_match_the_status(function_tmpdir, status, expected):
+    """A well carries a sensitivity to the term its equation actually holds.
+
+    A well solving its head against a rate has no head to be sensitive to, and
+    one holding a head has no rate; reporting the adjoint state of the equation
+    as a rate sensitivity in either case would give the second a number that is
+    not one.
+    """
+    composite = _solve_adjoint(
+        _build_model(function_tmpdir / "base", status=status), _measure_entry("maw-1")
+    )
+    maw = composite["maw-1"]
+
+    for term in ("rate", "head"):
+        if term == expected:
+            assert maw[term][0] != 0.0, f"{status} should have a {term} sensitivity"
+        else:
+            assert maw[term][0] == 0.0, f"{status} should have no {term} sensitivity"
 
 
 @pytest.mark.parametrize("status", ["ACTIVE", "CONSTANT"])

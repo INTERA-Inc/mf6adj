@@ -97,7 +97,9 @@ The four-step cases are the ones that carry the storage of equation~\ref{eqn:maw
 
 \section*{Sensitivity to the terms of the well}
 
-The rate a well is given enters only the equation of that well, so the sensitivity of a performance measure to it is the part of the adjoint solution belonging to the well, exactly as the sensitivity to the rate of a single-node well is the adjoint state of the cell that well is in.
+A well solves its head against the rate it is given, or holds the head it is given and solves for nothing. Only one of the two is a term of the model in either case, and an inactive well exchanges nothing, so neither is.
+
+The rate enters only the equation of that well, so the sensitivity of a performance measure to it is the part of the adjoint solution belonging to the well, exactly as the sensitivity to the rate of a single-node well is the adjoint state of the cell that well is in. Where the head is held instead, \mf{} has replaced that equation with the head it is given, and the sensitivity to that head is the same part of the adjoint solution with its sign reversed. Reporting the two as one quantity would give a well whose head is held a rate sensitivity it does not have, so they are kept apart, and each is zero for a well whose equation does not hold it.
 
 The conductance $C_{n,w}$ of a connection enters the equation of the cell and the equation of the well with opposite signs, and where the measure is of the exchange through that connection it also enters the measure directly, so
 
@@ -112,9 +114,9 @@ The conductance $C_{n,w}$ of a connection enters the equation of the cell and th
 
 A well whose head is held, or which is inactive, has no equation for the connection to enter, so $\lambda_{w}$ drops out of equation~\ref{eqn:maw-cond-sensitivity} and only the cell responds.
 
-Both quantities belong to the well or to the connection rather than to a cell, so neither maps onto the grid the way the sensitivity to a boundary value does. They are written beside the grid-shaped results, under the name of the package, with the well and cell numbers they belong to.
+All three quantities belong to a well or to a connection rather than to a cell, so none of them maps onto the grid the way the sensitivity to a boundary value does. They are written beside the grid-shaped results, under the name of the package, with the well and cell numbers they belong to.
 
-Against a central difference on a model whose connection conductances were given rather than computed from the well radius, both agree to four significant figures or better, for a well whose rate is specified over one time step and four, and for one whose head is held.
+Against a central difference, the rate and the held head agree to four significant figures or better over one time step and four, as does the conductance on a model whose connection conductances were given rather than computed from the well radius.
 
 \section*{What is not carried}
 

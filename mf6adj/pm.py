@@ -1102,10 +1102,12 @@ class PerfMeas:
                             "well": values["well"],
                             "node": values["node"],
                             "rate": np.zeros_like(values["rate"]),
+                            "head": np.zeros_like(values["head"]),
                             "cond": np.zeros_like(values["cond"]),
                         },
                     )
                     totals["rate"] += values["rate"] * w
+                    totals["head"] += values["head"] * w
                     totals["cond"] += values["cond"] * w
                 # the well rows are the innermost, being MODFLOW's own, and the
                 # well carries its storage back the way the aquifer does
@@ -1336,6 +1338,7 @@ class PerfMeas:
                 comp_bnd_results[name] /= wsum
             for totals in comp_maw_results.values():
                 totals["rate"] /= wsum
+                totals["head"] /= wsum
                 totals["cond"] /= wsum
         data = {}
         data["k11"] = comp_k_sens

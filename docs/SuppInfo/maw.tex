@@ -1,6 +1,6 @@
 A multi-aquifer well head is a dependent variable of the simulation, as a lake stage is, but the Multi-Aquifer Well (MAW) Package differs from the Lake (LAK) Package in where that variable is solved. \mf{} adds one equation per well to the groundwater flow matrix and solves the well head with the cell heads. The matrix the adjoint is taken from therefore already carries the well, and nothing has to be bordered onto it. This chapter describes what the adjoint supplies instead: the right-hand side of the rows the wells occupy, and the derivative of a measure of the exchange between a well and the aquifer.
 
-\section*{A system that is already bordered}
+\section*{Equations already in the matrix}
 
 Let $\mathbf{h}$ be the cell heads and $\mathbf{H}$ the heads of the multi-aquifer wells. The system \mf{} assembles is
 

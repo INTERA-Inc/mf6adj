@@ -432,6 +432,15 @@ class Mf6Adj:
         idomain = get_ptr_from_gwf(gwf_name, "DIS", "IDOMAIN", gwf)
         data_dict["idomain"] = idomain
 
+        # The adjoint is taken from the matrix MODFLOW assembled, so the
+        # sparsity that locates its entries is the solution's rather than the
+        # grid's. The two agree until a package adds its own equations, which
+        # puts a column inside the row of every cell it connects to.
+        sln_ia = gwf.get_value(gwf.get_var_address("IA", "SLN_1")) - 1
+        data_dict["sln_ia"] = sln_ia
+        sln_ja = gwf.get_value(gwf.get_var_address("JA", "SLN_1")) - 1
+        data_dict["sln_ja"] = sln_ja
+
         if self.is_structured:
             nlay = get_ptr_from_gwf(gwf_name, dis_pak, "NLAY", gwf)
             data_dict["nlay"] = nlay

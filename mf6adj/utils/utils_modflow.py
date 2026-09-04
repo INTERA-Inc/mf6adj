@@ -2,6 +2,7 @@ import pathlib as pl
 from typing import Any, Union
 
 import numpy as np
+import scipy.sparse as sparse
 
 PathLike = Union[str, pl.Path]
 
@@ -177,6 +178,36 @@ def get_package_names_from_gwfname(
                 return parse_packages_block(f)
 
     raise EOFError("EOF when looking for 'packages' block")
+
+
+def assemble_matrix(amat: np.ndarray, ia: np.ndarray, ja: np.ndarray):
+    """Return the assembled matrix as a sparse CSR matrix.
+
+    The adjoint is taken from the matrix MODFLOW assembled, so `ia` and `ja`
+    must be the ones that locate its entries. A package that adds its own
+    equations puts a column inside the row of every cell it connects to, and
+    the grid connectivity no longer counts those entries, so the grid arrays
+    misplace every entry after the first such row.
+
+    Parameters
+    ----------
+    amat : ndarray
+        Coefficients of the assembled matrix.
+    ia : ndarray
+        Zero-based row pointer into `ja`.
+    ja : ndarray
+        Zero-based column of each coefficient.
+
+    Returns
+    -------
+    scipy.sparse.csr_matrix
+        The assembled matrix.
+    """
+    nrow = len(ia) - 1
+    return sparse.csr_matrix(
+        (amat[: ja.shape[0]].copy(), ja.copy(), ia.copy()),
+        shape=(nrow, nrow),
+    )
 
 
 def get_mf6_bound_dict() -> dict[str, dict[int, str]]:

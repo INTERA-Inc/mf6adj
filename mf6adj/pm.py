@@ -28,6 +28,7 @@ from .utils.utils import SolverCallback
 from .utils.utils_fileio import _write_group_to_hdf
 from .utils.utils_logger import _LoggerUtil
 from .utils.utils_modflow import (
+    assemble_matrix,
     get_mf6_bound_dict,
 )
 
@@ -608,6 +609,14 @@ class PerfMeas:
 
         ia = hdf["gwf_info"]["ia"][:]
         ja = hdf["gwf_info"]["ja"][:]
+        # the sparsity that locates the entries of the assembled matrix;
+        # written by solve_forward_model, and an older forward file has only
+        # the grid's, which is the same until a package adds its own equations
+        if "sln_ia" in hdf["gwf_info"]:
+            sln_ia = hdf["gwf_info"]["sln_ia"][:]
+            sln_ja = hdf["gwf_info"]["sln_ja"][:]
+        else:
+            sln_ia, sln_ja = ia, ja
         ihc = hdf["gwf_info"]["ihc"][:]
         jas = hdf["gwf_info"]["jas"][:]
         cl1 = hdf["gwf_info"]["cl1"][:]
@@ -646,6 +655,20 @@ class PerfMeas:
         # the lake water balance. nnodes is a one-element array, so keep a
         # scalar for slicing the bordered solution.
         nnode = int(np.asarray(nnodes).ravel()[0])
+
+        # A package that adds its own equations puts them after the aquifer
+        # rows of the solution. Nothing forms their side of the adjoint yet,
+        # so refuse rather than solve a system that is short of equations.
+        # Mf6Adj rejects such a model as it reads it; this is the same
+        # condition seen from the forward solution file.
+        nsln = len(sln_ia) - 1
+        if nsln != nnode:
+            raise Exception(
+                "the matrix MODFLOW assembled has "
+                + f"{nsln - nnode} equations beyond the {nnode} of the flow "
+                + "grid, which a package such as maw6 added to the solution. "
+                + "The adjoint does not form the terms for those equations yet."
+            )
         self._lake = LakeCoupling(logger=self.logger.logger)
         self._sfr = SfrCoupling(logger=self.logger.logger)
 
@@ -731,10 +754,7 @@ class PerfMeas:
             amat = hdf[sol_key]["amat"][:]
             head = hdf[sol_key]["head"][:]
             residual = hdf[sol_key]["residual"][:]
-            amat = sparse.csr_matrix(
-                (amat.copy()[: ja.shape[0]], ja.copy(), ia.copy()),
-                shape=(len(ia) - 1, len(ia) - 1),
-            )
+            amat = assemble_matrix(amat, sln_ia, sln_ja)
             amat = amat.transpose().tocsr()
 
             # the lake state is per time step: a step with no free lake must

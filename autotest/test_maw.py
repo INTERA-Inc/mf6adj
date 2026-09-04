@@ -26,6 +26,13 @@ Cases:
   - test_inactive_well           : an inactive well exchanges nothing and
                                    leaves the sensitivities alone.
   - test_two_packages            : two well packages keep their own rows.
+  - test_rate_sensitivity        : the sensitivity of the measure to the rate a
+                                   well is given matches a finite-difference
+                                   derivative.
+  - test_conductance_sensitivity : the same for the conductance of each
+                                   connection, including one whose screen is
+                                   partly saturated and one whose well head is
+                                   held.
   - test_measure_on_maw_accepted : a measure naming a maw6 package is accepted.
 """
 
@@ -53,6 +60,9 @@ MAW_CELL = (3, 3)
 WELL_CELL = (0, 5, 5)
 WELL_RATE = -50.0
 GHB_HEAD = -4.0
+# conductances used where a test perturbs them, which needs them given rather
+# than computed from the well radius
+CONDUCTANCE = [40.0, 500.0, 1400.0]
 
 
 def _build_model(
@@ -63,6 +73,7 @@ def _build_model(
     maw_head=-6.0,
     nstp=1,
     second_package=False,
+    conductance=None,
 ):
     """An unconfined model pumped through a multi-aquifer well.
 
@@ -113,13 +124,32 @@ def _build_model(
     else:
         period = [[0, "RATE", maw_rate]]
     i, j = MAW_CELL
+    if conductance is None:
+        equation = "THIEM"
+        connections = [
+            [0, k, (k, i, j), -999, -999, -999.0, -999.0] for k in range(NLAY)
+        ]
+    else:
+        # a specified conductance is a value the model is given, so a test can
+        # perturb it; THIEM computes one from the well radius instead
+        equation = "SPECIFIED"
+        connections = [
+            [
+                0,
+                k,
+                (k, i, j),
+                TOP if k == 0 else BOTM[k - 1],
+                BOTM[k],
+                conductance[k],
+                -999.0,
+            ]
+            for k in range(NLAY)
+        ]
     flopy.mf6.ModflowGwfmaw(
         gwf,
         nmawwells=1,
-        packagedata=[[0, 0.5, BOTM[-1], TOP, "THIEM", NLAY]],
-        connectiondata=[
-            [0, k, (k, i, j), -999, -999, -999.0, -999.0] for k in range(NLAY)
-        ],
+        packagedata=[[0, 0.5, BOTM[-1], TOP, equation, NLAY]],
+        connectiondata=connections,
         perioddata={0: period},
         pname="maw-1",
         save_flows=True,
@@ -174,7 +204,15 @@ def _solve_adjoint(ws, entry, nstp=1, name="pm"):
     adj.solve_adjoint()
     adj.finalize()
     with h5py.File(ws / f"adjoint_solution_{name}.hd5", "r") as hf:
-        return {key: hf["composite"][key][:] for key in hf["composite"]}
+        composite = {}
+        for key, item in hf["composite"].items():
+            # a package whose terms are given per well, or per connection, is
+            # written as its own group rather than mapped onto the grid
+            if isinstance(item, h5py.Group):
+                composite[key] = {k: v[:] for k, v in item.items()}
+            else:
+                composite[key] = item[:]
+        return composite
 
 
 def _measure_entry(kind):
@@ -304,3 +342,52 @@ def test_measure_on_maw_accepted():
     from mf6adj.utils.utils_pm_read import validate_pm_type
 
     validate_pm_type("maw-1", {"dis6": ["dis"], "maw6": ["maw-1"]})
+
+
+@pytest.mark.parametrize("nstp", [1, 4])
+def test_rate_sensitivity(function_tmpdir, nstp):
+    """The sensitivity to the rate a well is given matches a finite difference."""
+    rate = -300.0
+    dr = -5.0
+
+    base = _build_model(function_tmpdir / "base", maw_rate=rate, nstp=nstp)
+    plus = _build_model(function_tmpdir / "plus", maw_rate=rate + dr, nstp=nstp)
+    minus = _build_model(function_tmpdir / "minus", maw_rate=rate - dr, nstp=nstp)
+    finite_difference = (_connection_flux(plus) - _connection_flux(minus)) / (2.0 * dr)
+
+    composite = _solve_adjoint(base, _measure_entry("maw-1"), nstp=nstp)
+    # the rate is given for the whole stress period, so it perturbs every time
+    # step, and the composite has summed the steps already
+    assert composite["maw-1"]["rate"].sum() == pytest.approx(
+        finite_difference, rel=1.0e-3
+    )
+
+
+@pytest.mark.parametrize("status", ["ACTIVE", "CONSTANT"])
+def test_conductance_sensitivity(function_tmpdir, status):
+    """The sensitivity to each connection conductance matches a finite difference."""
+    composite = _solve_adjoint(
+        _build_model(function_tmpdir / "base", status=status, conductance=CONDUCTANCE),
+        _measure_entry("maw-1"),
+    )
+
+    for iconn in range(NLAY):
+        dc = 0.01 * CONDUCTANCE[iconn]
+        plus, minus = list(CONDUCTANCE), list(CONDUCTANCE)
+        plus[iconn] += dc
+        minus[iconn] -= dc
+        finite_difference = (
+            _connection_flux(
+                _build_model(
+                    function_tmpdir / f"p{iconn}", status=status, conductance=plus
+                )
+            )
+            - _connection_flux(
+                _build_model(
+                    function_tmpdir / f"m{iconn}", status=status, conductance=minus
+                )
+            )
+        ) / (2.0 * dc)
+        assert composite["maw-1"]["cond"][iconn] == pytest.approx(
+            finite_difference, rel=1.0e-3
+        ), f"connection {iconn}"

@@ -650,6 +650,9 @@ class PerfMeas:
 
         comp_welq_sens = np.zeros(nnodes)
         comp_rch_sens = np.zeros((nnodes))
+        # a well rate is given per well and a connection conductance per
+        # connection, so neither maps onto the grid the way a boundary does
+        comp_maw_results = {}
 
         # A lake stage is a dependent variable, so the system is bordered with
         # the lake water balance. nnodes is a one-element array, so keep a
@@ -1086,6 +1089,24 @@ class PerfMeas:
                     lamb, lake_blocks, dt, nsln, carry_back=carry_back
                 )
             if self._maw.rows:
+                # the rate and conductance terms need the well rows, so they
+                # are taken before those rows come off
+                maw_sens = self._maw.sensitivities(
+                    lamb, head, maw_blocks, self._entries, kk
+                )
+                for pname, values in maw_sens.items():
+                    data[pname] = values
+                    totals = comp_maw_results.setdefault(
+                        pname,
+                        {
+                            "well": values["well"],
+                            "node": values["node"],
+                            "rate": np.zeros_like(values["rate"]),
+                            "cond": np.zeros_like(values["cond"]),
+                        },
+                    )
+                    totals["rate"] += values["rate"] * w
+                    totals["cond"] += values["cond"] * w
                 # the well rows are the innermost, being MODFLOW's own, and the
                 # well carries its storage back the way the aquifer does
                 lamb = self._maw.split(
@@ -1313,6 +1334,9 @@ class PerfMeas:
                 comp_sy_sens /= wsum
             for name in comp_bnd_results:
                 comp_bnd_results[name] /= wsum
+            for totals in comp_maw_results.values():
+                totals["rate"] /= wsum
+                totals["cond"] /= wsum
         data = {}
         data["k11"] = comp_k_sens
         data["k33"] = comp_k33_sens
@@ -1324,6 +1348,10 @@ class PerfMeas:
         data["rch6_recharge"] = comp_rch_sens
 
         for name, vals in comp_bnd_results.items():
+            data[name] = vals
+        # the hdf writer maps a vector onto the grid, and leaves a nested
+        # dictionary alone, which is what these are not shaped for
+        for name, vals in comp_maw_results.items():
             data[name] = vals
         self.logger.logger.info("Writing composite sensitivities")
         _write_group_to_hdf(

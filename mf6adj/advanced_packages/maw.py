@@ -117,6 +117,11 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
     # Under the standard formulation the conductance is lagged instead, and the
     # matrix holds it fixed, so the measure holds it fixed as well.
     cond = value("SIMCOND")
+    # MODFLOW scales the conductance a connection is given by the saturated
+    # fraction of the screen, so a sensitivity to the value the user gives
+    # carries that fraction
+    satcond = value("SATCOND")
+    sat = np.divide(cond, satcond, out=np.ones_like(cond), where=satcond > 0.0)
     head = value("HEAD")
     node = value("NODELIST") - 1
     hgwf = gwf.get_value(gwf.get_var_address("X", gwf_name))[node]
@@ -165,6 +170,7 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
         "well_of_conn": well_of_conn,
         "well_rate_limited": limited,
         "well_row": row,
+        "well_sat": sat,
         "well_stores": stores,
     }
 
@@ -260,10 +266,12 @@ class MawCoupling:
                         "cond": grp["well_cond"][:],
                         "area": grp["well_area"][:],
                         "dterm": grp["well_dterm"][:],
+                        "head": grp["well_head"][:],
                         "maw_upstream": grp["well_maw_upstream"][:] == 1,
                         "free": grp["well_is_free"][:] == 1,
                         "iss": grp["well_iss"][:],
                         "row": grp["well_row"][:],
+                        "sat": grp["well_sat"][:],
                         "stores": grp["well_stores"][:],
                         "well_of_conn": grp["well_of_conn"][:],
                     }
@@ -361,6 +369,63 @@ class MawCoupling:
                 self.rows[key] = irow
                 rhs[irow] = self.carry.get(key, 0.0) - dfds.get(key, 0.0)
         return rhs
+
+    def sensitivities(self, lamb, head, blocks, entries, kk) -> dict:
+        """Return the sensitivity of the measure to the terms of each package.
+
+        The rate a well is given enters only its own equation, so the
+        sensitivity to it is the adjoint state of that equation. The
+        conductance of a connection enters the equation of the cell and the
+        equation of the well with opposite signs, and a measure of the exchange
+        through that connection depends on it directly as well.
+
+        Parameters
+        ----------
+        lamb : ndarray
+            The solved adjoint state, aquifer rows first, before the well rows
+            are taken off.
+        head : ndarray
+            Simulated head for every node.
+        blocks : list
+            The well packages of this time step.
+        entries : list
+            Entries of the performance measure.
+        kk : tuple
+            Zero-based stress period and time step.
+
+        Returns
+        -------
+        dict
+            Package name mapped to the well numbers, the nodes the connections
+            reach, and the sensitivity to the rate of each well and to the
+            conductance of each connection.
+        """
+        result = {}
+        for block in blocks:
+            weights = self._weights(entries, kk, block)
+            rate = np.array([lamb[int(row)] for row in block["row"]], dtype=float)
+            cond = np.zeros(block["node"].shape[0])
+            for iconn in range(block["node"].shape[0]):
+                node = int(block["node"][iconn])
+                iwell = int(block["well_of_conn"][iconn])
+                # the head difference that drives the exchange, which is what
+                # a unit of conductance carries
+                drop = float(block["head"][iwell]) - float(head[node])
+                # a well whose head is held or is inactive has no equation for
+                # the connection to enter, so only the cell it reaches responds
+                well = rate[iwell] if block["free"][iwell] else 0.0
+                # the conductance a user gives is scaled by the saturated
+                # fraction of the screen before MODFLOW uses it
+                cond[iconn] = float(block["sat"][iconn]) * (
+                    (lamb[node] - well + weights.get(node, 0.0)) * drop
+                )
+            result[block["name"]] = {
+                "well": np.arange(block["row"].shape[0]) + 1,
+                "node": block["node"] + 1,
+                "rate": rate,
+                "cond": cond,
+            }
+        return result
 
     def split(self, lamb, blocks, dt, nnodes, carry_back=True) -> np.ndarray:
         """Take the well heads off the solution and carry their storage back.

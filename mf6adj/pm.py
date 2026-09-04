@@ -21,7 +21,7 @@ from scipy.sparse.linalg import (
     svds,
 )
 
-from .advanced_packages import LakeCoupling, SfrCoupling
+from .advanced_packages import LakeCoupling, MawCoupling, SfrCoupling
 from .packages import head_dependent, npf, recharge, well
 from .packages.head_dependent import DRAIN_CORNER_TOL, drop_corner_entries
 from .utils.utils import SolverCallback
@@ -656,22 +656,16 @@ class PerfMeas:
         # scalar for slicing the bordered solution.
         nnode = int(np.asarray(nnodes).ravel()[0])
 
-        # A package that adds its own equations puts them after the aquifer
-        # rows of the solution. Nothing forms their side of the adjoint yet,
-        # so refuse rather than solve a system that is short of equations.
-        # Mf6Adj rejects such a model as it reads it; this is the same
-        # condition seen from the forward solution file.
+        # A package that adds its own equations to the solution puts them after
+        # the aquifer rows. They are already in the matrix; what the adjoint
+        # supplies is their right-hand side, which it does only for the
+        # packages that have a coupling here.
         nsln = len(sln_ia) - 1
-        if nsln > nnode:
-            raise Exception(
-                "the matrix MODFLOW assembled has "
-                + f"{nsln - nnode} equations beyond the {nnode} of the flow "
-                + "grid, which a package such as maw6 added to the solution. "
-                + "The adjoint does not form the terms for those equations yet."
-            )
         if nsln < nnode:
             # the solution holds one equation per cell and one for every
-            # equation a package adds, so it is never short of the grid
+            # equation a package adds, so it is never short of the grid. A
+            # solution larger than the grid is a package that added equations,
+            # and which rows those are is checked at each time step.
             raise Exception(
                 f"the matrix MODFLOW assembled has {nsln} equations, fewer "
                 + f"than the {nnode} of the flow grid, so the sparsity in "
@@ -679,6 +673,7 @@ class PerfMeas:
                 + "not belong to that grid."
             )
         self._lake = LakeCoupling(logger=self.logger.logger)
+        self._maw = MawCoupling(logger=self.logger.logger)
         self._sfr = SfrCoupling(logger=self.logger.logger)
 
         bnd_dict = get_mf6_bound_dict()
@@ -715,6 +710,8 @@ class PerfMeas:
                 raise Exception(
                     f"solution key '{sol_key}' already in adjoint hdf5 file"
                 )
+
+            is_newton = hdf[sol_key].attrs["is_newton"]
 
             start = datetime.now()
             self.logger.logger.debug("Forming rhs")
@@ -766,27 +763,56 @@ class PerfMeas:
             amat = assemble_matrix(amat, sln_ia, sln_ja)
             amat = amat.transpose().tocsr()
 
+            # A multi-aquifer well head is solved with the flow equations, so
+            # the well's own equation is already a row of amat and only its
+            # right-hand side is formed here. The rows sit after the aquifer's,
+            # and the lake and reach rows border whatever they leave.
+            dt = float(hdf[sol_key].attrs["dt"])
+            maw_blocks = self._maw.blocks(hdf[sol_key], gwf_package_dict, is_newton)
+            rhs = np.concatenate((rhs, np.zeros(nsln - nnode)))
+            unclaimed = set(range(nnode, nsln)) - self._maw.claimed_rows(maw_blocks)
+            if unclaimed:
+                raise Exception(
+                    "the matrix MODFLOW assembled has "
+                    + f"{len(unclaimed)} equations beyond the {nnode} of the "
+                    + "flow grid that no package accounts for. The adjoint "
+                    + "does not form the terms for those equations."
+                )
+            if not maw_blocks:
+                self._maw.reset_step()
+            else:
+                # a measure of the exchange follows the head in the cell
+                # through the conductance as well as through the head
+                # difference, and only the second is in the package hcof
+                rhs[:nnode] -= self._maw.measure_dfdh(
+                    self._entries, kk, maw_blocks, nnode
+                )
+                rhs = self._maw.fill(
+                    rhs,
+                    maw_blocks,
+                    self._maw.dfds(self._entries, kk, maw_blocks),
+                )
+
             # the lake state is per time step: a step with no free lake must
             # not inherit the previous step's columns, carry, or solution size
-            # a steady-state step has no change in lake storage, so it has no
+            # a steady-state step has no change in storage, so it has no
             # storage on the diagonal and nothing to carry. An instantaneous
-            # measure keeps the storage, because that is part of the lake's
+            # measure keeps the storage, because that is part of the package's
             # equation at this step, but is solved without the carry.
-            lake_storage = hdf[sol_key]["iss"][0] == 0
-            lake_carry_back = lake_storage and not is_instantaneous
+            is_transient = hdf[sol_key]["iss"][0] == 0
+            carry_back = is_transient and not is_instantaneous
             lake_blocks = self._lake.blocks(hdf[sol_key], gwf_package_dict)
             if not lake_blocks:
                 self._lake.reset_step()
             else:
-                dt = float(hdf[sol_key].attrs["dt"])
                 amat, rhs = self._lake.augment(
                     amat,
                     rhs,
                     lake_blocks,
                     dt,
                     self._lake.dfds(self._entries, kk, lake_blocks),
-                    nnode,
-                    transient=lake_storage,
+                    amat.shape[0],
+                    transient=is_transient,
                 )
 
             # the reach rows sit outside the lake rows, so they are added to
@@ -824,7 +850,6 @@ class PerfMeas:
             start = datetime.now()
             self.logger.logger.info("Solving for lambda")
 
-            is_newton = hdf[sol_key].attrs["is_newton"]
             self.logger.logger.debug(f"Newton-Raphson: {is_newton}")
 
             if linear_solver is None:
@@ -1058,8 +1083,20 @@ class PerfMeas:
                 # split the lake stages off and carry their storage back to the
                 # previous time step, as drhsdh does for the aquifer
                 lamb = self._lake.split(
-                    lamb, lake_blocks, dt, nnode, carry_back=lake_carry_back
+                    lamb, lake_blocks, dt, nsln, carry_back=carry_back
                 )
+            if self._maw.rows:
+                # the well rows are the innermost, being MODFLOW's own, and the
+                # well carries its storage back the way the aquifer does
+                lamb = self._maw.split(
+                    lamb,
+                    maw_blocks,
+                    dt,
+                    nnode,
+                    carry_back=carry_back,
+                )
+            elif nsln != nnode:
+                lamb = lamb[:nnode]
 
             if np.any(np.isnan(lamb)):
                 self.logger.logger.warning(
@@ -1074,7 +1111,6 @@ class PerfMeas:
                     + f"{(datetime.now() - start).total_seconds()} seconds"
                 )
             )
-            is_newton = hdf[sol_key].attrs["is_newton"]
 
             # zero out the adj state for chd nodes
             chd_nodelist = []

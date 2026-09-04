@@ -37,11 +37,11 @@ PACKAGE_DICT = {
     "npf6": ["npf"],
     "ghb6": ["ghb-1"],
     "uzf6": ["uzf-1"],
-    "maw6": ["maw-1"],
+    "csub6": ["csub-1"],
 }
 
 
-@pytest.mark.parametrize("pm_type", ["uzf-1", "maw-1"])
+@pytest.mark.parametrize("pm_type", ["uzf-1", "csub-1"])
 def test_measure_unsupported(pm_type):
     """A measure on a package the adjoint does not form terms for is refused."""
     with pytest.raises(Exception, match="does not form terms for"):

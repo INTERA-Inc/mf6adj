@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 
 import flopy
-import pytest
+import numpy as np
 
 try:
     import mf6adj
@@ -68,7 +68,7 @@ def test_ie_nomaw_1sp():
 
 
 def test_ie_1sp():
-    """The same model with maw6 is rejected: MAW adds equations to the matrix."""
+    """The same model with maw6, whose wells add equations to the matrix."""
     org_d = pl.Path("ie_1sp")
     new_d = "ie_1sp_test"
     new_dir = pl.Path(new_d)
@@ -78,20 +78,32 @@ def test_ie_1sp():
         shutil.rmtree(new_dir)
     shutil.copytree(org_d, new_dir)
 
-    # the coupling check runs before the adjoint file is read, so the file only
-    # has to exist
-    with open(adj_file, "w") as f:
-        f.write("begin performance_measure single\n")
-        f.write(f"1 1 {32} {1808} head direct 1.0 -1.0e+30\n")
-        f.write("end performance_measure\n")
+    flopy.run_model(exe_name=mf6_bin, namefile=None, model_ws=new_dir)
 
-    with pytest.raises(Exception, match="solution matrix"):
-        mf6adj.Mf6Adj(
-            adj_file.name,
-            lib_name,
-            logging_level="INFO",
-            working_directory=new_dir,
-        )
+    sim = flopy.mf6.MFSimulation.load(sim_ws=new_dir, load_only=["dis"])
+    nstp = sim.tdis.perioddata.array[0][1]
+
+    with open(adj_file, "w") as f:
+        f.write("begin performance_measure single_all_times\n")
+        for kper in range(sim.tdis.nper.data):
+            f.write(f"{kper + 1} {nstp} {32} {1808} head direct 1.0 -1.0e+30\n")
+        f.write("end performance_measure\n\n")
+
+    adj = mf6adj.Mf6Adj(
+        adj_file.name,
+        lib_name,
+        logging_level="INFO",
+        working_directory=new_dir,
+    )
+    adj.solve_forward_model()
+    df = adj.solve_adjoint(
+        linear_solver="bicgstab",
+        linear_solver_kwargs={"maxiter": 500, "atol": 1e-5},
+        use_precon=True,
+    )
+    adj.finalize()
+
+    assert np.isfinite(df["single_all_times"]["k11"].values).all()
 
 
 if __name__ == "__main__":

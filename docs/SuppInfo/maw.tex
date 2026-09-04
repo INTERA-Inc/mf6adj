@@ -1,0 +1,104 @@
+A multi-aquifer well head is a dependent variable of the simulation, as a lake stage is, but the Multi-Aquifer Well (MAW) Package differs from the Lake (LAK) Package in where that variable is solved. \mf{} adds one equation per well to the groundwater flow matrix and solves the well head with the cell heads. The matrix the adjoint is taken from therefore already carries the well, and nothing has to be bordered onto it. This chapter describes what the adjoint supplies instead: the right-hand side of the rows the wells occupy, and the derivative of a measure of the exchange between a well and the aquifer.
+
+\section*{A system that is already bordered}
+
+Let $\mathbf{h}$ be the cell heads and $\mathbf{H}$ the heads of the multi-aquifer wells. The system \mf{} assembles is
+
+\begin{equation}
+	\label{eqn:maw-system}
+	\begin{bmatrix}
+		\dfrac{\partial \mathbf{r}}{\partial \mathbf{h}} &
+		\dfrac{\partial \mathbf{r}}{\partial \mathbf{H}} \\[2ex]
+		\dfrac{\partial \mathbf{r}_{W}}{\partial \mathbf{h}} &
+		\dfrac{\partial \mathbf{r}_{W}}{\partial \mathbf{H}}
+	\end{bmatrix}
+	\begin{bmatrix} \mathbf{h} \\ \mathbf{H} \end{bmatrix}
+	=
+	\begin{bmatrix} \mathbf{b} \\ \mathbf{b}_{W} \end{bmatrix},
+\end{equation}
+
+\noindent where $\mathbf{r}$ is the aquifer residual of equation~\ref{eqn:residual}, and $\mathbf{r}_{W}$ is the water balance of the wells. Equation~\ref{eqn:maw-system} has the shape of the bordered system of equation~\ref{eqn:lak-bordered}, but every block of it comes from \mf{} rather than from the adjoint. All four are read from the assembled matrix and transposed with it.
+
+The whole of that matrix is available only where the row pointer and column index used to address it are the ones the solution was assembled with. The connectivity of the groundwater flow grid does not locate the entries of a matrix that a package has added equations to, because a well places a column inside the row of every cell it connects to and the grid connectivity does not count those entries.
+
+A well whose head is held constant, and one that is inactive, keep their row. \mf{} replaces the water balance of such a well with the head it is given, which leaves the row with nothing outside its diagonal, so the adjoint state of that well cannot travel back into the aquifer. No separate accounting is needed for either case.
+
+\section*{Measuring the exchange}
+
+The exchange between well $w$ and cell $n$ is
+
+\begin{equation}
+	\label{eqn:maw-exchange}
+	Q_{n,w} = C_{n,w}\left(h_{u}\right) \left( H_{w} - h_{n} \right),
+\end{equation}
+
+\noindent where $C_{n,w}$ is the conductance of the connection (L$^{2}$T$^{-1}$), $H_{w}$ is the head in the well (L), $h_{n}$ is the head in the cell (L), and $h_{u}$ is the larger of the two, the head on the upstream side of the connection.
+
+The conductance is not a constant. It follows $h_{u}$ through the fraction of the screen that is saturated over the interval the connection covers, so a performance measure of $Q_{n,w}$ has a derivative with respect to each head that carries two terms,
+
+\begin{equation}
+	\label{eqn:maw-derivative}
+	\frac{\partial Q_{n,w}}{\partial h_{n}} =
+	-C_{n,w} + \frac{\partial C_{n,w}}{\partial h_{n}}
+	\left( H_{w} - h_{n} \right), \qquad
+	\frac{\partial Q_{n,w}}{\partial H_{w}} =
+	C_{n,w} + \frac{\partial C_{n,w}}{\partial H_{w}}
+	\left( H_{w} - h_{n} \right),
+\end{equation}
+
+\noindent of which only one of the two conductance terms is present at a time, on whichever side is upstream. Equation~\ref{eqn:maw-derivative} is the same pair of terms that equation~\ref{eqn:formulation-jacobian} carries for the flow between two cells, and \mf{} assembles the second of them under the same conditions: under the Newton-Raphson formulation, and in a cell that converts between confined and unconfined. Under the standard formulation the conductance is lagged and the matrix holds it fixed, so a measure of the exchange holds it fixed as well, and the sensitivity is a partial derivative in the sense of Chapter~\ref{ch:formulation}.
+
+The first terms of equation~\ref{eqn:maw-derivative} sum to zero over the connections of a well whose rate is specified, because the exchange is then pinned by the rate and only its distribution between layers is free to move. A measure of the exchange at one cell is the difference of two large quantities, and the conductance terms, small beside either, are what is left of it. They cannot be dropped as a refinement.
+
+\section*{Well storage}
+
+A well stores water over its own cross-sectional area, so a transient step carries
+
+\begin{equation}
+	\label{eqn:maw-storage}
+	A_{w} \frac{H_{w}^{k} - H_{w}^{k-1}}{\Delta t}
+\end{equation}
+
+\noindent in the water balance of the well, where $A_{w}$ is the area of the well (L$^{2}$), $\Delta t$ is the length of the time step (T), and $k$ indexes the time step. The term links one time step to the next in the way the aquifer storage does, and the well part of the adjoint solution is carried backward the same way. An instantaneous measure, for which the time steps are independent, does not carry it (Chapter~\ref{ch:instantaneous}).
+
+\mf{} does not let the water level a well stores against fall below the bottom of the well, so a well whose head has left the screen releases nothing further as that head moves and carries nothing back. A steady-state step, and a well whose head is held or is inactive, carry nothing either.
+
+\section*{Verification}
+
+A well of radius 0.5 was screened through all three layers of a model 7 cells by 7 cells, withdrawing 300 in volume per unit time, with a second well withdrawing 50 from the upper layer away from it and a general-head boundary along one edge. Lengths and times are in the units of the model. The upper layer was about half saturated at the well, so the conductance of the upper connection was 55 against 525 and 1{,}469 for the two beneath it. The measure was the exchange between the well and the upper cell at the last time step, and its sensitivity to the rate of the second well was compared with a central difference between two forward runs.
+
+\begin{table}[htb]
+	\centering
+	\caption{Sensitivity of the exchange between a multi-aquifer well and the
+	cell it connects to in the upper layer, with respect to the rate of a second
+	well, against a finite-difference derivative. The last column holds the
+	conductance of the connection fixed, dropping the second terms of
+	equation~\ref{eqn:maw-derivative}.}
+	\label{tab:maw}
+	\small
+	\begin{tabular}{llrrr}
+		\toprule
+		Well & \shortstack[l]{Time\\steps} &
+		\shortstack[r]{Finite\\difference} &
+		\shortstack[r]{Adjoint} &
+		\shortstack[r]{Conductance\\held fixed} \\
+		\midrule
+		Specified rate & 1 & $1.7310 \times 10^{-3}$ & $1.7310 \times 10^{-3}$ & $6.9688 \times 10^{-3}$ \\
+		Specified rate & 4 & $8.4771 \times 10^{-4}$ & $8.4773 \times 10^{-4}$ & $6.8477 \times 10^{-3}$ \\
+		Specified head & 1 & $-2.2920 \times 10^{-2}$ & $-2.2920 \times 10^{-2}$ & $-2.0247 \times 10^{-2}$ \\
+		Specified head & 4 & $-2.7146 \times 10^{-2}$ & $-2.7146 \times 10^{-2}$ & $-2.4649 \times 10^{-2}$ \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+The adjoint reproduces the finite-difference derivative to four significant figures or better in every case of table~\ref{tab:maw}. Holding the conductance fixed leaves an error of 9 to 12 percent where the head in the well is specified, and one of 300 to 700 percent where its rate is: with the rate specified the measure is what remains after the first terms of equation~\ref{eqn:maw-derivative} have cancelled, and the conductance terms are the whole of it.
+
+The four-step cases are the ones that carry the storage of equation~\ref{eqn:maw-storage} between time steps. Dropping that term leaves an error of 0.54 percent in the specified-rate case and none in the specified-head case, where the well has no water balance to store against.
+
+\section*{What is not carried}
+
+Water exchanged with a well by the Water Mover (MVR) Package follows the state of the package on the other side, and that derivative is not formed.
+
+A well whose rate follows its own head, through a pumping-rate reduction, a shutoff, or a flowing well, carries that dependence into the matrix only under the Newton-Raphson formulation. Under the standard formulation the rate is lagged, and the sensitivity is approximate in the way Chapter~\ref{ch:formulation} describes. Both conditions are reported.
+
+\mf{} releases through version 6.7.0 form a screen-saturation derivative for a connection in a cell that does not convert between confined and unconfined, where the conductance does not in fact follow the head. The matrix is then not the derivative of the equations the well solves, and a measure of the exchange at such a connection is approximate. The condition does not arise in a convertible cell, which is where a partly saturated screen occurs in any case.

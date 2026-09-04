@@ -16,6 +16,7 @@ SUPPORTED_PACKAGE_TYPES = (
     "drn6",
     "sfr6",
     "lak6",
+    "maw6",
     "rch6",
     "evt6",
 )
@@ -25,7 +26,6 @@ SUPPORTED_PACKAGE_TYPES = (
 # exchange is in the flow matrix, but the package itself has none.
 UNSUPPORTED_STRESS_TYPES = (
     "uzf6",
-    "maw6",
     "csub6",
     "api6",
     "mvr6",

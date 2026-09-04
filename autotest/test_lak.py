@@ -11,7 +11,7 @@ Cases:
                       stage and conductance.
   - duplicate_bnd   : two boundaries in one cell accumulate rather than
                       overwrite.
-  - maw_rejected    : a model with maw6 is rejected because it adds equations
+  - maw_accepted    : a model with both a lake and a multi-aquifer well
                       to the solution matrix.
   - lak_total_deriv : a free lake stage reproduces a finite-difference total
                       derivative.
@@ -310,20 +310,23 @@ def test_duplicate_boundary_accumulates(function_tmpdir):
     ), "the two boundaries in the shared cell did not both contribute"
 
 
-def test_maw_rejected(function_tmpdir):
-    """maw6 adds equations to the solution matrix and must be rejected."""
+def test_maw_accepted(function_tmpdir):
+    """A lake and a multi-aquifer well in one model are both carried."""
     ws = function_tmpdir / "maw"
     sim, _ = _build_model(ws, boundary="lak", maw=True)
     sim.run_simulation(silent=True)
 
     adj_file = _write_adj(ws, [(1, 4, 4)], "head", name="h")
-    with pytest.raises(Exception, match="solution matrix"):
-        mf6adj.Mf6Adj(
-            adj_file.name,
-            str(lib_name),
-            logging_level="WARNING",
-            working_directory=str(ws),
-        )
+    adj = mf6adj.Mf6Adj(
+        adj_file.name,
+        str(lib_name),
+        logging_level="WARNING",
+        working_directory=str(ws),
+    )
+    adj.solve_forward_model()
+    df = adj.solve_adjoint()
+    adj.finalize()
+    assert np.isfinite(df["h"]["k11"].values).all()
 
 
 def test_lak_total_derivative(function_tmpdir):

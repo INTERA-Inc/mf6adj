@@ -13,7 +13,11 @@ import numpy as np
 import pandas as pd
 from xmipy.errors import XMIError
 
-from .advanced_packages import lake_forward_terms, sfr_forward_terms
+from .advanced_packages import (
+    lake_forward_terms,
+    maw_forward_terms,
+    sfr_forward_terms,
+)
 from .packages import storage
 from .packages.head_dependent import DRAIN_CORNER_TOL
 from .pm import PerfMeas, PerfMeasRecord
@@ -45,6 +49,11 @@ DT_FMT = "%Y-%m-%d %H:%M:%S"
 # Array-based recharge is named rch6 in the name file as the list form is, so
 # both are covered by the one entry.
 SPECIFIED_FLUX_PACKAGES = ("wel6", "rch6")
+
+# Package types that add their own equations to the solution matrix and whose
+# terms the adjoint forms. A package that adds equations and is not here leaves
+# the adjoint with rows it cannot fill.
+COUPLED_PACKAGE_TYPES = ("maw6",)
 PathLike = Union[str, pl.Path]
 
 
@@ -183,16 +192,24 @@ class Mf6Adj:
             }
 
     def _check_solution_coupling(self) -> None:
-        """Raise if a package adds its own equations to the solution matrix.
+        """Raise if a package adds equations the adjoint forms no terms for.
+
+        The adjoint takes its matrix from the one MODFLOW assembled, so a
+        package that adds its own equations puts them in that matrix already.
+        What the adjoint has to supply is the right-hand side of those rows and
+        the state they carry between time steps, and it does that only for the
+        packages named here.
 
         Raises
         ------
         Exception
-            If any package contributes equations to the solution matrix.
+            If a package contributes equations whose terms are not formed.
         """
         coupled = []
         for package_type, tags in self._gwf_package_dict.items():
             for tag in tags:
+                if package_type in COUPLED_PACKAGE_TYPES:
+                    continue
                 try:
                     npakeq = self._gwf.get_value(
                         self._gwf.get_var_address("NPAKEQ", self._gwf_name, tag.upper())
@@ -205,13 +222,13 @@ class Mf6Adj:
 
         if coupled:
             raise Exception(
-                "the adjoint matrix is rebuilt from the groundwater flow grid "
-                "connectivity, so packages that add their own equations to the "
-                "solution matrix are not supported yet: "
+                "a package that adds its own equations to the solution matrix "
+                "is supported only where the adjoint forms the terms of those "
+                "equations, which it does not for: "
                 + f"{', '.join(coupled)}. An implicitly coupled lake (MODFLOW 6 "
-                "6.8.0 and later) and maw6 both add equations; use an "
-                "explicitly coupled lake and represent multi-aquifer wells "
-                "with wel6."
+                "6.8.0 and later) adds equations; use an explicitly coupled "
+                "lake. The supported coupled package types are "
+                + f"{', '.join(COUPLED_PACKAGE_TYPES)}."
             )
 
     def _add_performance_measure(
@@ -895,6 +912,12 @@ class Mf6Adj:
                                             self._gwf, self._gwf_name, tag
                                         )
                                     )
+                                if package_type == "maw6":
+                                    data_dict[tag].update(
+                                        maw_forward_terms(
+                                            self._gwf, self._gwf_name, tag
+                                        )
+                                    )
                 attr_dict = {
                     "ctime": ctime,
                     "dt": dt1,
@@ -1208,7 +1231,16 @@ class Mf6Adj:
         for paktype, pdict in org_sp_package_data.items():
             if paktype == "chd6":
                 continue
-            pert_items = self._gwf_boundary_attr_dict[paktype]
+            # a perturbation moves a value the boundary is given, and an
+            # advanced package exchanges water through a state it solves
+            # instead, which leaves it nothing to perturb
+            pert_items = self._gwf_boundary_attr_dict.get(paktype)
+            if not pert_items:
+                self.logger.logger.info(
+                    f"Skipping perturbations for {paktype}, which has no "
+                    "boundary values to perturb"
+                )
+                continue
             epsilons = []
             node_ids = []
             names = []

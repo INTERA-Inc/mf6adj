@@ -76,8 +76,17 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest] 
+        environment: [default]
         run-type: [std]
         test-path: ["."]
+        # the second python version is tested on one platform. What it can
+        # catch is a change in the language or in a dependency built against
+        # it, and neither is particular to an operating system.
+        include:
+          - os: ubuntu-latest
+            environment: py312
+            run-type: std
+            test-path: "."
     defaults:
       run:
         shell: bash
@@ -90,27 +99,28 @@ jobs:
       uses: prefix-dev/setup-pixi@v0.10.2
       with:
         pixi-version: v0.69.0
+        environments: ${{ matrix.environment }}
 
     - name: pixi post-install
       run: |
-        pixi run postinstall
+        pixi run -e ${{ matrix.environment }} postinstall
 
     - name: Update flopy
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}    
       run: |
-        pixi run update-flopy
+        pixi run -e ${{ matrix.environment }} update-flopy
         
     - name: Install executables
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}    
       run: |
-        pixi run install-executables        
+        pixi run -e ${{ matrix.environment }} install-executables        
 
-    - name: Autotest ${{ matrix.os }}-python${{ matrix.python-version }}
+    - name: Autotest ${{ matrix.os }}-${{ matrix.environment }}
       run: |
-        pixi run autotest-base 
+        pixi run -e ${{ matrix.environment }} autotest-base 
 
-    - name: Test notebooks ${{ matrix.os }}-python${{ matrix.python-version }}
+    - name: Test notebooks ${{ matrix.os }}-${{ matrix.environment }}
       run: |
-        pixi run autotest-notebooks
+        pixi run -e ${{ matrix.environment }} autotest-notebooks

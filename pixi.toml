@@ -33,7 +33,6 @@ pytest-cov = "*"
 pytest-dotenv = "*"
 pytest-order = "*"
 pytest-xdist = "*"
-python = "3.11.*"
 requests = "*"
 scipy = ">=1.7.0"
 shapely = "*"
@@ -54,6 +53,24 @@ sphinx = ">=7.1.2"
 sphinx-rtd-theme = ">=1"
 
 # docs/build tools (PyPI-only)
+# The python version each environment is built against. Keeping it out of the
+# shared dependencies above lets one environment differ from another in that
+# alone. The second version is solved for linux only, which is where it is
+# tested; solving it for every platform would grow the lock file five times
+# over for no more coverage.
+[feature.py311.dependencies]
+python = "3.11.*"
+
+[feature.py312]
+platforms = ["linux-64"]
+
+[feature.py312.dependencies]
+python = "3.12.*"
+
+[environments]
+default = ["py311"]
+py312 = ["py312"]
+
 [pypi-dependencies]
 hatchling = ">=1.27.0,<2"
 hatch-fancy-pypi-readme = "*"

@@ -3,7 +3,7 @@ channels:
   - conda-forge
   - nodefaults
 dependencies:
-  - python=3.10
+  - python=3.11
   - filelock
   - scipy>=1.7.0
   - numpy>=2.0
@@ -19,7 +19,7 @@ dependencies:
   - shapely
   - h5py>=3.0.0
   - flopy>=3.10.0
-  - modflowapi>=0.2.0
+  - modflowapi>=1.0.0,<2
   - modflow6
   - pyemu>=1.4.0
   - geopandas>=1.0.0

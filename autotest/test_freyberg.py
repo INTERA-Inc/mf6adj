@@ -61,8 +61,9 @@ def test_freyberg_structured():
         f.write("end performance_measure\n\n")
 
         sfr_data = pd.DataFrame.from_records(gwf.sfr.packagedata.array)
-        bnames = sfr_data.boundname.unique()
-        bnames.sort()
+        # pandas 3 returns the unique values of a string column in an
+        # extension array, which sorts through the builtin rather than in place
+        bnames = sorted(sfr_data.boundname.unique())
         for bname in bnames:
             bdf = sfr_data.loc[sfr_data.boundname == bname, :].copy()
 
@@ -178,8 +179,10 @@ def test_freyberg_quadtree():
             f.write("end performance_measure\n\n")
 
             sfr_data = pd.DataFrame.from_records(m.sfr.packagedata.array)
-            bnames = sfr_data.boundname.unique()
-            bnames.sort()
+            # pandas 3 returns the unique values of a string column in an
+            # extension array, which sorts through the builtin rather than in
+            # place
+            bnames = sorted(sfr_data.boundname.unique())
             bnames = ["upstream", "downstream"]
             for bname in bnames:
                 bdf = sfr_data.loc[sfr_data.boundname == bname, :].copy()
@@ -295,8 +298,9 @@ def freyberg_structured_highres():
         f.write("end performance_measure\n\n")
 
         sfr_data = pd.DataFrame.from_records(gwf.sfr.packagedata.array)
-        bnames = sfr_data.boundname.unique()
-        bnames.sort()
+        # pandas 3 returns the unique values of a string column in an
+        # extension array, which sorts through the builtin rather than in place
+        bnames = sorted(sfr_data.boundname.unique())
         for bname in bnames:
             bdf = sfr_data.loc[sfr_data.boundname == bname, :].copy()
 

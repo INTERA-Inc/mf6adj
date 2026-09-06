@@ -419,8 +419,9 @@ def xd_box_compare(new_d, plot_compare=False, dif_thres=1e-6,):
     df = pd.Series(results_dict).reset_index()
     df = df.pivot(columns="level_0", index="level_1", values=0)
     df.sort_index(inplace=True)
-    cols = df.columns.values
-    cols.sort()
+    # pandas 3 holds string columns in an extension array, which sorts through
+    # the builtin rather than in place the way a numpy array does
+    cols = sorted(df.columns)
     df = df.loc[:, cols]
     print(df)
 

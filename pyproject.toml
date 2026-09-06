@@ -18,19 +18,18 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Hydrology",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "numpy>=2.0",
     "matplotlib>=3.5.0",
     "pandas>=2.0.0",
     "flopy>=3.10.0",
-    "modflowapi>=0.2.0",
-    "xmipy>=1.4.0",
+    "modflowapi>=1.0.0,<2",
+    "xmipy>=1.5.0",
     "h5py>=3.0.0",
     "scipy>=1.7.0",
     "pyemu>=1.4.0",

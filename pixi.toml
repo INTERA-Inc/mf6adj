@@ -105,6 +105,11 @@ install-gridgen = {cmd = "get-modflow --subset gridgen :python"}
 # test
 autotest = { cmd = "pixi run autotest-base; pixi run autotest-notebooks" }
 autotest-base = { cmd = "pixi run clean-tests; pytest -v -n=auto --durations=0 --cov=mf6adj --cov-report=xml --keep-failed .failed", cwd = "autotest" }
+# Everything but the tests marked slow. What a second python version catches is
+# a change in the language or in a dependency built against it, and the largest
+# model is not where that shows; on 3.12 it ran for an hour on its own, against
+# ten minutes for the rest of the suite.
+autotest-quick = { cmd = "pixi run clean-tests; pytest -v -n=auto -m 'not slow' --durations=0 --cov=mf6adj --cov-report=xml --keep-failed .failed", cwd = "autotest" }
 autotest-notebooks = { cmd = "pytest -v -n=auto --durations=0 --nbmake --nbmake-timeout=3000", cwd = "examples" }
 clean-notebooks = { cmd = "python clear_output_all.py", cwd = "examples" }
 clean-tests = { cmd = "rm -rf *_test", cwd = "autotest" }

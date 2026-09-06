@@ -13,6 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import pytest
 from matplotlib.backends.backend_pdf import PdfPages
 
 try:
@@ -24,6 +25,7 @@ except ImportError:
 mf6_bin, lib_name = mf6adj.get_conda_mf6_paths()
 
 
+@pytest.mark.slow
 def test_sagehen():
     prep = True
 

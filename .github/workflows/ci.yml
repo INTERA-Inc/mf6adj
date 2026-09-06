@@ -77,14 +77,17 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest] 
         environment: [default]
+        task: [autotest-base]
         run-type: [std]
         test-path: ["."]
-        # the second python version is tested on one platform. What it can
-        # catch is a change in the language or in a dependency built against
-        # it, and neither is particular to an operating system.
+        # the second python version is tested on one platform, and without the
+        # tests marked slow. What it can catch is a change in the language or
+        # in a dependency built against it; neither is particular to an
+        # operating system, and neither needs the largest model to show.
         include:
           - os: ubuntu-latest
             environment: py312
+            task: autotest-quick
             run-type: std
             test-path: "."
     defaults:
@@ -119,7 +122,7 @@ jobs:
 
     - name: Autotest ${{ matrix.os }}-${{ matrix.environment }}
       run: |
-        pixi run -e ${{ matrix.environment }} autotest-base 
+        pixi run -e ${{ matrix.environment }} ${{ matrix.task }} 
 
     - name: Test notebooks ${{ matrix.os }}-${{ matrix.environment }}
       run: |

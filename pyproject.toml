@@ -136,6 +136,11 @@ ignore = [
     "RUF017", # quadratic-list-summation
 ]
 
+[tool.pytest.ini_options]
+markers = [
+    "slow: a test whose model is large enough that its runtime is the reason to skip it, never its coverage",
+]
+
 [tool.codespell]
 skip = './original_scripts/*,./autotest/**,./examples/clear_output_all.py,./examples/.ipynb_checkpoints/**,./examples/__pycache__/**,./examples/ex-gwf-zaidel/**,./examples/freyberg/**,./examples/sanpedro/**,./examples/synthdewater/**,./examples/synthdewater_working/**,./examples/xd_box_chd_ana/**,./examples/xd_box_chd_ana_working/**,./_build/**,./docs/_build/**,*.bst,*.pdf,*.log'
 ignore-words-list = [

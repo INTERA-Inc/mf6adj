@@ -22,7 +22,7 @@ from scipy.sparse.linalg import (
 )
 
 from .advanced_packages import LakeCoupling, MawCoupling, SfrCoupling
-from .packages import head_dependent, npf, recharge, well
+from .packages import head_dependent, hfb, npf, recharge, well
 from .packages.head_dependent import DRAIN_CORNER_TOL, drop_corner_entries
 from .utils.utils import SolverCallback
 from .utils.utils_fileio import _write_group_to_hdf
@@ -656,6 +656,9 @@ class PerfMeas:
         # a well rate is given per well and a connection conductance per
         # connection, so neither maps onto the grid the way a boundary does
         comp_maw_results = {}
+        # a barrier is given per barrier, and sits on a connection rather than
+        # in a cell, so it does not map onto the grid either
+        comp_hfb_sens = None
 
         # A lake stage is a dependent variable, so the system is bordered with
         # the lake water balance. nnodes is a one-element array, so keep a
@@ -1176,6 +1179,30 @@ class PerfMeas:
 
             data["k11"] = k_sens
             data["k33"] = k33_sens
+
+            if has_hfb and "hfb_dconddhc" in hdf[sol_key]:
+                noden = hdf[sol_key]["hfb_noden"][:]
+                hfb_sens = hfb.sensitivity(
+                    hdf[sol_key]["hfb_dconddhc"][:],
+                    noden,
+                    hdf[sol_key]["hfb_nodem"][:],
+                    head,
+                    lamb,
+                )
+                if comp_hfb_sens is None:
+                    comp_hfb_sens = {
+                        "barrier": np.arange(noden.shape[0]) + 1,
+                        "noden": noden + 1,
+                        "nodem": hdf[sol_key]["hfb_nodem"][:] + 1,
+                        "hydchr": np.zeros_like(hfb_sens),
+                    }
+                comp_hfb_sens["hydchr"] += hfb_sens * w
+                data["hfb"] = {
+                    "barrier": comp_hfb_sens["barrier"],
+                    "noden": comp_hfb_sens["noden"],
+                    "nodem": comp_hfb_sens["nodem"],
+                    "hydchr": hfb_sens,
+                }
             comp_k_sens += k_sens * w
             comp_k33_sens += k33_sens * w
             self.logger.logger.debug(
@@ -1348,6 +1375,8 @@ class PerfMeas:
                 totals["rate"] /= wsum
                 totals["head"] /= wsum
                 totals["cond"] /= wsum
+            if comp_hfb_sens is not None:
+                comp_hfb_sens["hydchr"] /= wsum
         data = {}
         data["k11"] = comp_k_sens
         data["k33"] = comp_k33_sens
@@ -1364,6 +1393,8 @@ class PerfMeas:
         # dictionary alone, which is what these are not shaped for
         for name, vals in comp_maw_results.items():
             data[name] = vals
+        if comp_hfb_sens is not None:
+            data["hfb"] = comp_hfb_sens
         self.logger.logger.info("Writing composite sensitivities")
         _write_group_to_hdf(
             adf,

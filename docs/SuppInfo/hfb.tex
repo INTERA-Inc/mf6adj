@@ -68,10 +68,45 @@ A confined model two layers deep and 5 cells by 5 cells was given constant heads
 
 The adjoint reproduces the finite-difference derivative to six significant figures in every case of table~\ref{tab:hfb}. Formed from the unbarriered conductance instead, the same sensitivity is out by a factor of 694 on the horizontal connection in series, 83 on the multiplier that lowers the conductance, and 10,201 on the vertical connection. The multiplier that raises it is the case that shows the error is not always an overstatement: there the sensitivity formed without the barrier is 21 percent too small. The error is confined to the cells a barrier touches: a cell with no barrier on any of its connections reproduces the finite difference either way, because the adjoint state is taken from the matrix \mf{} assembled and that matrix carries the barrier already.
 
+\section*{Sensitivity to the barrier}
+
+The hydraulic characteristic is a term of the model, so a performance measure has a sensitivity to it. Differentiating equation~\ref{eqn:hfb-series} with respect to $c_{h}$ rather than $C_{0}$,
+
+\begin{equation}
+	\label{eqn:hfb-hydchr}
+	\frac{\partial C}{\partial c_{h}} =
+	\left( \frac{C}{C_{b}} \right)^{2} A =
+	\frac{C \left( C_{0} - C \right)}{c_{h} C_{0}},
+\end{equation}
+
+\noindent the second form of which carries no area, so it is written from the same two conductances the factor of equation~\ref{eqn:hfb-derivative} uses. A barrier weak enough to leave the connection alone has $C \rightarrow C_{b}$, and equation~\ref{eqn:hfb-hydchr} approaches the area of the face: a unit of hydraulic characteristic buys a unit of conductance for every unit of area it acts over. The derivative falls away as the barrier strengthens, because a strong barrier already sets the conductance and a little more of it changes little. For the multiplier of equation~\ref{eqn:hfb-multiplier} the derivative is $-C_{0}$, which does not depend on the multiplier at all.
+
+A barrier lies on a connection rather than in a cell, so its sensitivity does not map onto the grid the way a conductivity does. It is reported per barrier, with the two cells the barrier lies between, beside the grid-shaped results.
+
+Against a central difference on the same model, taking the sum over the line of barriers because they are given one characteristic between them, the adjoint reproduces the derivative to six significant figures in each of the four cases of table~\ref{tab:hfb-hydchr}.
+
+\begin{table}[htb]
+	\centering
+	\caption{Sensitivity of a head to the hydraulic characteristic of a line of
+	barriers, against a finite-difference derivative.}
+	\label{tab:hfb-hydchr}
+	\small
+	\begin{tabular}{llrr}
+		\toprule
+		Connection & Form &
+		\shortstack[r]{Finite\\difference} &
+		\shortstack[r]{Adjoint} \\
+		\midrule
+		Horizontal & series               & $1.41642$              & $1.41642$ \\
+		Horizontal & multiplier, lowering & $-1.35568$             & $-1.35568$ \\
+		Horizontal & multiplier, raising  & $-3.7543 \times 10^{-2}$ & $-3.7543 \times 10^{-2}$ \\
+		Vertical   & series               & $0.54098$              & $0.54098$ \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
 \section*{What is not carried}
 
 \mf{} folds the barrier into the stored conductance under the Newton-Raphson formulation, and where neither of the two cells converts between confined and unconfined. Everywhere else it applies the barrier once per iteration against the saturated thickness of that iteration, and leaves the stored conductance alone. The conductance the sensitivity is formed from then does not carry the barrier, and there is nothing in what \mf{} keeps to recover the factor from. That condition is reported, and it is the same condition Chapter~\ref{ch:formulation} describes for the transmissivity: under the standard formulation a conductance that follows the head is lagged rather than assembled.
-
-Sensitivity to the hydraulic characteristic itself is a separate quantity and is not formed. A barrier belongs to a connection rather than to a cell, so it would not map onto the grid the way a conductivity does.
 
 A model that uses the XT3D formulation is a further case. There the flow between two cells is not the two-point expression equation~\ref{eqn:hfb-series} modifies, and neither the barrier treatment of this chapter nor the conductivity sensitivity it corrects applies.

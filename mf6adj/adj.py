@@ -746,10 +746,10 @@ class Mf6Adj:
                 # the step it belongs to. Barriers can be given again each
                 # stress period, so this is not fixed for the run.
                 if has_hfb:
-                    hfb_factor, nlagged = hfb.conductance_factor(
+                    hfb_terms, nlagged = hfb.forward_terms(
                         self._gwf, self._gwf_name, condsat.shape[0]
                     )
-                    data_dict["hfb_factor"] = hfb_factor
+                    data_dict.update(hfb_terms)
                     if nlagged > 0 and not self._warned_hfb:
                         self._warned_hfb = True
                         self.logger.logger.warning(
@@ -758,9 +758,10 @@ class Mf6Adj:
                             "and unconfined, and the flow model did not use "
                             "the Newton-Raphson formulation. MODFLOW applies "
                             "those barriers once per iteration rather than "
-                            "carrying them in the conductance, so the "
-                            "hydraulic conductivity sensitivity does not "
-                            "account for them and is approximate."
+                            "carrying them in the conductance, so neither "
+                            "the hydraulic conductivity sensitivity nor the "
+                            "sensitivity to the barrier itself accounts for "
+                            "them, and both are approximate."
                         )
 
                 iss = self._gwf.get_value(

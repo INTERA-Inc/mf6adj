@@ -27,6 +27,12 @@ Cases:
   - test_factor_follows_the_form : a barrier in series always lowers the
                                 conductance, and a multiplier does whatever it
                                 says, including raising it.
+  - test_hydchr_sensitivity   : the sensitivity to the hydraulic characteristic
+                                a barrier is given matches a finite-difference
+                                derivative, in series and as a multiplier, on a
+                                horizontal and a vertical connection.
+  - test_hydchr_not_reported_without_a_barrier : a model with no barrier
+                                reports no barrier sensitivity.
   - test_barrier_matters      : dropping the barrier from the derivative moves
                                 the answer, so the tests above are testing it.
   - test_no_barrier_unchanged : a model with no barrier writes no factor and
@@ -124,7 +130,12 @@ def _head(ws, obs=OBS):
 
 
 def _composite(ws, obs=OBS):
-    """Solve the adjoint for a head measure and return the composite results."""
+    """Solve the adjoint for a head measure and return the composite results.
+
+    A group in the composite, which a barrier sensitivity is, comes back as a
+    dictionary of its own; a barrier belongs to a connection rather than to a
+    cell, so it is not mapped onto the grid.
+    """
     ws = pl.Path(ws)
     k, i, j = obs
     with open(ws / "pm.dat", "w") as f:
@@ -138,7 +149,13 @@ def _composite(ws, obs=OBS):
     adj.solve_adjoint()
     adj.finalize()
     with h5py.File(ws / "adjoint_solution_obs.hd5", "r") as hf:
-        return {key: hf["composite"][key][:] for key in hf["composite"]}
+        composite = {}
+        for key, item in hf["composite"].items():
+            if isinstance(item, h5py.Group):
+                composite[key] = {k: v[:] for k, v in item.items()}
+            else:
+                composite[key] = item[:]
+        return composite
 
 
 def _finite_difference(tmpdir, cell, vertical=False, obs=OBS, **kwargs):
@@ -280,3 +297,43 @@ def test_factor_is_one_away_from_a_barrier(function_tmpdir):
     # the barrier is strong, so what it leaves is a small fraction of what the
     # connection carried without it
     assert (factor[scaled] < 1.0e-4).all()
+
+
+@pytest.mark.parametrize(
+    "hydchr,barrier,obs",
+    [
+        (1.0e-3, "horizontal", OBS),
+        (-0.01, "horizontal", OBS),
+        (-2.0, "horizontal", OBS),
+        (1.0e-3, "vertical", VERTICAL_OBS),
+    ],
+    ids=["series", "multiplier-lower", "multiplier-raise", "vertical"],
+)
+def test_hydchr_sensitivity(function_tmpdir, hydchr, barrier, obs):
+    """The sensitivity to a barrier matches a finite-difference derivative.
+
+    Every barrier in the line is given the same hydraulic characteristic, so
+    moving it moves all of them at once and the derivative to compare against
+    is the sum over the line.
+    """
+    composite = _composite(
+        _build(function_tmpdir / "base", barrier=barrier, hydchr=hydchr), obs=obs
+    )
+
+    step = abs(hydchr) * 1.0e-3
+    plus = _build(function_tmpdir / "plus", barrier=barrier, hydchr=hydchr + step)
+    minus = _build(function_tmpdir / "minus", barrier=barrier, hydchr=hydchr - step)
+    fd = (_head(plus, obs) - _head(minus, obs)) / (2.0 * step)
+
+    assert abs(fd) > 1.0e-6, "the barrier has no sensitivity to test"
+    assert composite["hfb"]["hydchr"].sum() == pytest.approx(fd, rel=1.0e-3)
+    # the barrier is named by the cells it lies between, since it belongs to
+    # the connection rather than to either of them
+    assert (composite["hfb"]["noden"] != composite["hfb"]["nodem"]).all()
+    assert composite["hfb"]["barrier"].shape[0] == NROW
+
+
+def test_hydchr_not_reported_without_a_barrier(function_tmpdir):
+    """A model with no barrier reports no barrier sensitivity."""
+    composite = _composite(_build(function_tmpdir / "base", barrier=None))
+    assert "hfb" not in composite

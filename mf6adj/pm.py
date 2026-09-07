@@ -634,6 +634,9 @@ class PerfMeas:
         comp_sy_sens = None
 
         has_sto = hdf[sol_keys[0]].attrs["has_sto"]
+        # written by solve_forward_model; a forward file from before the
+        # barrier was carried has neither the flag nor the array
+        has_hfb = bool(hdf[sol_keys[0]].attrs.get("has_hfb", False))
         if has_sto:
             comp_ss_sens = np.zeros(nnodes)
             comp_sy_sens = np.zeros(nnodes)
@@ -1164,6 +1167,11 @@ class PerfMeas:
                 icelltype,
                 hdf[sol_key]["k11"][:],
                 hdf[sol_key]["k33"][:],
+                hfb_factor=(
+                    hdf[sol_key]["hfb_factor"][:]
+                    if has_hfb and "hfb_factor" in hdf[sol_key]
+                    else None
+                ),
             )
 
             data["k11"] = k_sens

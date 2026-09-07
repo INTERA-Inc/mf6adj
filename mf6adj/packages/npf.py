@@ -162,6 +162,7 @@ def lam_dresdk_h(
     icelltype,
     k11,
     k33,
+    hfb_factor=None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return adjoint-weighted residual derivatives.
 
@@ -203,6 +204,10 @@ def lam_dresdk_h(
         Horizontal hydraulic conductivity array.
     k33 : ndarray
         Vertical hydraulic conductivity array.
+    hfb_factor : ndarray, optional
+        What a horizontal flow barrier does to the derivative of conductance,
+        one entry per connection. Omitted where the model holds no barrier,
+        which is the same as an array of ones.
 
     Returns
     -------
@@ -212,6 +217,13 @@ def lam_dresdk_h(
     """
     iac = np.array([ia[i + 1] - ia[i] for i in range(len(ia) - 1)])
     # array of number of connections per node (size nodes)
+
+    # A horizontal flow barrier changes the conductance of the connections it
+    # sits on, so it scales the derivative of that conductance too. A model
+    # with no barrier scales by one, which is formed once here rather than
+    # tested for on every connection below.
+    if hfb_factor is None:
+        hfb_factor = np.ones(hwva.shape[0])
 
     sat_mod = sat.copy()
     sat_mod[icelltype == 0] = 1.0
@@ -245,7 +257,12 @@ def lam_dresdk_h(
                     1.0,
                     1.0,
                 )
-                t2 = dconddk33 * (head[mnode] - head[node]) * (lamb[node] - lamb[mnode])
+                t2 = (
+                    dconddk33
+                    * hfb_factor[jj]
+                    * (head[mnode] - head[node])
+                    * (lamb[node] - lamb[mnode])
+                )
                 sum1 += t2
 
             else:
@@ -285,6 +302,7 @@ def lam_dresdk_h(
                 t1 = (
                     SF
                     * dconddk
+                    * hfb_factor[jj]
                     * (head[mnode] - head[node])
                     * (lamb[node] - lamb[mnode])
                 )

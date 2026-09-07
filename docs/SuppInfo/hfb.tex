@@ -1,0 +1,77 @@
+A horizontal flow barrier represents a feature too thin to discretize, a fault gouge or a slurry wall, by changing the conductance between two cells that are otherwise neighbors. The Horizontal Flow Barrier (HFB) Package adds no equations and exchanges no water, so it does not need the treatment Chapters~\ref{ch:lake} to \ref{ch:maw} give the advanced packages. It nonetheless changes a sensitivity the adjoint reports, because the quantity it alters is the one a conductivity sensitivity is the derivative of.
+
+\section*{A barrier inside the conductance}
+
+\mf{} does not hold the barrier apart from the flow equations. It replaces the conductance of the connection the barrier sits on, in the array the equations are assembled from, with the two in series,
+
+\begin{equation}
+	\label{eqn:hfb-series}
+	C = \frac{C_{0} \, C_{b}}{C_{0} + C_{b}}, \qquad C_{b} = c_{h} A,
+\end{equation}
+
+\noindent where $C_{0}$ is the conductance the connection has without the barrier (L$^{2}$T$^{-1}$), $C_{b}$ is the conductance of the barrier itself (L$^{2}$T$^{-1}$), $c_{h}$ is the hydraulic characteristic the barrier is given (T$^{-1}$), and $A$ is the area of the shared face (L$^{2}$).
+
+A hydraulic characteristic of zero or less means something else. \mf{} reads it as a multiplier on the conductance,
+
+\begin{equation}
+	\label{eqn:hfb-multiplier}
+	C = -c_{h} C_{0},
+\end{equation}
+
+\noindent and the two forms do not have the same derivative, so neither can stand for both.
+
+The two also differ in what they can do. Two conductances in series carry less than either, so equation~\ref{eqn:hfb-series} always lowers the conductance of the connection it sits on. Nothing bounds a multiplier by one, so equation~\ref{eqn:hfb-multiplier} lowers the conductance for $-c_{h}$ below one, raises it above one, and closes the connection at $c_{h}$ of zero. A barrier is named for the case it was written for, and is not restricted to it.
+
+\section*{What it does to a conductivity sensitivity}
+
+The sensitivity of a performance measure to hydraulic conductivity is formed from the derivative of the conductance of each connection with respect to the conductivity of the cells it joins. That derivative belongs to the conductance the model used, which is equation~\ref{eqn:hfb-series} and not $C_{0}$. Differentiating it,
+
+\begin{equation}
+	\label{eqn:hfb-derivative}
+	\frac{\partial C}{\partial C_{0}} =
+	\left( \frac{C_{b}}{C_{0} + C_{b}} \right)^{2} =
+	\left( \frac{C}{C_{0}} \right)^{2},
+\end{equation}
+
+\noindent for the series form, and $C / C_{0}$ without the square for the multiplier of equation~\ref{eqn:hfb-multiplier}. Each is the ratio of the conductance \mf{} arrived at to the one it started from, so neither the face area nor the geometry behind it is formed again in the adjoint, and a change in how \mf{} computes them does not reach the sensitivity.
+
+The factor is one where no barrier sits. It is below one wherever a barrier is in series, and takes whatever value the multiplier gives for the other form, so it is not always a reduction. Leaving it out does not perturb a sensitivity slightly; it reports the sensitivity of a connection the model does not have.
+
+The same factor covers a barrier on a vertical connection, which enters the specific-storage-free conductance between two layers in the same way and scales the derivative with respect to vertical conductivity rather than horizontal.
+
+\section*{Verification}
+
+A confined model two layers deep and 5 cells by 5 cells was given constant heads along two opposite edges and one line of barriers across it, and the sensitivity of a head to the conductivity of a cell beside a barrier was compared with a central difference between two forward runs. The cases are a barrier in series on a horizontal connection, the same given as a multiplier that lowers the conductance and as one that raises it, and a barrier in series on a vertical connection, the last with the constant heads arranged to drive the flow between layers.
+
+\begin{table}[htb]
+	\centering
+	\caption{Sensitivity of a head to the hydraulic conductivity of a cell
+	beside a barrier, against a finite-difference derivative. The last column
+	holds the conductance the connection would have with no barrier, which is
+	what the derivative was formed from before.}
+	\label{tab:hfb}
+	\small
+	\begin{tabular}{llrrr}
+		\toprule
+		Connection & Form &
+		\shortstack[r]{Finite\\difference} &
+		\shortstack[r]{Barrier\\carried} &
+		\shortstack[r]{Barrier\\dropped} \\
+		\midrule
+		Horizontal & series               & $2.8911 \times 10^{-5}$ & $2.8911 \times 10^{-5}$ & $2.0064 \times 10^{-2}$ \\
+		Horizontal & multiplier, lowering & $2.3330 \times 10^{-4}$ & $2.3330 \times 10^{-4}$ & $1.9269 \times 10^{-2}$ \\
+		Horizontal & multiplier, raising  & $3.6572 \times 10^{-3}$ & $3.6572 \times 10^{-3}$ & $2.8957 \times 10^{-3}$ \\
+		Vertical   & series               & $7.8970 \times 10^{-7}$ & $7.8970 \times 10^{-7}$ & $8.0557 \times 10^{-3}$ \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+The adjoint reproduces the finite-difference derivative to six significant figures in every case of table~\ref{tab:hfb}. Formed from the unbarriered conductance instead, the same sensitivity is out by a factor of 694 on the horizontal connection in series, 83 on the multiplier that lowers the conductance, and 10,201 on the vertical connection. The multiplier that raises it is the case that shows the error is not always an overstatement: there the sensitivity formed without the barrier is 21 percent too small. The error is confined to the cells a barrier touches: a cell with no barrier on any of its connections reproduces the finite difference either way, because the adjoint state is taken from the matrix \mf{} assembled and that matrix carries the barrier already.
+
+\section*{What is not carried}
+
+\mf{} folds the barrier into the stored conductance under the Newton-Raphson formulation, and where neither of the two cells converts between confined and unconfined. Everywhere else it applies the barrier once per iteration against the saturated thickness of that iteration, and leaves the stored conductance alone. The conductance the sensitivity is formed from then does not carry the barrier, and there is nothing in what \mf{} keeps to recover the factor from. That condition is reported, and it is the same condition Chapter~\ref{ch:formulation} describes for the transmissivity: under the standard formulation a conductance that follows the head is lagged rather than assembled.
+
+Sensitivity to the hydraulic characteristic itself is a separate quantity and is not formed. A barrier belongs to a connection rather than to a cell, so it would not map onto the grid the way a conductivity does.
+
+A model that uses the XT3D formulation is a further case. There the flow between two cells is not the two-point expression equation~\ref{eqn:hfb-series} modifies, and neither the barrier treatment of this chapter nor the conductivity sensitivity it corrects applies.

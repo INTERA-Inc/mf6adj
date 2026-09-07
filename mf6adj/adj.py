@@ -18,7 +18,7 @@ from .advanced_packages import (
     maw_forward_terms,
     sfr_forward_terms,
 )
-from .packages import storage
+from .packages import hfb, storage
 from .packages.head_dependent import DRAIN_CORNER_TOL
 from .pm import PerfMeas, PerfMeasRecord
 from .utils.utils import _utils_cd
@@ -179,6 +179,7 @@ class Mf6Adj:
                     nrow=nrow, ncol=ncol, nlay=nlay
                 )
                 self._shape = (nlay, nrow, ncol)
+            self._warned_hfb = False
             self._performance_measures = []
             self._read_adj_file()
             self._gwf_package_types = list(SUPPORTED_PACKAGE_TYPES)
@@ -570,6 +571,7 @@ class Mf6Adj:
             has_sto = False
             if has_sto_iconvert(self._gwf):
                 has_sto = True
+            has_hfb = "hfb6" in self._gwf_package_dict
 
             sp_package_data = None
             head_dict = None
@@ -736,6 +738,30 @@ class Mf6Adj:
                     self._gwf.get_var_address("CONDSAT", self._gwf_name.upper(), "NPF")
                 )
                 data_dict["condsat"] = condsat
+
+                # A barrier is not a package the adjoint forms terms for. It
+                # changes the conductance of the connections it sits on, and
+                # the conductivity sensitivity is the derivative of that
+                # conductance, so what it does to that derivative travels with
+                # the step it belongs to. Barriers can be given again each
+                # stress period, so this is not fixed for the run.
+                if has_hfb:
+                    hfb_factor, nlagged = hfb.conductance_factor(
+                        self._gwf, self._gwf_name, condsat.shape[0]
+                    )
+                    data_dict["hfb_factor"] = hfb_factor
+                    if nlagged > 0 and not self._warned_hfb:
+                        self._warned_hfb = True
+                        self.logger.logger.warning(
+                            f"{nlagged} horizontal flow barriers sit on a "
+                            "connection where a cell converts between confined "
+                            "and unconfined, and the flow model did not use "
+                            "the Newton-Raphson formulation. MODFLOW applies "
+                            "those barriers once per iteration rather than "
+                            "carrying them in the conductance, so the "
+                            "hydraulic conductivity sensitivity does not "
+                            "account for them and is approximate."
+                        )
 
                 iss = self._gwf.get_value(
                     self._gwf.get_var_address("ISS", self._gwf_name.upper())
@@ -925,6 +951,7 @@ class Mf6Adj:
                     "kstp": kstp,
                     "is_newton": is_newton,
                     "has_sto": has_sto,
+                    "has_hfb": has_hfb,
                 }
                 _write_group_to_hdf(
                     fhd,

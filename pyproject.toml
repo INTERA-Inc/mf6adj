@@ -32,7 +32,6 @@ dependencies = [
     "xmipy>=1.5.0",
     "h5py>=3.0.0",
     "scipy>=1.7.0",
-    "pyemu>=1.4.0",
     "geopandas>=1.0.0",
 ]
 dynamic = ["version", "readme"]

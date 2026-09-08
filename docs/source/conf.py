@@ -64,7 +64,6 @@ autodoc_mock_imports = [
     "modflowapi",
     "numpy",
     "pandas",
-    "pyemu",
     "scipy",
 ]
 

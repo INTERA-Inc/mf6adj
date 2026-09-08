@@ -21,7 +21,6 @@ dependencies:
   - flopy>=3.10.0
   - modflowapi>=1.0.0,<2
   - modflow6
-  - pyemu>=1.4.0
   - geopandas>=1.0.0
   - modflow-devtools>=1.9.1
   - boltons

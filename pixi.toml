@@ -1,7 +1,9 @@
 [workspace]
 name = "mf6adj"
 channels = ["conda-forge"]
-platforms = ["win-64", "linux-64", "linux-aarch64", "osx-arm64", "osx-64"]
+# Intel macOS is not here: MODFLOW 6 stopped publishing a build for it, so the
+# environment would resolve and then have no executable to run.
+platforms = ["win-64", "linux-64", "linux-aarch64", "osx-arm64"]
 version = "1.0.0"
 
 [dependencies]

@@ -76,6 +76,11 @@ hatch-fancy-pypi-readme = "*"
 rtds-action = "*"
 
 [tasks]
+# A task that runs another with "pixi run" inside its own command line takes
+# the exit code of whatever ran last, so a failure in anything before that is
+# reported as success. Tasks that run other tasks therefore name them in
+# depends-on, which runs them in the order given, stops at the first failure,
+# and returns that failure.
 pre-commit-install = { cmd = "pre-commit install" }
 postinstall = "pip install --no-deps --disable-pip-version-check -e ."
 
@@ -90,25 +95,25 @@ update-flopy = { cmd = "python -m flopy.mf6.utils.generate_classes --ref develop
 
 # format
 format = { cmd = "pre-commit run --all-files" }
-format-all = { cmd = "pixi run clean-notebooks; pre-commit run --all-files" }
+format-all = { depends-on = ["clean-notebooks"], cmd = "pre-commit run --all-files" }
 check-lint = "ruff check ."
 check-format = "ruff format . --check"
 check-spelling = "codespell"
 fix-style = "ruff check . --fix; ruff format ."
 
 # install 
-install-executables = { cmd = "pixi run install-modflow; pixi run install-gridgen" }
+install-executables = { depends-on = ["install-modflow", "install-gridgen"] }
 install-modflow = {cmd = "get-modflow --repo modflow6-nightly-build :python"}
 install-gridgen = {cmd = "get-modflow --subset gridgen :python"}
 
 # test
-autotest = { cmd = "pixi run autotest-base; pixi run autotest-notebooks" }
-autotest-base = { cmd = "pixi run clean-tests; pytest -v -n=auto --durations=0 --cov=mf6adj --cov-report=xml --keep-failed .failed", cwd = "autotest" }
+autotest = { depends-on = ["autotest-base", "autotest-notebooks"] }
+autotest-base = { depends-on = ["clean-tests"], cmd = "pytest -v -n=auto --durations=0 --cov=mf6adj --cov-report=xml --keep-failed .failed", cwd = "autotest" }
 # Everything but the tests marked slow. What a second python version catches is
 # a change in the language or in a dependency built against it, and the largest
 # model is not where that shows; on 3.12 it ran for an hour on its own, against
 # ten minutes for the rest of the suite.
-autotest-quick = { cmd = "pixi run clean-tests; pytest -v -n=auto -m 'not slow' --durations=0 --cov=mf6adj --cov-report=xml --keep-failed .failed", cwd = "autotest" }
+autotest-quick = { depends-on = ["clean-tests"], cmd = "pytest -v -n=auto -m 'not slow' --durations=0 --cov=mf6adj --cov-report=xml --keep-failed .failed", cwd = "autotest" }
 autotest-notebooks = { cmd = "pytest -v -n=auto --durations=0 --nbmake --nbmake-timeout=3000", cwd = "examples" }
 clean-notebooks = { cmd = "python clear_output_all.py", cwd = "examples" }
 clean-tests = { cmd = "rm -rf *_test", cwd = "autotest" }
@@ -119,6 +124,6 @@ coverage-report = { cmd = "coverage report", cwd = "autotest"}
 # docs
 docs-install = { cmd = "pip install --no-deps --disable-pip-version-check -e '.[doc]'" }
 docs-apidoc = { cmd = "python scripts/sphinx_apidoc.py" }
-docs-build = { cmd = "pixi run docs-install; python scripts/sphinx_build.py" }
-docs-build-exec = { cmd = "pixi run docs-install; python scripts/sphinx_build.py --execute" }
+docs-build = { depends-on = ["docs-install"], cmd = "python scripts/sphinx_build.py" }
+docs-build-exec = { depends-on = ["docs-install"], cmd = "python scripts/sphinx_build.py --execute" }
 docs-clean = { cmd = "rm -rf docs/_build docs/source/_api docs/source/examples" }

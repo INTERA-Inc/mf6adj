@@ -115,7 +115,16 @@ jobs:
           ")
           echo "current=$current" >> $GITHUB_OUTPUT
           echo "version=$new" >> $GITHUB_OUTPUT
-          echo "branch=v$new" >> $GITHUB_OUTPUT
+          # a dev bump opens the next cycle rather than releasing, and the
+          # job that drafts a release triggers on a merged v* branch, so this
+          # one is named so that it does not
+          if [ "${{ inputs.bump }}" = "dev" ]; then
+            echo "branch=open-$new-cycle" >> $GITHUB_OUTPUT
+            echo "cycle=true" >> $GITHUB_OUTPUT
+          else
+            echo "branch=v$new" >> $GITHUB_OUTPUT
+            echo "cycle=false" >> $GITHUB_OUTPUT
+          fi
           echo "$current -> $new"
 
       - name: Update version numbers
@@ -127,6 +136,9 @@ jobs:
           uv run python -c "import mf6adj; print(f'mf6adj version: {mf6adj.__version__}')"
 
       - name: Sync CITATION.cff
+        # the citation records the version to cite, which stays at the last
+        # release through a development cycle
+        if: ${{ steps.version.outputs.cycle != 'true' }}
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -146,6 +158,9 @@ jobs:
           git diff --stat CITATION.cff
 
       - name: Generate changelog
+        # a cycle is opened with nothing merged behind it, so an entry for it
+        # would be empty
+        if: ${{ steps.version.outputs.cycle != 'true' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -185,8 +200,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git switch -c "${{ steps.version.outputs.branch }}"
-          git add mf6adj/version.py changelog/CHANGELOG.md CITATION.cff
-          git commit -m "bump version to ${{ steps.version.outputs.version }} [skip ci]"
+          if [ "${{ steps.version.outputs.cycle }}" = "true" ]; then
+            git add mf6adj/version.py
+            git commit -m "open the ${{ steps.version.outputs.version }} cycle [skip ci]"
+          else
+            git add mf6adj/version.py changelog/CHANGELOG.md CITATION.cff
+            git commit -m "bump version to ${{ steps.version.outputs.version }} [skip ci]"
+          fi
           git push origin "${{ steps.version.outputs.branch }}"
 
       - name: Draft pull request
@@ -195,6 +215,16 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           ver="${{ steps.version.outputs.version }}"
+          if [ "${{ steps.version.outputs.cycle }}" = "true" ]; then
+            # opening a cycle only moves the version off the release just made,
+            # so it carries none of the checklist a release needs
+            gh pr create -B main -H "${{ steps.version.outputs.branch }}" \
+              --title "chore: open the $ver development cycle" \
+              --body "Sets the version to \`$ver\` now that the last release is out, so a build from \`main\` is not mistaken for it.
+
+          The citation stays at the released version, which is the one to cite, and moves when the next release is cut."
+            exit 0
+          fi
           body='
           # mf6adj '$ver'
 

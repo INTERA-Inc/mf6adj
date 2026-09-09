@@ -158,6 +158,7 @@ class Mf6Adj:
             self._gwf = self._initialize_gwf(lib_name, self._flow_dir)
             self._gwf_version = self._get_gwf_version()
             self._check_solution_coupling()
+            self._check_flow_formulation()
             self._hdf5_name = None
             self._dt_dict = None
 
@@ -230,6 +231,44 @@ class Mf6Adj:
                 "6.8.0 and later) adds equations; use an explicitly coupled "
                 "lake. The supported coupled package types are "
                 + f"{', '.join(COUPLED_PACKAGE_TYPES)}."
+            )
+
+    def _check_flow_formulation(self) -> None:
+        """Raise if the flow between two cells is not the one the adjoint forms.
+
+        The conductivity sensitivity is the derivative of a conductance between
+        a cell and one neighbor, over the length between them and the area they
+        share. XT3D does not form the flow that way. It uses a conductivity
+        tensor over a wider set of neighbors, so what links two cells depends on
+        the conductivity of cells that are neither of them, and the connection
+        carries terms a two-cell conductance has no place for. The derivative
+        the adjoint forms is then not the derivative of the equations the model
+        solved, at every connection rather than at a few.
+
+        Raises
+        ------
+        Exception
+            If the flow model used XT3D.
+        """
+        try:
+            ixt3d = int(
+                self._gwf.get_value(
+                    self._gwf.get_var_address("IXT3D", self._gwf_name, "NPF")
+                )[0]
+            )
+        except Exception:
+            # a model without the flag is older than the option
+            return
+        if ixt3d != 0:
+            # 1 puts the terms in the matrix, 2 on the right-hand side; the
+            # flow between two cells is the same in both, and neither is one
+            # the adjoint can differentiate
+            raise Exception(
+                "the flow model used XT3D, which does not form the flow "
+                "between two cells from a conductance between them alone, so "
+                "the hydraulic conductivity sensitivity the adjoint forms "
+                "would not be the derivative of the equations the model "
+                "solved. Run the flow model without XT3D."
             )
 
     def _add_performance_measure(

@@ -69,18 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changes
 
-- ci(release): use only the new version's changelog entry as release notes (#73) (@jdhughes-dev)
-- docs(changelog): remove the duplicate 1.1.0 entry (#74) (@jdhughes-dev)
-- Bump actions/download-artifact from 7 to 8 (#76) (@app/dependabot)
-- Bump prefix-dev/setup-pixi from 0.10.0 to 0.10.1 (#77) (@app/dependabot)
-- chore: open the 1.3.0 development cycle (#75) (@jdhughes-dev)
 - feat(pm): add lak6 performance measures and reject matrix-coupled packages (#79) (@jdhughes-dev)
 - feat(pm): solve the lake water balance with the flow equations (#80) (@jdhughes-dev)
 - feat(sfr): solve the reach routing with the flow equations (#81) (@jdhughes-dev)
 - fix(pm): drop drain entries sitting on their activation threshold (#84) (@jdhughes-dev)
 - fix(adj): select the storage terms the way MODFLOW 6 does (#87) (@jdhughes-dev)
 - fix(pm): scale the recharge sensitivity by the cell area (#88) (@jdhughes-dev)
-- test(theis): verify the adjoint against the Theis analytical solution (#92) (@jdhughes-dev)
 - fix(adj): reject a performance measure of a specified flow (#91) (@jdhughes-dev)
 - feat(adj): report specific storage and specific yield separately (#93) (@jdhughes-dev)
 - feat(sfr): differentiate a reach with a cross section (#94) (@jdhughes-dev)
@@ -89,25 +83,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(pm): carry the auxiliary multiplier into the recharge sensitivity (#96) (@jdhughes-dev)
 - refactor: move standard package terms out of the solve loop (#98) (@jdhughes-dev)
 - fix(packages): carry the auxiliary multiplier into the remaining sensitivities (#100) (@jdhughes-dev)
-- test(well): verify a reduced well rate, and report where it is not carried (#101) (@jdhughes-dev)
 - feat(adj): report a model whose matrix is not the derivative of its equations (#103) (@jdhughes-dev)
 - fix(adj): refuse an unsupported package while the input is read (#105) (@jdhughes-dev)
-- chore(deps): bump prefix-dev/setup-pixi from 0.10.1 to 0.10.2 (#106) (@app/dependabot)
 - refactor(adj): locate the adjoint matrix with the solution's sparsity (#107) (@jdhughes-dev)
 - feat(maw): measure the exchange between a multi-aquifer well and the aquifer (#108) (@jdhughes-dev)
-- chore(deps): require modflowapi 1.0.0 on python 3.11, and hold pandas below 3 (#109) (@jdhughes-dev)
-- ci: test the second supported python version on linux (#110) (@jdhughes-dev)
-- ci: leave the largest model out of the second python version (#111) (@jdhughes-dev)
 - fix(npf): carry a horizontal flow barrier into the conductivity sensitivity (#114) (@jdhughes-dev)
-- chore(dependencies): drop pyemu (#117) (@jdhughes-dev)
 - feat(hfb): report the sensitivity to a barrier's hydraulic characteristic (#116) (@jdhughes-dev)
 - fix(adj): refuse a flow model that used XT3D (#121) (@jdhughes-dev)
 - build: drop Intel macOS, which MODFLOW 6 no longer builds for (#119) (@jdhughes-dev)
 - build: let a task that runs other tasks fail when one of them does (#120) (@jdhughes-dev)
-- chore(deps): update pandas requirement from <3,>=2.0.0 to >=2.0.0,<4 (#115) (@app/dependabot)
-- chore(examples): remove the synthdewater build script (#118) (@jdhughes-dev)
 - build: lift the pandas bound in the environment files too (#122) (@jdhughes-dev)
-
 
 ## [1.2.0] - 2026-08-03
 

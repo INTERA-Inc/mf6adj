@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use mf6adj in your work, please cite the following paper."
 title: "mf6adj"
-version: 1.2.0
+version: 1.3.0
 license: CC0-1.0
 repository-code: "https://github.com/INTERA-Inc/mf6adj"
 url: "https://mf6adj.readthedocs.io"

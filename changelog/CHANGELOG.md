@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.0] - 2026-09-09
 
+### Breaking changes
+
+- Python 3.11 is now the minimum. modflowapi 1.0.0, which this release
+  requires, does not support Python 3.9 or 3.10. `pyemu` is no longer a
+  dependency, and `pandas` 3 is now allowed.
+
+- A sensitivity to recharge was short by the area of the cell, because MODFLOW 6
+  treats recharge as a rate over that area and the sensitivity was reported as
+  the adjoint state alone. On a 250 m grid the reported value was too small by a
+  factor of 62,500, and by a varying factor on a grid with variable cell sizes.
+  Any recharge sensitivity from an earlier release is wrong by that factor.
+
+- A sensitivity to hydraulic conductivity was formed from the conductance the
+  grid describes rather than the one the model used, so a model with a
+  horizontal flow barrier was wrong at every cell a barrier touched. On a
+  confined test model the reported value was 694 times a finite-difference
+  derivative. Cells away from a barrier were unaffected, and a model with no
+  barrier is unchanged.
+
+- A package given `AUXMULTNAME` scales the values it applies by an auxiliary
+  variable, and MODFLOW applies that where it forms its terms rather than
+  folding it into the values it keeps. The multiplier was not carried, so
+  recharge, well, drain, river and general-head sensitivities were reported for
+  the unscaled values.
+
+- Storage terms are now selected the way MODFLOW 6 selects them, on the cell
+  saturation, and under `SS_CONFINED_ONLY` the specific-storage term is dropped
+  for a cell that is not full rather than scaled. Specific storage was
+  previously applied at full cell thickness everywhere, so a partially saturated
+  cell carried a storage term the forward model does not have.
+
+- A specific-yield sensitivity is reported beside the specific-storage one, as
+  `sy` in the composite results. A convertible cell releases water both ways and
+  only one was reported before, so a storage sensitivity for such a cell was
+  incomplete rather than merely differently named.
+
+- A drain sitting on its activation threshold is dropped from the
+  performance-measure derivative. A drain without a drainage depth switches on
+  and off at its elevation and a converged solution leaves drains sitting on
+  that corner, where the derivative is the conductance from one side and zero
+  from the other. The full conductance was taken regardless.
+
+- Three cases that used to run are now refused, each because the answer they
+  produced could not be right:
+
+  - a flow model that used XT3D, whose flow between two cells is not the
+    conductance the sensitivity differentiates;
+  - a performance measure of a specified flow, a well rate or a recharge rate,
+    which has no derivative and was reported as zero everywhere;
+  - a performance measure naming a package the adjoint forms no terms for,
+    which used to fail later with a `KeyError` naming an object in an HDF file.
+
+- A model whose matrix is not the derivative of its equations is now reported.
+  Under the standard formulation the derivative of the transmissivity with
+  respect to the head is lagged rather than assembled, so a model with
+  convertible cells holds the transmissivity fixed in the sensitivity. On a
+  single-layer unconfined model the error was 5.9 percent with the pumped cell
+  near the middle of its thickness and 10.2 percent near the bottom. The term is
+  not recovered; the condition is reported.
+
 ### Changes
 
 - ci(release): use only the new version's changelog entry as release notes (#73) (@jdhughes-dev)

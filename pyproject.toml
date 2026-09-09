@@ -164,4 +164,6 @@ ignore-words-list = [
     "localy",
     "vertx",
     "nd",
+    # C.V. Theis, whose analytical solution the tests check against
+    "theis",
 ]

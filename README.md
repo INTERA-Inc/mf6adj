@@ -43,11 +43,21 @@ mf6_bin, lib_name = mf6adj.get_conda_mf6_paths()
 # run the baseline forward model
 flopy.run_model(exe_name=mf6_bin, namefile=None, model_ws="path/to/model")
 
-# write a performance-measure file
-with open("path/to/model/model.adj", "w") as f:
-    f.write("begin performance_measure head_obs\n")
-    f.write("1 1 1 5 5 head direct 1.0 -1.0e+30\n")
-    f.write("end performance_measure\n")
+# write a performance-measure file, with the cell zero based as flopy gives it
+mf6adj.write_performance_measures(
+    "path/to/model/model.adj",
+    {
+        "head_obs": {
+            "cellid": [(0, 4, 4)],
+            "kper": 0,
+            "kstp": 0,
+            "pm_type": "head",
+            "pm_form": "direct",
+            "weight": 1.0,
+            "obsval": -1.0e30,
+        }
+    },
+)
 
 # solve forward and adjoint
 adj = mf6adj.Mf6Adj("model.adj", str(lib_name), working_directory="path/to/model")

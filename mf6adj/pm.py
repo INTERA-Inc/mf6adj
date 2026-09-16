@@ -56,6 +56,16 @@ BLOCK_SIZE = 20000
 BLOCK_SIZE_LIMIT = 40000
 
 
+# the fill the factorization is allowed, and what it is multiplied by on each
+# attempt when SuperLU runs out of it, so the default tries 10, 30, and 60
+FILL_FACTOR = 10
+FILL_MULTIPLIERS = (1, 3, 6)
+
+# a solve whose residual is this many times its right-hand side has not solved
+# anything, whatever the solver reported
+DIVERGED_RESIDUAL = 1.0
+
+
 class AdjointSolveError(Exception):
     """An adjoint solve that returned values which are not numbers."""
 
@@ -477,6 +487,8 @@ class PerfMeas:
         dvclose: Optional[float] = 1e-6,
         rclose: Optional[float] = 1e-3,
         dvscale: bool = False,
+        scale_system: bool = False,
+        stop_on_diverged: bool = False,
         drain_corner_tol: float = DRAIN_CORNER_TOL,
     ) -> pd.DataFrame:
         """Solve for the adjoint state for the performance measure.
@@ -527,6 +539,18 @@ class PerfMeas:
         dvscale : bool, optional
             Scale lambda and the right-hand side to improve iterative solver
             convergence for large lambda values.
+        scale_system : bool, optional
+            Scale the system by the square root of its diagonal on both sides
+            before solving, and scale the solution back. Default is False. It
+            cuts the iterations on some models and lets the
+            factorization of others succeed where it would otherwise
+            run out of fill, which can give a worse preconditioner
+            than the fallback it replaces. Rows
+            with no diagonal leave the system unscaled.
+        stop_on_diverged : bool, optional
+            Stop the run when a solve leaves a residual larger than its
+            right-hand side, rather than reporting it and going on. Default is
+            False.
         drain_corner_tol : float, optional
             Head above a drain elevation below which the entry is treated as
             sitting on the corner of the drain flow function and dropped from
@@ -1005,6 +1029,29 @@ class PerfMeas:
                 I = sparse.eye(amat.shape[0], format=amat.format)
                 amat = amat + mult * tikhonov * I
 
+            # the adjoint matrix carries conductances that span several
+            # orders, so the system is scaled by the square root of its
+            # diagonal on both sides. The solution comes back in the unscaled
+            # space and the residual is measured on the system that was
+            # formed, not the one that was solved
+            dscale, amat_solve, rhs_solve = None, amat, rhs
+            if scale_system and linear_solver != "direct":
+                diagonal = np.abs(amat.diagonal())
+                if (diagonal > 0.0).all():
+                    dscale = 1.0 / np.sqrt(diagonal)
+                    dmat = sparse.diags(dscale)
+                    amat_solve = (dmat @ amat @ dmat).tocsr()
+                    rhs_solve = dscale * rhs
+                    lamb = lamb / dscale
+                    self.logger.logger.debug(
+                        "Scaled the system by the square root of its diagonal"
+                    )
+                else:
+                    self.logger.logger.info(
+                        f"{int((diagonal == 0.0).sum())} rows have no diagonal, "
+                        + "so the system is solved unscaled"
+                    )
+
             # set up preconditioner
             m = None
             if linear_solver not in ("direct", "lsqr"):
@@ -1012,7 +1059,7 @@ class PerfMeas:
                     self.logger.logger.debug("Setup preconditioner")
                     if jacobi_preconditioner is not None:
                         m = self._setup_jacobi_preconditioner(
-                            amat,
+                            amat_solve,
                             jacobi_preconditioner,
                             precon_kwargs,
                         )
@@ -1025,13 +1072,35 @@ class PerfMeas:
                             }
                         else:
                             _precon_kwargs = precon_kwargs
-                        try:
-                            amat_ilu = spilu(amat, **_precon_kwargs)
-                            m = LinearOperator(
-                                (amat.shape[0], amat.shape[0]),
-                                amat_ilu.solve,
-                            )
-                        except Exception as e:
+                        # the factors of some adjoint matrices need more
+                        # fill than the default allows, and SuperLU reports
+                        # running out of it as an exactly singular pivot, so
+                        # the fill is raised and the factorization tried again
+                        # before the preconditioner is given up on
+                        fill = _precon_kwargs.get("fill_factor", FILL_FACTOR)
+                        e = None
+                        for multiplier in FILL_MULTIPLIERS:
+                            allowed = fill * multiplier
+                            kwargs = dict(_precon_kwargs, fill_factor=allowed)
+                            try:
+                                amat_ilu = spilu(amat_solve, **kwargs)
+                                m = LinearOperator(
+                                    (amat.shape[0], amat.shape[0]),
+                                    amat_ilu.solve,
+                                )
+                                if multiplier > 1:
+                                    self.logger.logger.info(
+                                        "Formed preconditioner with fill_factor "
+                                        + f"{allowed}"
+                                    )
+                                e = None
+                                break
+                            except Exception as exc:
+                                e = exc
+                                self.logger.logger.debug(
+                                    f"fill_factor {allowed} failed: {exc}"
+                                )
+                        if e is not None:
                             msg = (
                                 "Failed to form preconditioner - "
                                 + "using point Jacobi preconditioned "
@@ -1059,7 +1128,7 @@ class PerfMeas:
                             # the block solves, taking two to three times as
                             # long overall
                             m = self._setup_jacobi_preconditioner(
-                                amat,
+                                amat_solve,
                                 jacobi_type="point",
                                 precon_kwargs=_precon_kwargs,
                             )
@@ -1106,15 +1175,15 @@ class PerfMeas:
                 try:
                     solver_cb = SolverCallback(
                         logger=self.logger,
-                        A=amat,
-                        b=rhs,
+                        A=amat_solve,
+                        b=rhs_solve,
                         dvclose=dvclose,
                         rclose=rclose,
                     )
                     if linear_solver == "gmres":
                         lamb, info = _linear_solver(
-                            amat,
-                            rhs,
+                            amat_solve,
+                            rhs_solve,
                             x0=lamb,
                             callback=solver_cb,
                             callback_type="x",
@@ -1122,16 +1191,16 @@ class PerfMeas:
                         )
                     elif linear_solver == "lsqr":
                         lamb, info = _linear_solver(
-                            amat,
-                            rhs,
+                            amat_solve,
+                            rhs_solve,
                             damp=tikhonov,
                             x0=lamb,
                             **_linear_solver_kwargs,
                         )
                     else:
                         lamb, info = _linear_solver(
-                            amat,
-                            rhs,
+                            amat_solve,
+                            rhs_solve,
                             x0=lamb,
                             callback=solver_cb,
                             **_linear_solver_kwargs,
@@ -1141,6 +1210,9 @@ class PerfMeas:
                     lamb, info = solver_cb.xold, 0
 
             if linear_solver in supported_iterative_solvers:
+                if dscale is not None:
+                    lamb = dscale * lamb
+
                 # info = lamb[1]
                 # lamb = lamb[0]
                 if dvscale:
@@ -1200,6 +1272,18 @@ class PerfMeas:
                 raise AdjointSolveError(msg, int(kk[0]) + 1, int(kk[1]) + 1)
 
             relative = solve_residual(amat, lamb, rhs)
+            if stop_on_diverged and relative > DIVERGED_RESIDUAL:
+                msg = (
+                    f"the adjoint solve for stress period {int(kk[0]) + 1}, "
+                    + f"time step {int(kk[1]) + 1} left a residual "
+                    + f"{relative:.3e} times its right-hand side, so the "
+                    + "solver returned no solution. The state is carried back "
+                    + "into every earlier step, so the run is stopped here "
+                    + "rather than solved on."
+                )
+                self.logger.logger.error(msg)
+                adf.close()
+                raise AdjointSolveError(msg, int(kk[0]) + 1, int(kk[1]) + 1)
             if relative > LOOSE_RESIDUAL:
                 self.logger.logger.warning(
                     f"the adjoint solve for stress period {int(kk[0]) + 1}, "

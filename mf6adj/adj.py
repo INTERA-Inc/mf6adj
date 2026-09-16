@@ -1071,6 +1071,8 @@ class Mf6Adj:
         dvclose: Optional[float] = 1e-6,
         rclose: Optional[float] = 1e-3,
         dvscale: bool = False,
+        scale_system: bool = False,
+        stop_on_diverged: bool = False,
         drain_corner_tol: float = DRAIN_CORNER_TOL,
     ) -> dict[str, pd.DataFrame]:
         """Solve for the adjoint state, one performance measure at a time.
@@ -1113,6 +1115,18 @@ class Mf6Adj:
         dvscale : bool, optional
             Scale lambda and the right-hand side to improve iterative solver
             convergence for large lambda values.
+        scale_system : bool, optional
+            Scale the system by the square root of its diagonal on both
+            sides before solving, and scale the solution back. Default is
+            False. It cuts the iterations on some models and lets the
+            factorization of others succeed where it would otherwise run
+            out of fill, which can give a worse preconditioner than the
+            fallback it replaces. Rows with no diagonal leave the system
+            unscaled.
+        stop_on_diverged : bool, optional
+            Stop the run when a solve leaves a residual larger than its
+            right-hand side, rather than reporting it and going on. Default is
+            False.
         drain_corner_tol : float, optional
             Head above a drain elevation below which the entry is treated as
             sitting on the corner of the drain flow function and dropped from
@@ -1161,6 +1175,8 @@ class Mf6Adj:
                         dvclose=dvclose,
                         rclose=rclose,
                         dvscale=dvscale,
+                        scale_system=scale_system,
+                        stop_on_diverged=stop_on_diverged,
                         drain_corner_tol=drain_corner_tol,
                     )
                 except AdjointSolveError as error:

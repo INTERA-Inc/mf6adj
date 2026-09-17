@@ -1,4 +1,5 @@
 import pathlib as pl
+import re
 from typing import Any, Union
 
 import numpy as np
@@ -31,6 +32,31 @@ UNSUPPORTED_STRESS_TYPES = (
     "mvr6",
 )
 
+# a token is a quoted string, which may hold spaces, or a run of non-blank
+# characters
+_TOKEN = re.compile(r"'[^']*'|\"[^\"]*\"|\S+")
+
+
+def split_line(line: str) -> list[str]:
+    """Split a name file line into tokens, removing the quotes around any.
+
+    Parameters
+    ----------
+    line : str
+        Line from a name file.
+
+    Returns
+    -------
+    list[str]
+        Tokens on the line.
+    """
+    tokens = []
+    for token in _TOKEN.findall(line):
+        if len(token) > 1 and token[0] in "'\"" and token[-1] == token[0]:
+            token = token[1:-1]
+        tokens.append(token)
+    return tokens
+
 
 def parse_models_block(f) -> tuple[dict[str, str], dict[str, str]]:
     """Parse the `MODELS` block from an `mfsim.nam` file.
@@ -60,13 +86,16 @@ def parse_models_block(f) -> tuple[dict[str, str], dict[str, str]]:
         if line_strip == "" or line_strip.startswith("#"):
             continue
 
-        raw = line_strip.split()
+        # the name file keeps its case, since the file system may not ignore it
+        raw = split_line(line)
         if len(raw) < 3:
             raise Exception(f"wrong number of items on line: {line.strip()}")
-        if raw[2] in model_dict:
-            raise Exception(f"duplicate model name found: '{raw[2]}'")
-        model_dict[raw[2]] = raw[0]
-        namfile_dict[raw[2]] = raw[1]
+        model_type = raw[0].lower()
+        model_name = raw[2].lower()
+        if model_name in model_dict:
+            raise Exception(f"duplicate model name found: '{model_name}'")
+        model_dict[model_name] = model_type
+        namfile_dict[model_name] = raw[1]
     return model_dict, namfile_dict
 
 
@@ -131,7 +160,7 @@ def parse_packages_block(f) -> dict[str, list[str]]:
         if data == "":
             continue
 
-        raw = data.split()
+        raw = split_line(data)
         if len(raw) < 2:
             raise Exception(f"wrong number of items on line: {line}")
 

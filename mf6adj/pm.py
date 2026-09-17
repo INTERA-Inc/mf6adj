@@ -1067,7 +1067,7 @@ class PerfMeas:
                         if not precon_kwargs:
                             _precon_kwargs = {
                                 "drop_tol": 1e-4,
-                                "fill_factor": 10,
+                                "fill_factor": FILL_FACTOR,
                                 "drop_rule": "basic,area",
                             }
                         else:
@@ -1171,7 +1171,10 @@ class PerfMeas:
                     if scale > 1e-30:
                         self.logger.logger.debug(f"Scaling lambda and rhs ({scale})")
                         lamb /= scale
-                        rhs /= scale
+                        # the solver is given rhs_solve, which is a separate
+                        # vector once the system has been scaled, so rhs is
+                        # left as it was for the residual below
+                        rhs_solve = rhs_solve / scale
                 try:
                     solver_cb = SolverCallback(
                         logger=self.logger,
@@ -1217,9 +1220,8 @@ class PerfMeas:
                 # lamb = lamb[0]
                 if dvscale:
                     if scale > 1e-30:
-                        self.logger.logger.debug(f"Unscaling lambda and rhs ({scale})")
+                        self.logger.logger.debug(f"Unscaling lambda ({scale})")
                         lamb *= scale
-                        rhs *= scale
 
                 residual = rhs - amat @ lamb
                 residual_2norm = np.linalg.norm(residual)

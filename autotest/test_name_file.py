@@ -5,7 +5,8 @@ A name file may quote any token, and a quoted file name may hold spaces.
 
 Cases:
   - test_models_block      : an unquoted, single-quoted, or double-quoted MODELS
-                             line gives the model type, name, and name file.
+                             line gives the model type, name, and name file; a
+                             backslash in the name file is kept.
   - test_packages_block    : the same for a PACKAGES line, which gives the
                              package names.
   - test_quoted_name_files : a quoted name file with a space and upper case in
@@ -42,12 +43,13 @@ mf6_bin, lib_name = mf6adj.get_conda_mf6_paths()
 QUOTES = ("", "'", '"')
 
 
+@pytest.mark.parametrize("namfile", ("model2.nam", r"sub\model2.nam"))
 @pytest.mark.parametrize("q", QUOTES)
-def test_models_block(q):
-    f = io.StringIO(f"  GWF6 {q}model2.nam{q} {q}MODFLOW{q}\nEND MODELS\n")
+def test_models_block(q, namfile):
+    f = io.StringIO(f"  GWF6 {q}{namfile}{q} {q}MODFLOW{q}\nEND MODELS\n")
     model_dict, namfile_dict = parse_models_block(f)
     assert model_dict == {"modflow": "gwf6"}
-    assert namfile_dict == {"modflow": "model2.nam"}
+    assert namfile_dict == {"modflow": namfile}
 
 
 @pytest.mark.parametrize("q", QUOTES)

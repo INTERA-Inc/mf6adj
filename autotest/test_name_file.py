@@ -40,11 +40,14 @@ from mf6adj.utils.utils_modflow import (
 
 mf6_bin, lib_name = mf6adj.get_conda_mf6_paths()
 
-QUOTES = ("", "'", '"')
+# named, since a quote in a test id is not allowed in a Windows directory name
+QUOTES = {"unquoted": "", "single": "'", "double": '"'}
 
 
-@pytest.mark.parametrize("namfile", ("model2.nam", r"sub\model2.nam"))
-@pytest.mark.parametrize("q", QUOTES)
+@pytest.mark.parametrize(
+    "namfile", ("model2.nam", r"sub\model2.nam"), ids=("file", "subdir")
+)
+@pytest.mark.parametrize("q", QUOTES.values(), ids=QUOTES.keys())
 def test_models_block(q, namfile):
     f = io.StringIO(f"  GWF6 {q}{namfile}{q} {q}MODFLOW{q}\nEND MODELS\n")
     model_dict, namfile_dict = parse_models_block(f)
@@ -52,7 +55,7 @@ def test_models_block(q, namfile):
     assert namfile_dict == {"modflow": namfile}
 
 
-@pytest.mark.parametrize("q", QUOTES)
+@pytest.mark.parametrize("q", QUOTES.values(), ids=QUOTES.keys())
 def test_packages_block(q):
     f = io.StringIO(
         f"  DIS6 {q}model2.dis{q} {q}DIS{q}\n"
@@ -62,7 +65,7 @@ def test_packages_block(q):
     assert parse_packages_block(f) == {"dis6": ["dis"], "wel6": ["wel-1"]}
 
 
-@pytest.mark.parametrize("q", ("'", '"'))
+@pytest.mark.parametrize("q", ("'", '"'), ids=("single", "double"))
 def test_quoted_name_files(function_tmpdir, q):
     gwf_nam = "My Model.nam"
     (function_tmpdir / "mfsim.nam").write_text(

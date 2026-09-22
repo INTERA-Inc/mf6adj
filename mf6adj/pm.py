@@ -1078,12 +1078,15 @@ class PerfMeas:
                         # the fill is raised and the factorization tried again
                         # before the preconditioner is given up on
                         fill = _precon_kwargs.get("fill_factor", FILL_FACTOR)
+                        # spilu factors the column format, so convert once
+                        # rather than on every attempt
+                        amat_csc = amat_solve.tocsc()
                         e = None
                         for multiplier in FILL_MULTIPLIERS:
                             allowed = fill * multiplier
                             kwargs = dict(_precon_kwargs, fill_factor=allowed)
                             try:
-                                amat_ilu = spilu(amat_solve, **kwargs)
+                                amat_ilu = spilu(amat_csc, **kwargs)
                                 m = LinearOperator(
                                     (amat.shape[0], amat.shape[0]),
                                     amat_ilu.solve,
@@ -1100,6 +1103,8 @@ class PerfMeas:
                                 self.logger.logger.debug(
                                     f"fill_factor {allowed} failed: {exc}"
                                 )
+                        # the factors hold their own copy
+                        del amat_csc
                         if e is not None:
                             msg = (
                                 "Failed to form preconditioner - "

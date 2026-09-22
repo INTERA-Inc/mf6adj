@@ -69,7 +69,7 @@ doc = [
 ]
 
 [project.urls]
-Documentation = "https://md6adj.readthedocs.io"
+Documentation = "https://mf6adj.readthedocs.io"
 "Bug Tracker" = "https://github.com/INTERA-Inc/mf6adj/issues"
 "Source Code" = "https://github.com/INTERA-Inc/mf6adj"
 

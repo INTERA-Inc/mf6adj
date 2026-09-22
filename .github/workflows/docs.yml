@@ -19,6 +19,10 @@ on:
       - '.github/workflows/ci.yml'
       - '.gitignore'
       - 'CITATION.cff'
+  # publishing a release builds the documentation for its tag
+  release:
+    types:
+      - published
   workflow_dispatch:
     inputs:
       ref:
@@ -95,7 +99,9 @@ jobs:
         with:
           name: rendered-notebooks-${{ github.sha }}
           path: docs/source/examples/
-          retention-days: 7
+          # Read the Docs builds a version from these, so a release keeps them
+          # for the repository's 90-day maximum rather than a week
+          retention-days: ${{ github.event_name == 'release' && 90 || 7 }}
 
       - name: Upload built documentation
         if: always()
@@ -108,7 +114,7 @@ jobs:
   trigger_rtd:
     name: Trigger Read the Docs build
     runs-on: ubuntu-latest
-    if: success() && github.repository_owner == 'INTERA-Inc' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: success() && github.repository_owner == 'INTERA-Inc' && (github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'workflow_dispatch')
     needs: build-docs
     steps:
       - name: Checkout repo

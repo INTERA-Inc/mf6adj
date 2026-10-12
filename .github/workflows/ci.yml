@@ -80,6 +80,10 @@ jobs:
         task: [autotest-base]
         run-type: [std]
         test-path: ["."]
+        # a release here is a separate job only because it is a new value of
+        # this key; an include matching an existing job on every key would
+        # be merged into that job instead
+        modflow: [nightly]
         # the second python version is tested on one platform, and without the
         # tests marked slow. What it can catch is a change in the language or
         # in a dependency built against it; neither is particular to an
@@ -90,6 +94,16 @@ jobs:
             task: autotest-quick
             run-type: std
             test-path: "."
+            modflow: nightly
+          # the last MODFLOW 6 release that holds the LAK and SFR input arrays
+          # in the model rather than the input context, tested on one platform
+          # until support for 6.8.1 and earlier is removed
+          - os: ubuntu-latest
+            environment: default
+            task: autotest-base
+            run-type: std
+            test-path: "."
+            modflow: "6.8.1"
     defaults:
       run:
         shell: bash
@@ -119,6 +133,13 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}    
       run: |
         pixi run -e ${{ matrix.environment }} install-executables        
+
+    - name: Install MODFLOW 6 ${{ matrix.modflow }}
+      if: matrix.modflow != 'nightly'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        pixi run -e ${{ matrix.environment }} get-modflow --repo modflow6 --release-id ${{ matrix.modflow }} :python
 
     - name: Autotest ${{ matrix.os }}-${{ matrix.environment }}
       run: |

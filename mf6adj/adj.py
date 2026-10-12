@@ -2,6 +2,7 @@ import logging
 import pathlib as pl
 import shutil
 import uuid
+import warnings
 from collections.abc import Callable
 from datetime import datetime
 from typing import Optional, Union
@@ -36,6 +37,7 @@ from .utils.utils_modflow import (
     get_package_names_from_gwfname,
     get_ptr_from_gwf,
     has_sto_iconvert,
+    is_deprecated_mf6_version,
 )
 from .utils.utils_pm_read import (
     get_adj_parse_context,
@@ -1242,8 +1244,17 @@ class Mf6Adj:
             version = self._gwf.get_version()
         except OSError as e:
             self.logger.logger.warning(f"Could not get the MODFLOW 6 version: {e}")
-            return ""
-        self.logger.logger.info(f"MODFLOW 6 version: {version}")
+            version = ""
+        else:
+            self.logger.logger.info(f"MODFLOW 6 version: {version}")
+        if is_deprecated_mf6_version(version):
+            msg = (
+                f"MODFLOW 6 {version or '6.7.0 or earlier'} is deprecated; support "
+                "for MODFLOW 6 6.8.1 and earlier will be removed in a future "
+                "release, about a year after MODFLOW 6 6.9.0 is released"
+            )
+            self.logger.logger.warning(msg)
+            warnings.warn(msg, FutureWarning, stacklevel=3)
         return version
 
     def finalize(self) -> None:

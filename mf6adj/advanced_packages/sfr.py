@@ -24,6 +24,7 @@ section instead, and that rating and its derivative are formed in
 import numpy as np
 import scipy.sparse as sparse
 
+from ..utils.utils_modflow import get_input_context_address, has_input_context
 from .sfr_cross_section import mannings_section, wetted_perimeter
 from .sfr_diversion import reach_coefficients
 
@@ -93,6 +94,15 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
     def value(name):
         return gwf.get_value(gwf.get_var_address(name, gwf_name, tag.upper())).copy()
 
+    input_context = has_input_context(gwf_name, tag, "MANNING", gwf)
+
+    def input_value(name, old_name=None):
+        """Return a package input array from where this MODFLOW 6 build holds it."""
+        if input_context:
+            addr = get_input_context_address(gwf_name, tag, name)
+            return gwf.get_value(addr).copy()
+        return value(old_name or name)
+
     def optional(name, default, size):
         """Return a package quantity, or a default where MODFLOW omits it."""
         try:
@@ -106,7 +116,7 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
     dsflow = value("DSFLOW")
     width = value("WIDTH")
     slope = value("SLOPE")
-    rough = value("ROUGH")
+    rough = input_value("MANNING", "ROUGH")
     unitconv = float(value("UNITCONV")[0])
 
     ncrosspts = optional("NCROSSPTS", 1, nreach)
@@ -119,7 +129,7 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
 
     # the leakage of a reach follows its depth through the stage, and, where a
     # cross section sets the wetted perimeter, through the conductance as well
-    hk = value("HK")
+    hk = input_value("BEDK", "HK")
     length = value("LENGTH")
     bthick = value("BTHICK")
     gwflow = value("GWFLOW")
@@ -168,7 +178,7 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
     ia = value("IA") - 1
     ja = value("JA") - 1
     idir = value("IDIR")
-    ustrf = value("USTRF")
+    ustrf = input_value("UPSTREAM_FRAC", "USTRF")
 
     # MODFLOW keeps the total of the shares its downstream reaches are given,
     # which leaves out both a diversion and an inactive reach, so it is read
@@ -179,7 +189,7 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
     idiv = optional("IDIV", 0, ja.shape[0])
     if ndiv.max() > 0:
         iadiv = value("IADIV") - 1
-        divflow = value("DIVFLOW")
+        divflow = input_value("DIVFLOW")
         divq = value("DIVQ")
 
     # what each diversion takes out of the flow a reach passes on, and what is

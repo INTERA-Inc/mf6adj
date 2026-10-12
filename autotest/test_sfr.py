@@ -63,6 +63,7 @@ from mf6adj.advanced_packages.sfr_cross_section import (
     wetted_perimeter,
 )
 from mf6adj.advanced_packages.sfr_diversion import diversion_derivative
+from mf6adj.utils.utils_modflow import get_input_context_address, has_input_context
 
 mf6_bin, lib_name = mf6adj.get_conda_mf6_paths()
 
@@ -754,10 +755,14 @@ def _section_terms(ws):
             "STATION",
             "XSHEIGHT",
             "XSROUGH",
-            "ROUGH",
             "SLOPE",
         )
     }
+    if has_input_context("SF", "SFR-1", "MANNING", mf6):
+        addr = get_input_context_address("SF", "SFR-1", "MANNING")
+        terms["ROUGH"] = mf6.get_value(addr).copy()
+    else:
+        terms["ROUGH"] = value("ROUGH")
     terms["IACROSS"] = value("IACROSS") - 1
     terms["UNITCONV"] = float(value("UNITCONV")[0])
     mf6.finalize()

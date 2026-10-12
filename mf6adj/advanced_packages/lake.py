@@ -9,6 +9,8 @@ advanced packages can follow the same shape.
 import numpy as np
 import scipy.sparse as sparse
 
+from ..utils.utils_modflow import get_input_context_address, has_input_context
+
 # Depth over an outlet invert below this is treated as no flow, because
 # MODFLOW 6 smooths the rating curve to zero there and the derivative of that
 # smoothing is not reproduced here.
@@ -71,17 +73,26 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
         stage is solved, as opposed to one held constant or inactive.
     """
 
+    input_context = has_input_context(gwf_name, tag, "RAINFALL", gwf)
+
     def value(name):
         return gwf.get_value(gwf.get_var_address(name, gwf_name, tag.upper())).copy()
 
-    def optional(name, default):
+    def input_value(name, old_name=None):
+        """Return a package input array from where this MODFLOW 6 build holds it."""
+        if input_context:
+            addr = get_input_context_address(gwf_name, tag, name)
+            return gwf.get_value(addr).copy()
+        return value(old_name or name)
+
+    def optional(name, default, read=value):
         """Return a package quantity, or a default where MODFLOW omits it.
 
         A package exposes only what its options bring in, so a lake with no
         mover has no receiver count and one with no rainfall has no rate.
         """
         try:
-            return value(name)
+            return read(name)
         except Exception:
             return np.full(nlakes, default)
 
@@ -143,7 +154,7 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
             "outlet_lakein": value("LAKEIN") - 1,
             "outlet_lakeout": value("LAKEOUT") - 1,
             "outlet_type": value("IOUTTYPE"),
-            "outlet_invert": value("OUTINVERT"),
+            "outlet_invert": input_value("INVERT", "OUTINVERT"),
             "outlet_dmax": value("OUTDMAX"),
             "outlet_rate": value("SIMOUTRATE"),
         }
@@ -155,13 +166,13 @@ def forward_terms(gwf, gwf_name: str, tag: str) -> dict:
         "lake_dsads": dsads,
         "lake_dvds": dvds,
         "lake_dvds_old": dvds_old,
-        "lake_evaporation": optional("EVAPORATION", 0.0),
+        "lake_evaporation": optional("EVAPORATION", 0.0, input_value),
         "lake_is_free": is_free,
         "lake_nhorizontal": nhorizontal,
         "lake_noutlets": np.full(nlakes, noutlets, dtype=int),
         "lake_nreceivers": np.full(nlakes, nreceivers, dtype=int),
         "lake_of_conn": lake_of_conn,
-        "lake_rainfall": optional("RAINFALL", 0.0),
+        "lake_rainfall": optional("RAINFALL", 0.0, input_value),
         "lake_stage": stage,
         "lake_stage_old": stage_old,
         "lake_surface_area": surface_area,
